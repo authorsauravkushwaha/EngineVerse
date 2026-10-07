@@ -34,3 +34,4 @@ sandbox-java/build/
 .idea/
 .vscode/
 *.log
+.scratch/

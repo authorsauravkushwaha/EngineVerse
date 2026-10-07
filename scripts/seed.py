@@ -493,12 +493,14 @@ def seed_problems(language_ids: dict[str, str]) -> dict[str, str]:
             )
             db.execute(
                 "INSERT INTO coding_problems (id,slug,title,statement,difficulty,topics,hints,editorial,solution_md,"
-                "tags,expected_time,expected_space,solve_count,attempt_count,is_premium,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,'0','0',0,?) ON CONFLICT(id) DO UPDATE SET statement=excluded.statement",
+                "tags,expected_time,expected_space,wrapper,solve_count,attempt_count,is_premium,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'0','0',0,?) "
+                "ON CONFLICT(id) DO UPDATE SET statement=excluded.statement, wrapper=excluded.wrapper",
                 slug, slug, entry["title"],
                 f"{entry['statement']}\n\n### Examples\n\n{examples}",
                 entry["difficulty"], jdump(entry["topics"]), jdump(entry["hints"]), entry["editorial"],
-                entry["solution"].get("python", ""), jdump([entry["company"]]), "O(n)", "O(n)", now_ms(),
+                entry["solution"].get("python", ""), jdump([entry["company"]]), "O(n)", "O(n)",
+                entry.get("wrapper", "raw"), now_ms(),
             )
             for language_slug, stub in entry["stub"].items():
                 language_id = language_ids.get(language_slug)

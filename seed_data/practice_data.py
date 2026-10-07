@@ -389,14 +389,35 @@ QUESTIONS = [
 # CODING PROBLEMS
 # =============================================================================
 
+# Which stdin/stdout harness the judge appends to a submission for this problem.
+# Names must exist in backend/engineverse/drivers.py:WRAPPERS - the driver reads
+# stdin in this exact shape and prints in the exact shape the expected output uses.
+PROBLEM_WRAPPERS = {
+    "two-sum": "list-target",
+    "reverse-linked-list": "linked-list",
+    "valid-parentheses": "string-bool",
+    "binary-search": "int-list-int",
+    "merge-sorted-arrays": "two-lists",
+    "fizzbuzz": "lines",
+    "maximum-subarray": "int-list",
+    "lru-cache": "lru",
+    "detect-cycle": "cycle",
+    "longest-substring": "string-int",
+    "coin-change": "int-list-int",
+    "level-order-traversal": "tree",
+    "dijkstra-shortest-path": "graph",
+}
+
+
 def problem(slug, title, difficulty, xp, statement, examples, topics, company,
-            signature, stub, solution, tests, hints, editorial, minutes=20):
+            signature, stub, solution, tests, hints, editorial, minutes=20, wrapper=None):
     """tests: list of dicts {input, expected, stdin?}."""
     return {
         "slug": slug, "title": title, "difficulty": difficulty, "xp": xp,
         "statement": statement, "examples": examples, "topics": topics, "company": company,
         "signature": signature, "stub": stub, "solution": solution, "tests": tests,
         "hints": hints, "editorial": editorial, "minutes": minutes,
+        "wrapper": wrapper or PROBLEM_WRAPPERS.get(slug, "raw"),
     }
 
 

@@ -426,6 +426,10 @@ CREATE TABLE IF NOT EXISTS coding_problems (
   tags            TEXT NOT NULL DEFAULT '[]',
   expected_time   TEXT,
   expected_space  TEXT,
+  -- Names the stdin/stdout harness appended to a submission before it runs.
+  -- Wrappers live in backend/engineverse/drivers.py, so adding a new problem
+  -- shape needs no change to the judge.
+  wrapper         TEXT NOT NULL DEFAULT 'raw',
   solve_count     INTEGER NOT NULL DEFAULT 0,
   attempt_count   INTEGER NOT NULL DEFAULT 0,
   is_premium      INTEGER NOT NULL DEFAULT 0,

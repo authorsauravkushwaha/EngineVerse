@@ -5,6 +5,7 @@ import json
 from typing import Any
 
 from . import db
+from .drivers import compose
 from .judge import evaluate as judge_evaluate
 from .judge import provider_info, run_custom
 from .security.ids import now_ms, ulid
@@ -100,8 +101,20 @@ def testcases_for(problem_id: str, *, samples_only: bool = False) -> list[dict]:
     return db.query(sql + " ORDER BY order_index", problem_id)
 
 
+def _program(problem_id: str, language: str, code: str) -> str:
+    """Appends the problem's stdin/stdout harness to the learner's code."""
+    problem = db.query_one("SELECT wrapper FROM coding_problems WHERE id = ?", problem_id) or {}
+    stub = db.query_one(
+        "SELECT s.signature FROM coding_problem_stubs s JOIN programming_languages l "
+        "ON l.id = s.language_id WHERE s.problem_id = ? AND l.slug = ?",
+        problem_id, language,
+    ) or {}
+    return compose(language, code, problem.get("wrapper") or "raw", stub.get("signature"))
+
+
 def run(problem_id: str, language: str, code: str, custom_input: str = "") -> dict:
     """Runs against custom input, or the first sample test case."""
+    code = _program(problem_id, language, code)
     samples = testcases_for(problem_id, samples_only=True)
     stdin = custom_input if custom_input else (samples[0]["input"] if samples else "")
     result = run_custom(language, code, stdin)
@@ -124,7 +137,7 @@ def submit(user_id: str, problem_id: str, language: str, code: str) -> dict:
     if not cases:
         raise ValueError("problem has no test cases")
 
-    evaluation = judge_evaluate(language, code, cases)
+    evaluation = judge_evaluate(language, _program(problem_id, language, code), cases)
 
     accepted = evaluation.status == "accepted"
     first_accepted = (
