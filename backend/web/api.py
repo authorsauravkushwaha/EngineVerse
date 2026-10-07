@@ -126,8 +126,8 @@ async def api_answer(request: Request, questionId: str = Body(...), optionIndex:
     if not question:
         return fail("Unknown question.", 404)
     result = practice.record_answer(
-        viewer.id, question, option_index=optionIndex, answer_text=answerText,
-        dpp_set_id=setId, time_ms=timeMs,
+        viewer.id, questionId, option_index=optionIndex, answer_text=answerText,
+        set_id=setId, time_ms=timeMs,
     )
     progress.evaluate_badges(viewer.id)
     return ok(**result, stats=progress.user_stats(viewer.id))
@@ -186,7 +186,9 @@ async def api_run(request: Request, language: str = Body(...), code: str = Body(
             return fail("Unknown problem.", 404)
         result = coding.run(problem["id"], language, code, input)
     else:
-        result = judge.run_custom(language, code, input)
+        # run_custom returns a RunResult dataclass, which is not JSON
+        # serialisable on its own.
+        result = judge.as_dict(judge.run_custom(language, code, input))
     if viewer:
         db.execute(
             "INSERT INTO activity (user_id,day,coding_submissions) VALUES (?,?,1) "
