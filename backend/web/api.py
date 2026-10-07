@@ -412,10 +412,24 @@ async def api_vote(request: Request, entityType: str = Body(...), entityId: str 
 
 
 @router.post("/community/report")
-async def api_report(request: Request, entityType: str = Body(...), entityId: str = Body(...),
-                     reason: str = Body(...), detail: str | None = Body(None)):
+async def api_report(request: Request):
     viewer = require_user(request)
-    report_id = community.report(viewer.id, entityType, entityId, reason, detail)
+    data = await payload(request)
+    entity_type = (data.get("entityType") or "").strip()
+    entity_id = (data.get("entityId") or "").strip()
+    reason = (data.get("reason") or "").strip()
+    detail = (data.get("detail") or "").strip() or None
+    if entity_type not in ("thread", "comment") or not entity_id:
+        return _reject(request, "/community", "That is not something you can report.")
+    if len(reason) < 3:
+        return _reject(request, "/community", "Give a reason so a moderator can act on it.")
+    report_id = community.report(viewer.id, entity_type, entity_id, reason, detail)
+    if wants_html(request):
+        response = RedirectResponse("/community", status_code=303)
+        from .deps import flash
+
+        flash(response, "Reported. A moderator will review it.")
+        return response
     return ok(id=report_id)
 
 

@@ -211,3 +211,284 @@ class TestIdentifiers:
         value = ulid()
         assert len(value) == 26
         assert value.isalnum()
+
+
+def _csrf(html: str) -> str:
+    """Pulls the token out of a rendered form."""
+    marker = 'name="csrf_token" value="'
+    return html[html.index(marker) + len(marker):].split('"')[0]
+
+
+class TestEveryFormCarriesAToken:
+    """Static check over the templates.
+
+    A POST form without a csrf_token field is rejected by CsrfMiddleware with a
+    403, so the button looks live and does nothing. The community "Ask a
+    question" and "Reply" forms shipped that way.
+    """
+
+    def test_every_post_form_in_every_template_has_a_csrf_field(self):
+        import pathlib
+        import re
+
+        template_dir = pathlib.Path(__file__).resolve().parents[1] / "templates"
+        assert template_dir.is_dir(), f"template directory missing: {template_dir}"
+
+        offenders = []
+        checked = 0
+        for path in sorted(template_dir.glob("*.html")):
+            text = path.read_text()
+            for match in re.finditer(r"<form\b[^>]*>(.*?)</form>", text, re.S):
+                opening = text[match.start():text.index(">", match.start()) + 1]
+                method_match = re.search(r'method="([^"]+)"', opening)
+                method = (method_match.group(1) if method_match else "get").lower()
+                if method != "post":
+                    continue
+                checked += 1
+                if 'name="csrf_token"' not in match.group(1):
+                    action = re.search(r'action="([^"]+)"', opening)
+                    offenders.append(
+                        f"{path.name}:{text[:match.start()].count(chr(10)) + 1} "
+                        f"-> {action.group(1) if action else '(no action)'}"
+                    )
+
+        assert checked >= 20, f"only found {checked} POST forms - the pattern probably broke"
+        assert not offenders, "POST forms missing a csrf_token field:\n  " + "\n  ".join(offenders)
+
+    def test_a_no_javascript_reply_is_accepted_not_refused(self, signed_in):
+        """Submits the reply form exactly as a browser without scripting would:
+        urlencoded, with the token in the body and no X-CSRF-Token header."""
+        from engineverse import db
+
+        token = _csrf(signed_in.get("/community").text)
+        created = signed_in.post(
+            "/api/community/threads",
+            json={"title": "Thread for a plain reply", "body": "Body text for the post.",
+                  "kind": "question"},
+            headers={"x-csrf-token": token},
+        )
+        thread_id = created.json()["id"]
+
+        response = signed_in.post(
+            "/api/community/comments",
+            # No X-CSRF-Token header on purpose - a plain form cannot set one.
+            data={"csrf_token": token, "threadId": thread_id,
+                  "body": "Replying without any JavaScript at all."},
+            follow_redirects=False,
+        )
+        assert response.status_code != 403, "the reply form was rejected for a missing token"
+        assert response.status_code in (200, 303), response.text
+        row = db.query_one("SELECT id FROM comments WHERE parent_id IS NOT NULL OR 1=1 ORDER BY created_at DESC LIMIT 1")
+        assert row is not None
+
+    def test_a_no_javascript_question_is_accepted_not_refused(self, signed_in):
+        token = _csrf(signed_in.get("/community").text)
+        response = signed_in.post(
+            "/api/community/threads",
+            data={"csrf_token": token, "title": "Asked without JavaScript",
+                  "body": "Posting from a browser with scripting disabled.",
+                  "kind": "question", "tags": "no-js, forms"},
+            follow_redirects=False,
+        )
+        assert response.status_code != 403, "the question form was rejected for a missing token"
+        assert response.status_code in (200, 303), response.text
+
+
+class TestAdminCapabilityNames:
+    """The admin write routes used to check capabilities that do not exist.
+
+    assert_can(viewer.role, "admin.users") and "admin.config" and
+    "content.moderate" are not in rbac.CAPABILITIES, so every check failed -
+    including for super_admin - and because rbac.Forbidden had no exception
+    handler the refusal surfaced as a 500.
+    """
+
+    def test_every_capability_checked_in_the_web_layer_exists(self):
+        import pathlib
+        import re
+
+        from engineverse.security import rbac
+
+        web_dir = pathlib.Path(__file__).resolve().parents[1] / "web"
+        used = set()
+        for path in sorted(web_dir.glob("*.py")):
+            used.update(re.findall(r'assert_can\([^,]+,\s*"([^"]+)"', path.read_text()))
+
+        assert used, "no assert_can calls found - the pattern probably broke"
+        unknown = used - set(rbac.CAPABILITIES)
+        assert not unknown, f"web layer checks capabilities that do not exist: {sorted(unknown)}"
+
+    def _admin(self, app):
+        from starlette.testclient import TestClient
+
+        client = TestClient(app, raise_server_exceptions=False)
+        page = client.get("/login").text
+        client.post(
+            "/login",
+            data={"csrf_token": _csrf(page), "identifier": "admin@engineverse.local",
+                  "password": "Str0ngPassphrase#42!", "next": "/"},
+            follow_redirects=False,
+        )
+        return client, _csrf(client.get("/admin").text)
+
+    def test_a_super_admin_can_actually_use_the_admin_forms(self, app, seeded):
+        from engineverse import db
+
+        client, token = self._admin(app)
+        target = db.query_one("SELECT id FROM users WHERE email = 'ravi@example.com'")["id"]
+
+        role = client.post("/admin/users/role",
+                           data={"user_id": target, "role": "mentor", "csrf_token": token},
+                           follow_redirects=False)
+        assert role.status_code == 303, role.text
+        assert db.query_one("SELECT role FROM users WHERE id = ?", target)["role"] == "mentor"
+
+        status = client.post("/admin/users/status",
+                             data={"user_id": target, "status": "active", "csrf_token": token},
+                             follow_redirects=False)
+        assert status.status_code == 303, status.text
+
+        config = client.post("/admin/config",
+                             data={"site_name": "EngineVerse", "tagline": "Learn everything.",
+                                   "csrf_token": token},
+                             follow_redirects=False)
+        assert config.status_code == 303, config.text
+        assert db.query_one("SELECT value FROM site_config WHERE key = 'tagline'")["value"] == "Learn everything."
+
+    def test_a_moderator_can_resolve_a_report(self, app, seeded):
+        from engineverse import community, db
+
+        client, token = self._admin(app)
+        reporter = db.query_one("SELECT id FROM users WHERE email = 'asha@example.com'")["id"]
+        thread = db.query_one("SELECT id FROM discussions LIMIT 1")
+        report_id = community.report(reporter, "thread", thread["id"], "Spam posting")
+
+        response = client.post("/admin/reports/resolve",
+                               data={"report_id": report_id, "csrf_token": token},
+                               follow_redirects=False)
+        assert response.status_code == 303, response.text
+        assert db.query_one("SELECT status FROM reports WHERE id = ?", report_id)["status"] == "resolved"
+
+    def test_a_student_is_refused_with_403_not_a_500(self, app, seeded):
+        from starlette.testclient import TestClient
+
+        client = TestClient(app, raise_server_exceptions=False)
+        page = client.get("/login").text
+        client.post(
+            "/login",
+            data={"csrf_token": _csrf(page), "identifier": "asha@example.com",
+                  "password": "LearnBuild#2026!", "next": "/"},
+            follow_redirects=False,
+        )
+        token = _csrf(client.get("/community").text)
+        for path, data in [("/admin/users/role", {"user_id": "x", "role": "super_admin"}),
+                           ("/admin/users/status", {"user_id": "x", "status": "banned"}),
+                           ("/admin/config", {"site_name": "Hijacked"}),
+                           ("/admin/reports/resolve", {"report_id": "x"})]:
+            response = client.post(path, data={**data, "csrf_token": token}, follow_redirects=False)
+            assert response.status_code == 403, f"{path} -> {response.status_code}"
+            assert response.status_code != 500
+
+    def test_a_refusal_is_audited_not_logged_as_a_crash(self, app, seeded):
+        from starlette.testclient import TestClient
+
+        from engineverse import db
+
+        client = TestClient(app, raise_server_exceptions=False)
+        page = client.get("/login").text
+        client.post(
+            "/login",
+            data={"csrf_token": _csrf(page), "identifier": "asha@example.com",
+                  "password": "LearnBuild#2026!", "next": "/"},
+            follow_redirects=False,
+        )
+        token = _csrf(client.get("/community").text)
+        client.post("/admin/config", data={"site_name": "Hijacked", "csrf_token": token},
+                    follow_redirects=False)
+
+        forbidden = db.query_one(
+            "SELECT id FROM audit_logs WHERE action = 'security.forbidden' ORDER BY id DESC LIMIT 1"
+        )
+        assert forbidden is not None, "the refusal was not audited"
+        crash = db.query_one(
+            "SELECT id FROM audit_logs WHERE action = 'app.error' AND meta LIKE '%Forbidden%'"
+        )
+        assert crash is None, "an authorisation refusal was recorded as an application error"
+
+
+class TestAdminInputValidation:
+    """Admin forms must refuse bad input with a 4xx, never a 500.
+
+    set_role() inserted into user_roles without checking the target existed, so
+    a stale or mistyped user id raised a raw FOREIGN KEY constraint failure.
+    """
+
+    def _admin(self, app):
+        from starlette.testclient import TestClient
+
+        client = TestClient(app, raise_server_exceptions=False)
+        page = client.get("/login").text
+        client.post(
+            "/login",
+            data={"csrf_token": _csrf(page), "identifier": "admin@engineverse.local",
+                  "password": "Str0ngPassphrase#42!", "next": "/"},
+            follow_redirects=False,
+        )
+        return client, _csrf(client.get("/admin").text)
+
+    def test_a_missing_user_is_404_not_a_crash(self, app, seeded):
+        client, token = self._admin(app)
+        for path in ("/admin/users/role", "/admin/users/status"):
+            data = {"user_id": "no-such-user", "csrf_token": token}
+            data["role" if "role" in path else "status"] = "mentor" if "role" in path else "active"
+            response = client.post(path, data=data, follow_redirects=False)
+            assert response.status_code == 404, f"{path} -> {response.status_code}"
+
+    def test_an_unknown_role_is_422(self, app, seeded):
+        from engineverse import db
+
+        client, token = self._admin(app)
+        target = db.query_one("SELECT id FROM users WHERE email = 'ravi@example.com'")["id"]
+        response = client.post("/admin/users/role",
+                               data={"user_id": target, "role": "emperor", "csrf_token": token},
+                               follow_redirects=False)
+        assert response.status_code == 422
+        assert db.query_one("SELECT role FROM users WHERE id = ?", target)["role"] != "emperor"
+
+    def test_an_unknown_status_is_422(self, app, seeded):
+        from engineverse import db
+
+        client, token = self._admin(app)
+        target = db.query_one("SELECT id FROM users WHERE email = 'ravi@example.com'")["id"]
+        response = client.post("/admin/users/status",
+                               data={"user_id": target, "status": "exploded", "csrf_token": token},
+                               follow_redirects=False)
+        assert response.status_code == 422
+
+    def test_a_valid_change_still_applies(self, app, seeded):
+        from engineverse import db
+
+        client, token = self._admin(app)
+        target = db.query_one("SELECT id FROM users WHERE email = 'priya@example.com'")["id"]
+        response = client.post("/admin/users/role",
+                               data={"user_id": target, "role": "moderator", "csrf_token": token},
+                               follow_redirects=False)
+        assert response.status_code == 303
+        assert db.query_one("SELECT role FROM users WHERE id = ?", target)["role"] == "moderator"
+
+    def test_no_admin_misstep_is_recorded_as_an_application_error(self, app, seeded):
+        from starlette.testclient import TestClient
+
+        from engineverse import db
+
+        client, token = self._admin(app)
+        for data in ({"user_id": "ghost", "role": "mentor"},
+                     {"user_id": "ghost", "status": "active"},
+                     {"user_id": "x", "role": "emperor"}):
+            path = "/admin/users/role" if "role" in data else "/admin/users/status"
+            client.post(path, data={**data, "csrf_token": token}, follow_redirects=False)
+
+        crashes = db.query(
+            "SELECT meta FROM audit_logs WHERE action = 'app.error' AND meta LIKE '%IntegrityError%'"
+        )
+        assert not crashes, f"foreign-key failures reached the error log: {crashes}"

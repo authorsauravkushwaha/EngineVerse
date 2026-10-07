@@ -377,7 +377,7 @@ async def delete_account_submit(request: Request, confirm: str = Form("")):
 @router.post("/admin/users/role")
 async def set_user_role(request: Request, user_id: str = Form(...), role: str = Form(...)):
     viewer = require_user(request)
-    assert_can(viewer.role, "admin.users")
+    assert_can(viewer.role, "users.roles")
     auth.set_role(viewer.id, user_id, role)
     return RedirectResponse("/admin", status_code=303)
 
@@ -385,7 +385,7 @@ async def set_user_role(request: Request, user_id: str = Form(...), role: str = 
 @router.post("/admin/users/status")
 async def set_user_status(request: Request, user_id: str = Form(...), status: str = Form(...)):
     viewer = require_user(request)
-    assert_can(viewer.role, "admin.users")
+    assert_can(viewer.role, "users.manage")
     auth.set_status(viewer.id, user_id, status)
     return RedirectResponse("/admin", status_code=303)
 
@@ -396,7 +396,7 @@ async def update_site_config(request: Request, site_name: str = Form(""), taglin
                              accent_color: str = Form("#4f7cff"), maintenance_mode: str = Form("0"),
                              registration_open: str = Form("1")):
     viewer = require_user(request)
-    assert_can(viewer.role, "admin.config")
+    assert_can(viewer.role, "settings.manage")
     from engineverse import brand
 
     brand.set_many({
@@ -418,6 +418,6 @@ async def resolve_report_submit(request: Request, report_id: str = Form(...), hi
     from engineverse import community
 
     viewer = require_user(request)
-    assert_can(viewer.role, "content.moderate")
+    assert_can(viewer.role, "community.moderate")
     community.resolve_report(viewer.id, report_id, hide=bool(hide))
     return RedirectResponse("/admin", status_code=303)

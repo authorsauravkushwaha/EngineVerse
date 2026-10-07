@@ -28,9 +28,10 @@ for _path in (_ROOT, os.path.dirname(_ROOT)):
     if _path not in sys.path:
         sys.path.insert(0, _path)
 
-from engineverse import brand, db  # noqa: E402
+from engineverse import auth, brand, db  # noqa: E402
 from engineverse.config import get_settings  # noqa: E402
 from engineverse.security import csrf, ratelimit  # noqa: E402
+from engineverse.security import rbac  # noqa: E402
 from engineverse.security.audit import record  # noqa: E402
 from web import api as api_router  # noqa: E402
 from web import auth_pages, pages  # noqa: E402
@@ -169,6 +170,46 @@ def create_app() -> FastAPI:
 
         response = render(request, "error.html", status=404, message="That page does not exist.")
         response.status_code = 404
+        return response
+
+    @app.exception_handler(auth.AuthError)
+    async def auth_error(request: Request, exc):
+        """A refused auth or admin operation carries its own status code.
+
+        These are validation failures - unknown role, unknown status, no such
+        user - so they must reach the client as 4xx. Left unhandled they fall
+        through to the 500 handler, which also writes a misleading app.error
+        audit entry for something that is not a crash.
+        """
+        status = getattr(exc, "status_code", 400)
+        message = getattr(exc, "message", str(exc))
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": message}, status_code=status)
+        from web.deps import render
+
+        response = render(request, "error.html", status=status, message=message)
+        response.status_code = status
+        return response
+
+    @app.exception_handler(rbac.Forbidden)
+    async def forbidden(request: Request, exc):
+        """A capability check failed. This is a refusal, not a server fault.
+
+        Without this handler rbac.Forbidden propagates to the 500 handler, which
+        both misreports an authorisation problem as a crash and writes a bogus
+        app.error audit entry.
+        """
+        record("security.forbidden", actor_id=getattr(request.state, "ev_user_id", None),
+               ip=request.client.host if request.client else None,
+               meta={"path": request.url.path})
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": "You do not have permission to do that."},
+                                status_code=403)
+        from web.deps import render
+
+        response = render(request, "error.html", status=403,
+                          message="You do not have permission to do that.")
+        response.status_code = 403
         return response
 
     @app.exception_handler(500)

@@ -387,6 +387,10 @@ def list_users(limit: int = 100, q: str | None = None) -> list[dict]:
 def set_role(actor_id: str, user_id: str, role: str) -> None:
     if role not in ("student", "mentor", "moderator", "subject_expert", "project_reviewer", "analytics_admin", "content_admin", "super_admin"):
         raise AuthError("Unknown role.", 422)
+    # Check the target first: the INSERT into user_roles below would otherwise
+    # raise a raw FOREIGN KEY constraint failure and surface as a 500.
+    if not db.query_one("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL", user_id):
+        raise AuthError("No such user.", 404)
     db.execute("UPDATE users SET role = ?, updated_at = ? WHERE id = ?", role, now_ms(), user_id)
     db.execute(
         "INSERT INTO user_roles (user_id, role, granted_by, granted_at) VALUES (?,?,?,?) "
@@ -402,6 +406,8 @@ def set_role(actor_id: str, user_id: str, role: str) -> None:
 def set_status(actor_id: str, user_id: str, status: str) -> None:
     if status not in ("active", "suspended"):
         raise AuthError("Unknown status.", 422)
+    if not db.query_one("SELECT id FROM users WHERE id = ? AND deleted_at IS NULL", user_id):
+        raise AuthError("No such user.", 404)
     db.execute("UPDATE users SET status = ?, updated_at = ? WHERE id = ?", status, now_ms(), user_id)
     if status == "suspended":
         from .security.sessions import revoke_all_sessions

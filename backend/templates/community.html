@@ -33,6 +33,7 @@
 
     {% if user %}
     <form class="panel mt" id="ask" method="post" action="/api/community/threads" data-json-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <h2>Ask a question</h2>
       <div class="field"><label for="t">Title</label>
         <input id="t" name="title" required maxlength="160" placeholder="Be specific — 'Why does Bernoulli assume inviscid flow?'"></div>
