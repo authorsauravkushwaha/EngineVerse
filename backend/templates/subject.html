@@ -20,8 +20,8 @@
 <div class="panel mb">
   <div class="between">
     <div><strong>Your progress</strong><p class="small muted" style="margin:2px 0 0">
-      {{ my_progress.done }} of {{ my_progress.total }} topics completed · {{ (my_progress.mastery or 0) | round | int }}% average mastery</p></div>
-    <div style="min-width:180px"><div class="bar"><span style="width:{{ ((my_progress.done / my_progress.total * 100) if my_progress.total else 0) | round | int }}%"></span></div></div>
+      {{ my_progress.completed }} of {{ my_progress.total }} topics completed · {{ my_progress.mastery }}% average mastery</p></div>
+    <div style="min-width:180px"><div class="bar"><span style="width:{{ my_progress.pct }}%"></span></div></div>
   </div>
 </div>
 {% endif %}

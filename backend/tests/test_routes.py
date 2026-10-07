@@ -272,3 +272,100 @@ class TestSearch:
 
     def test_a_nonsense_query_does_not_crash(self, client):
         assert client.get("/search?q=zzzzqqqqxxxx").status_code == 200
+
+
+# Every page that renders differently depending on who is looking at it. The
+# subject page 500'd for a signed-in visitor because subject.html read
+# my_progress.done while subject_progress() returns "completed"; anonymously
+# my_progress is None, the block is skipped, and the page looks fine. Covering
+# each role is the only way that class of bug surfaces.
+ROLE_PAGES = [
+    "/", "/explore", "/about", "/install", "/offline", "/privacy", "/terms",
+    "/practice", "/dpp", "/practice/problems", "/practice/questions", "/programming",
+    "/programming/python", "/projects", "/resources", "/videos", "/books", "/formulas",
+    "/revision", "/roadmaps", "/community", "/placements", "/leaderboard",
+    "/login", "/register", "/forgot-password", "/reset-password", "/streaks",
+    "/search?q=bernoulli", "/topics/arrays", "/topics/bernoullis-equation",
+    "/subjects/data-structures-algorithms", "/subjects/thermodynamics",
+    "/subjects/oops", "/subjects/fluid-mechanics", "/branches/computer-science",
+    "/branches/mechanical-engineering", "/practice/problems/two-sum",
+    "/projects/student-performance-dashboard", "/roadmaps/cse-placement-roadmap",
+    "/portfolio/asha", "/today", "/mistakes", "/profile", "/settings", "/onboarding",
+    "/notifications", "/admin",
+]
+
+# Pages that legitimately refuse some visitors.
+ROLE_ALLOWED = {
+    "anonymous": {200, 302, 303, 401},
+    "student": {200, 302, 303, 401, 403},
+    "faculty": {200, 302, 303, 401, 403},
+    "admin": {200, 302, 303},
+}
+
+
+def _signed_in_as(app, email, password):
+    from starlette.testclient import TestClient
+
+    client = TestClient(app, raise_server_exceptions=False)
+    page = client.get("/login").text
+    client.post(
+        "/login",
+        data={"csrf_token": _csrf(page), "identifier": email, "password": password, "next": "/"},
+        follow_redirects=False,
+    )
+    return client
+
+
+class TestEveryPageUnderEveryRole:
+    def test_anonymous_pages(self, client):
+        for path in ROLE_PAGES:
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code < 500, f"{path} errored: {response.status_code}"
+            assert response.status_code in ROLE_ALLOWED["anonymous"], (
+                f"{path} -> {response.status_code}"
+            )
+
+    def test_student_pages(self, app):
+        client = _signed_in_as(app, "asha@example.com", "LearnBuild#2026!")
+        for path in ROLE_PAGES:
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code < 500, f"{path} errored: {response.status_code}"
+            assert response.status_code in ROLE_ALLOWED["student"], (
+                f"{path} -> {response.status_code}"
+            )
+
+    def test_faculty_pages(self, app):
+        client = _signed_in_as(app, "faculty@engineverse.local", "TeachLearn#2026!")
+        for path in ROLE_PAGES:
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code < 500, f"{path} errored: {response.status_code}"
+            assert response.status_code in ROLE_ALLOWED["faculty"], (
+                f"{path} -> {response.status_code}"
+            )
+
+    def test_admin_pages(self, app):
+        client = _signed_in_as(app, "admin@engineverse.local", "Str0ngPassphrase#42!")
+        for path in ROLE_PAGES:
+            response = client.get(path, follow_redirects=False)
+            assert response.status_code < 500, f"{path} errored: {response.status_code}"
+            assert response.status_code in ROLE_ALLOWED["admin"], (
+                f"{path} -> {response.status_code}"
+            )
+
+    def test_no_page_reports_an_undefined_template_variable(self, app):
+        """Guards against a template key drifting from the dict the route passes."""
+        import jinja2
+
+        from web.deps import templates
+
+        client = _signed_in_as(app, "asha@example.com", "LearnBuild#2026!")
+        previous = templates.env.undefined
+        templates.env.undefined = jinja2.DebugUndefined
+        try:
+            for path in ROLE_PAGES:
+                response = client.get(path)
+                assert "{{ undefined }}" not in response.text, (
+                    f"{path} rendered an undefined template variable"
+                )
+        finally:
+            templates.env.undefined = previous

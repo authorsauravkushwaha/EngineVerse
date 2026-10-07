@@ -37,9 +37,12 @@ credentials printed by the seeder on every run.
 | **Admin** | Content lifecycle, roles, audit log, branding. |
 
 Everything in that table works. There are no dead buttons and no stub pages: the
-route suite asserts 40 public pages, 9 infrastructure routes, 11 authenticated
-pages and 20 authenticated API endpoints, and the coding judge is exercised end to
-end by 13 real reference solutions.
+route suite renders all 48 pages as anonymous, student, faculty *and* admin, and
+asserts none of them errors or renders an undefined template variable. Pages that
+look fine to a visitor but break for a signed-in user are the easy ones to miss,
+so every role is covered separately. The suite also checks 9 infrastructure
+routes and 20 authenticated API endpoints, and the coding judge is exercised end
+to end by 13 real reference solutions.
 
 ## Stack
 
@@ -122,7 +125,7 @@ password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/S
 ## Testing
 
 ```bash
-python -m pytest backend/tests -q          # 258 tests
+python -m pytest backend/tests -q          # 263 tests
 python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 ```
 
@@ -130,7 +133,7 @@ python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 |---|---|---|
 | `test_security.py` | 63 | Hashing, salting, NFKC, policy, RBAC, safe URLs, ULIDs |
 | `test_judge.py` | 40 | All 13 reference solutions through the real sandbox; sandbox isolation; deadline enforcement |
-| `test_routes.py` | 92 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
+| `test_routes.py` | 97 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
 | `test_api_and_schema.py` | 63 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
 
 The tests are how four real defects were found: every `/api/*` request 500ing on
@@ -146,7 +149,7 @@ backend/
   web/                pages.py (SSR), auth_pages.py, api.py (JSON)
   templates/          47 Jinja2 templates
   static/             one CSS file, one JS file, PWA manifest, service worker, icons
-  tests/              258 tests
+  tests/              263 tests
 db/
   schema.sql          SQLite, 63 tables (development)
   postgres/           hash-partitioned Postgres schema (production)
