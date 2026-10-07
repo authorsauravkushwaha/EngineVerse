@@ -1,0 +1,54 @@
+# EngineVerse web application.
+#
+#   docker build -f deploy/Dockerfile.web -t engineverse-web .
+#
+# Serves server-rendered HTML and the JSON API. Learner code never runs here -
+# that is the sandbox image's job.
+
+FROM python:3.11-slim AS build
+WORKDIR /src
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.11-slim
+
+# A non-root user, and only the compilers the judge needs for C/C++ submissions.
+# Nothing else is installed: the smaller the image, the smaller the surface.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc g++ libc6-dev \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 engineverse \
+ && useradd  --system --uid 10001 --gid engineverse --no-create-home --shell /usr/sbin/nologin engineverse \
+ && mkdir -p /app/data \
+ && chown -R engineverse:engineverse /app
+
+COPY --from=build /install /usr/local
+WORKDIR /app
+
+COPY backend ./backend
+COPY db ./db
+COPY scripts ./scripts
+COPY seed_data ./seed_data
+
+# The database lives on a volume so it survives a redeploy. In production point
+# ENGINEVERSE_DB_URL at PostgreSQL instead and this stays empty.
+VOLUME ["/app/data"]
+
+USER engineverse
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ENGINEVERSE_DB_PATH=/app/data/engineverse.sqlite3 \
+    HOST=0.0.0.0 \
+    PORT=8000
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"
+
+# Migrate and seed on first boot only; an existing database is left alone.
+# `seed.py` is idempotent, so this is safe to re-run.
+CMD ["sh", "-c", "python -c \"import sys; sys.path.insert(0,'backend'); from engineverse import db; db.migrate()\" \
+      && python scripts/seed.py \
+      && exec uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000"]

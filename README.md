@@ -153,6 +153,7 @@ db/
 seed_data/            the catalogue as data
 scripts/seed.py       builds the database
 sandbox-java/         the JVM sandbox (Maven, zero runtime deps)
+deploy/               Dockerfiles and compose topology (web, Postgres, sandbox)
 docs/                 ARCHITECTURE · SECURITY · NOTE_TEMPLATE · CONTENT
 .github/workflows/    Python tests, Postgres schema, Java build
 ```
@@ -165,6 +166,7 @@ docs/                 ARCHITECTURE · SECURITY · NOTE_TEMPLATE · CONTENT
 - [`docs/CONTENT.md`](docs/CONTENT.md) — lifecycle, licensing, what may be hosted
 - [`db/postgres/README.md`](db/postgres/README.md) — partitioning rationale and scaling path
 - [`sandbox-java/README.md`](sandbox-java/README.md) — the judge's isolation model
+- [`deploy/README.md`](deploy/README.md) — containers, hardening flags, scaling out
 
 ## Known limitations
 

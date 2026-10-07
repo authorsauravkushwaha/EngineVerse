@@ -1,0 +1,95 @@
+# EngineVerse production topology.
+#
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Three services: the web app, PostgreSQL, and the judge sandbox. The sandbox is
+# isolated at the OS level - no network, dropped capabilities, a read-only root
+# filesystem and hard resource ceilings - because process isolation inside the
+# JVM is not containment.
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: engineverse-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Set these in deploy/.env (git-ignored). ENGINEVERSE_SECRET keys the
+      # session digests and the CSRF HMAC - rotating it signs everyone out.
+      ENGINEVERSE_SECRET: ${ENGINEVERSE_SECRET:?set ENGINEVERSE_SECRET in deploy/.env}
+      ENGINEVERSE_DB_URL: postgresql://engineverse:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@db:5432/engineverse
+      ENGINEVERSE_ENV: production
+      SITE_URL: ${SITE_URL:-https://engineverse.local}
+      # Route Java submissions to the sandbox rather than the local runner.
+      JUDGE: ${JUDGE:-auto}
+      JAVA_SANDBOX_JAR: /app/engineverse-sandbox.jar
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=256M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # The web app does not need to reach the internet; it only talks to db.
+    networks: [internal]
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: engineverse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: engineverse
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      # The production schema is applied on first boot.
+      - ../db/postgres/schema.pg.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U engineverse -d engineverse"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the host: only the web service can reach it.
+    expose:
+      - "5432"
+    networks: [internal]
+
+  # Runs learner code. Fully cut off from the network, read-only root, no
+  # capabilities, and bounded CPU, memory and pids.
+  sandbox:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.sandbox
+    image: engineverse-sandbox
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      # The only writable path: where a submission is compiled and run.
+      - /work:size=128M,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # Docker's built-in null network: no interface at all. A custom network with
+    # `internal: true` would still allow container-to-container traffic, which is
+    # not isolation for a judge.
+    network_mode: "none"
+    cpus: "1.0"
+    mem_limit: 512m
+    pids_limit: 128
+    # No published ports and no healthcheck probe: the bridge invokes it as a
+    # subprocess, so there is nothing to listen on.
+
+volumes:
+  pg-data:
+  app-data:
+
+networks:
+  internal:
+    internal: true
