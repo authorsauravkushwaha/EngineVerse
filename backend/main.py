@@ -86,7 +86,10 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         if session is None:
             viewer = _peek_session(request)
             session = viewer.session_id if viewer else ""
-        if not csrf.check(request, session):
+        token = csrf.request_csrf(request)
+        if not token:
+            token = await csrf.form_csrf(request)
+        if not csrf.check(request, session, token):
             record("security.csrf_rejected", ip=request.client.host if request.client else None,
                    meta={"path": request.url.path, "method": request.method})
             accepts_html = "text/html" in (request.headers.get("accept") or "")
@@ -117,15 +120,15 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
         key, count, window = limit
         ident = request.client.host if request.client else "unknown"
-        allowed, remaining = ratelimit.check(f"{key}:{ident}", count, window)
-        if not allowed:
+        result = ratelimit.check(f"{key}:{ident}", count, window)
+        if not result.allowed:
             return JSONResponse(
                 {"ok": False, "error": "Too many requests. Please slow down."},
                 status_code=429,
                 headers={"Retry-After": str(window), "X-RateLimit-Remaining": "0"},
             )
         response = await call_next(request)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Remaining"] = str(result.remaining)
         return response
 
 

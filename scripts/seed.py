@@ -650,7 +650,10 @@ def seed_plans() -> None:
 
 DEMO_USERS = [
     ("admin@engineverse.local", "evadmin", "EngineVerse Admin", "Str0ngPassphrase#42!", "super_admin"),
-    ("faculty@engineverse.local", "profsharma", "Dr. Meera Sharma", "TeachLearn#2026!", "faculty"),
+    # subject_expert is the authored-content role: create, update and publish.
+    # There is no "faculty" role in rbac.ROLES, so using one here would leave the
+    # account with zero capabilities and a "Student" label.
+    ("faculty@engineverse.local", "profsharma", "Dr. Meera Sharma", "TeachLearn#2026!", "subject_expert"),
     ("asha@example.com", "asha", "Asha Verma", "LearnBuild#2026!", "student"),
     ("ravi@example.com", "ravi", "Ravi Kumar", "LearnBuild#2026!", "student"),
     ("priya@example.com", "priya", "Priya Nair", "LearnBuild#2026!", "student"),

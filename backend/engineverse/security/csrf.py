@@ -38,19 +38,47 @@ def verify_token(token: str | None, session_id: str) -> bool:
     return hmac.compare_digest(mac, expected)
 
 
+CSRF_FIELD = "csrf_token"
+
+
 def request_csrf(request: Request) -> str | None:
     return request.headers.get(CSRF_HEADER) or request.headers.get(CSRF_HEADER.upper())
 
 
-def check(request: Request, session_id: str | None) -> bool:
-    """True when the request is safe to process."""
+async def form_csrf(request: Request) -> str | None:
+    """Reads the token from a form-encoded body.
+
+    A plain HTML form submission cannot set a custom header, so every
+    server-rendered form carries the token as a field instead. Without this the
+    check would reject every non-JavaScript form POST.
+
+    ``body()`` is awaited first on purpose: under Starlette's BaseHTTPMiddleware
+    the request is a ``_CachedRequest``, and caching the body here is what lets
+    the downstream handler read it again. Going straight to ``form()`` would
+    consume the stream and leave the handler with an empty body.
+    """
+    try:
+        await request.body()
+        form = await request.form()
+    except Exception:
+        return None
+    value = form.get(CSRF_FIELD)
+    return value if isinstance(value, str) and value else None
+
+
+def check(request: Request, session_id: str | None, token: str | None = None) -> bool:
+    """True when the request is safe to process.
+
+    ``token`` lets an async caller (the middleware) supply a token it read from
+    the form body; falling back to the header keeps XHR clients working.
+    """
     if request.method.upper() in SAFE_METHODS:
         return True
     if not session_id:
         # Anonymous mutations (register/login) are protected by rate limiting
         # plus SameSite=Lax; they cannot carry a session-bound token yet.
         return True
-    return verify_token(request_csrf(request), session_id)
+    return verify_token(token or request_csrf(request), session_id)
 
 
 def cookie_options() -> dict:

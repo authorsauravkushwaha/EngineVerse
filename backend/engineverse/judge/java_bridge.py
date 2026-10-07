@@ -40,7 +40,10 @@ class JavaSandboxProvider:
     """Runs submissions through the Java sandbox service."""
 
     name = "java-sandbox"
-    LANGUAGES = ("java", "python", "javascript", "c", "cpp", "bash")
+    # The sandbox compiles and runs Java only. Other languages are handled by
+    # LocalSandboxProvider, so claiming them here would route them to a JVM that
+    # would reject them.
+    LANGUAGES = ("java",)
 
     def __init__(self) -> None:
         self.java = _java_binary()

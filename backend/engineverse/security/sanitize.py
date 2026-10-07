@@ -32,6 +32,12 @@ def is_safe_url(url: str | None) -> bool:
         return False
     url = url.strip()
     if url.startswith(("/", "#")):
+        # Protocol-relative URLs ("//evil.com", "/\\evil.com") are treated as
+        # absolute by every browser, so accepting them would turn any `next`
+        # parameter into an open redirect. Only a single leading slash is a
+        # genuine same-site path.
+        if url.startswith("//") or url.startswith("/\\"):
+            return False
         return True
     try:
         parsed = urlparse(url)
