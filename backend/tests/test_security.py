@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+from starlette.testclient import TestClient
 
 from engineverse.security import passwords, rbac
 from engineverse.security.ids import ulid
@@ -492,3 +493,130 @@ class TestAdminInputValidation:
             "SELECT meta FROM audit_logs WHERE action = 'app.error' AND meta LIKE '%IntegrityError%'"
         )
         assert not crashes, f"foreign-key failures reached the error log: {crashes}"
+
+
+class TestPasswordResetTokens:
+    """Reset tokens used to be looked up with a LIKE pattern against the audit log.
+
+    ``meta LIKE '%"<token>"%'`` meant a submitted LIKE wildcard matched whichever
+    account had requested a reset most recently, so posting ``%`` as the token
+    reset that account's password - a full takeover with no credential at all.
+    """
+
+    @staticmethod
+    def _token(html: str) -> str:
+        import re
+
+        found = re.search(r"token=([A-Za-z0-9_\-]+)", html)
+        assert found, "the development build should surface the reset link"
+        return found.group(1)
+
+    def test_a_like_wildcard_does_not_match_any_pending_reset(self, client):
+        from engineverse import db
+
+        victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
+        client.post("/forgot-password", data={"email": victim["email"]})
+
+        attacker = TestClient(app=client.app, raise_server_exceptions=False)
+        page = attacker.get("/reset-password").text
+        csrf = _csrf(page)
+        for guess in ["%", "_", '%"%', "' OR '1'='1", "*"]:
+            response = attacker.post(
+                "/reset-password",
+                data={"token": guess, "password": "AttackerControlled#2026!", "csrf_token": csrf},
+                follow_redirects=False,
+            )
+            assert response.status_code == 400, (
+                f"token {guess!r} was accepted - the wildcard takeover is back"
+            )
+
+    def test_a_valid_token_resets_the_password_once(self, client):
+        from engineverse import auth, db
+
+        victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
+        page = client.post("/forgot-password", data={"email": victim["email"]}).text
+        token = self._token(page)
+
+        fresh = TestClient(app=client.app, raise_server_exceptions=False)
+        response = fresh.post(
+            "/reset-password",
+            data={"token": token, "password": "BrandNewPassphrase#2026!", "csrf_token": _csrf(fresh.get("/reset-password").text)},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/login?error=reset"
+
+        # The token is single use.
+        replay = TestClient(app=client.app, raise_server_exceptions=False)
+        again = replay.post(
+            "/reset-password",
+            data={"token": token, "password": "Replayed#2026!xx", "csrf_token": _csrf(replay.get("/reset-password").text)},
+            follow_redirects=False,
+        )
+        assert again.status_code == 400, "a used reset token was accepted again"
+
+    def test_an_expired_token_is_refused(self, client):
+        from engineverse import auth, db
+
+        victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
+        page = client.post("/forgot-password", data={"email": victim["email"]}).text
+        token = self._token(page)
+        db.execute("UPDATE password_resets SET expires_at = ?", auth.now_ms() - 1000)
+
+        fresh = TestClient(app=client.app, raise_server_exceptions=False)
+        response = fresh.post(
+            "/reset-password",
+            data={"token": token, "password": "BrandNewPassphrase#2026!", "csrf_token": _csrf(fresh.get("/reset-password").text)},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400
+
+    def test_a_new_request_supersedes_the_previous_link(self, client):
+        from engineverse import db
+
+        victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
+        first = self._token(client.post("/forgot-password", data={"email": victim["email"]}).text)
+        second = self._token(client.post("/forgot-password", data={"email": victim["email"]}).text)
+        assert first != second
+
+        stale = TestClient(app=client.app, raise_server_exceptions=False)
+        response = stale.post(
+            "/reset-password",
+            data={"token": first, "password": "BrandNewPassphrase#2026!", "csrf_token": _csrf(stale.get("/reset-password").text)},
+            follow_redirects=False,
+        )
+        assert response.status_code == 400, "a superseded reset link still worked"
+
+    def test_tokens_are_stored_hashed(self, client):
+        from engineverse import db
+
+        victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
+        token = self._token(client.post("/forgot-password", data={"email": victim["email"]}).text)
+        rows = db.query("SELECT token_hash FROM password_resets")
+        assert rows, "no reset row was written"
+        assert all(token not in row["token_hash"] for row in rows), "the plaintext token is stored"
+        assert all(len(row["token_hash"]) == 64 for row in rows), "not a SHA-256 digest"
+
+
+class TestFormValidationErrors:
+    """A blank required field must not answer with FastAPI's internal JSON."""
+
+    def test_blank_form_fields_render_a_page(self, client):
+        page = client.get("/login").text
+        response = client.post(
+            "/login",
+            data={"identifier": "", "password": "", "csrf_token": _csrf(page)},
+            follow_redirects=False,
+            headers={"Accept": "text/html"},
+        )
+        assert response.status_code == 422
+        assert not response.text.lstrip().startswith("{"), (
+            "a browser form was answered with raw JSON"
+        )
+        assert "identifier" in response.text
+
+    def test_api_clients_still_get_json(self, client):
+        response = client.post("/api/coding/run", data={"nope": "1"}, headers={"Accept": "*/*"})
+        assert response.status_code == 422
+        assert response.json()["ok"] is False
+        assert "fields" in response.json()

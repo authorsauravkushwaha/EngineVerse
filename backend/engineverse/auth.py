@@ -5,7 +5,9 @@ provider, never stores a recoverable password, and never returns one.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import secrets
 from dataclasses import dataclass
 from typing import Any
 
@@ -414,6 +416,76 @@ def set_status(actor_id: str, user_id: str, status: str) -> None:
 
         revoke_all_sessions(user_id)
     record("admin.user_updated", actor_id=actor_id, entity_type="user", entity_id=user_id, meta={"status": status})
+
+
+# ---------------------------------------------------------------------------
+# Password reset tokens
+# ---------------------------------------------------------------------------
+
+RESET_TOKEN_TTL_MS = 30 * 60_000  # 30 minutes
+
+
+def _hash_reset_token(token: str) -> str:
+    """Hashes a reset token the way session cookies are hashed.
+
+    Only the digest is stored, so reading the table does not hand an attacker a
+    working reset link.
+    """
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def issue_password_reset(user_id: str, ip: str | None = None) -> str:
+    """Creates a reset token and returns the plaintext, once.
+
+    Any token already outstanding for this user is invalidated first, so there
+    is never a choice of valid links and an older emailed link cannot be replayed
+    after a newer one is issued.
+    """
+    token = secrets.token_urlsafe(32)
+    ts = now_ms()
+    db.execute("DELETE FROM password_resets WHERE user_id = ?", user_id)
+    db.execute(
+        "INSERT INTO password_resets (token_hash, user_id, created_at, expires_at, ip) VALUES (?,?,?,?,?)",
+        _hash_reset_token(token), user_id, ts, ts + RESET_TOKEN_TTL_MS, ip,
+    )
+    record("auth.reset_token_issued", actor_id=user_id, ip=ip)
+    return token
+
+
+def consume_password_reset(token: str) -> str | None:
+    """Returns the user id a reset token belongs to, or None.
+
+    The token is matched by exact hash equality. It is deliberately not looked
+    up with a LIKE pattern: reset tokens used to be found with
+    ``meta LIKE '%"<token>"%'`` against the audit log, so submitting a single
+    ``%`` matched whichever account had requested a reset most recently and let
+    anyone take that account over.
+
+    Expired tokens are refused, and the token is marked used in the same
+    transaction that returns it so it cannot be replayed.
+    """
+    if not token or len(token) > 200:
+        return None
+    row = db.query_one(
+        "SELECT user_id, expires_at FROM password_resets "
+        "WHERE token_hash = ? AND used_at IS NULL",
+        _hash_reset_token(token),
+    )
+    if not row:
+        return None
+    if int(row["expires_at"]) < now_ms():
+        db.execute("DELETE FROM password_resets WHERE token_hash = ?", _hash_reset_token(token))
+        return None
+    db.execute(
+        "UPDATE password_resets SET used_at = ? WHERE token_hash = ?",
+        now_ms(), _hash_reset_token(token),
+    )
+    return row["user_id"]
+
+
+def prune_password_resets() -> int:
+    """Deletes expired rows; called opportunistically rather than by a cron job."""
+    return db.execute("DELETE FROM password_resets WHERE expires_at < ?", now_ms() - DAY)
 
 
 def site_url() -> str:

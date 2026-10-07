@@ -104,6 +104,20 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
 
+-- Password reset tokens: hashed, exactly matched, short lived and single use.
+-- Not partitioned - the table is pruned on use and expiry rather than grown.
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash     TEXT PRIMARY KEY,               -- SHA-256 of the opaque token
+  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at     BIGINT NOT NULL,
+  expires_at     BIGINT NOT NULL,
+  used_at        BIGINT,
+  ip             TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
+
 -- Append-only credential-stuffing defence. Hash-partitioned on the identifier
 -- because that is the only key the login path ever uses.
 CREATE TABLE IF NOT EXISTS login_attempts (

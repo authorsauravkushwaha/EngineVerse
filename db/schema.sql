@@ -90,6 +90,22 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
 CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
 
+-- Password reset tokens. Stored hashed and matched exactly; they expire, are
+-- single use, and a new request invalidates the previous one. Reset tokens used
+-- to live in audit_logs and be looked up with `meta LIKE '%"<token>"%'`, which
+-- let a submitted LIKE wildcard such as `%` match whoever had requested a reset
+-- most recently - a full account takeover.
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash    TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  used_at       INTEGER,
+  ip            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
+
 CREATE TABLE IF NOT EXISTS login_attempts (
   id           TEXT PRIMARY KEY,
   identifier   TEXT NOT NULL,   -- normalised email or username

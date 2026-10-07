@@ -167,7 +167,7 @@ async def logout_submit(request: Request):
 
 @router.get("/forgot-password")
 async def forgot_page(request: Request):
-    return render(request, "forgot.html", sent=False)
+    return render(request, "forgot.html", sent=False, reset_token="")
 
 
 @router.post("/forgot-password")
@@ -175,21 +175,15 @@ async def forgot_submit(request: Request, email: str = Form(...)):
     """Always reports success. Revealing which addresses exist is an oracle we
     will not hand out. The reset link is printed to the audit log in this
     self-hosted build; a production deployment wires this to an SMTP relay."""
+    auth.prune_password_resets()
     row = auth.find_by_email(email.strip())
     token = ""
     if row:
-        from engineverse.security.ids import ulid
-
-        token = ulid()
-        db.execute(
-            "INSERT INTO audit_logs (id,action,actor_id,entity_type,entity_id,ip,meta,created_at) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            ulid(), "auth.reset_requested", row["id"], "user", row["id"],
-            request.client.host if request.client else None,
-            __import__("json").dumps({"reset_token": token}), auth.now_ms(),
-        )
-        record("auth.reset_token_issued", actor_id=row["id"], ip=request.client.host if request.client else None)
-    return render(request, "forgot.html", sent=True)
+        ip = request.client.host if request.client else None
+        token = auth.issue_password_reset(row["id"], ip=ip)
+        record("auth.reset_requested", actor_id=row["id"], ip=ip,
+               entity_type="user", entity_id=row["id"])
+    return render(request, "forgot.html", sent=True, reset_token=token)
 
 
 @router.get("/reset-password")
@@ -199,17 +193,22 @@ async def reset_page(request: Request, token: str = ""):
 
 @router.post("/reset-password")
 async def reset_submit(request: Request, token: str = Form(...), password: str = Form(...)):
-    row = db.query_one(
-        "SELECT actor_id FROM audit_logs WHERE action = 'auth.reset_requested' AND meta LIKE ? "
-        "ORDER BY created_at DESC LIMIT 1", f'%"{token}"%',
-    ) if token else None
-    if not row:
-        return render(request, "reset.html", token=token, error="That reset link is not valid.",
+    # Validated by exact hash match, expiry and single use. The same wording is
+    # returned for an unknown, expired and already-used token so the form is not
+    # an oracle for which links are live.
+    user_id = auth.consume_password_reset(token)
+    if not user_id:
+        record("auth.reset_rejected", ip=request.client.host if request.client else None)
+        return render(request, "reset.html", token="", error="That reset link is not valid or has expired.",
                       status_code=400)
-    user_id = row["actor_id"]
+
     issues = check_password_strength(password, [])
     if issues:
-        return render(request, "reset.html", token=token, error=issues[0].message, status_code=422)
+        # The token was consumed above, so a weak password cannot be retried
+        # with the same link. Handing a fresh one back would turn this form into
+        # a password-strength oracle, so the user starts again from the top.
+        return render(request, "reset.html", token="", error=issues[0].message, status_code=422)
+
     from engineverse.security.passwords import hash_password
 
     ts = auth.now_ms()
@@ -218,7 +217,6 @@ async def reset_submit(request: Request, token: str = Form(...), password: str =
     from engineverse.security.sessions import revoke_all_sessions
 
     revoke_all_sessions(user_id)
-    db.execute("DELETE FROM audit_logs WHERE action = 'auth.reset_requested' AND actor_id = ?", user_id)
     record("auth.password_reset", actor_id=user_id, ip=request.client.host if request.client else None)
     return RedirectResponse("/login?error=reset", status_code=303)
 

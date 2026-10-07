@@ -54,6 +54,37 @@ The threats, in the order they are likely to arrive:
 - No session id appears in a URL, which removes the fixation and
   referrer-leakage vectors.
 
+## Password reset
+
+`auth.issue_password_reset()` / `auth.consume_password_reset()`, backed by the
+`password_resets` table.
+
+- The token is 32 bytes from `secrets.token_urlsafe`. **Only its SHA-256 is
+  stored**, so reading the table does not yield a working link.
+- The token is matched by **exact hash equality**, never by pattern.
+- Tokens expire after 30 minutes and are single use; consuming one marks it used
+  in the same step that returns the user id, so it cannot be replayed.
+- Issuing a token deletes any outstanding one for that user, so there is never a
+  choice of live links and an older emailed link stops working.
+- A weak new password costs the user their token rather than being retryable, so
+  the form cannot be used as a password-strength oracle.
+- The page reports the same outcome whether or not the address exists.
+
+### Why this is a table and not an audit row
+
+Reset tokens were originally written into `audit_logs` and recovered with
+`meta LIKE '%"<token>"%'`. Because the submitted token was interpolated straight
+into the `LIKE` pattern, posting a single `%` matched the most recent row and
+reset that account's password - a complete account takeover requiring no
+credential and no access to anyone's email. The fix is not escaping the pattern;
+a token is a secret and must be looked up by equality, so it now has a table of
+its own with a hashed primary key. The old code also deleted from `audit_logs`,
+which contradicts that table being append-only.
+
+This build has no mail transport, so the link is rendered on the page after the
+request rather than emailed. A deployment with an SMTP relay should send it
+instead and drop that block from `forgot.html`.
+
 ## CSRF
 
 `security/csrf.py`.

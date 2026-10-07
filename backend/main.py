@@ -19,6 +19,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -210,6 +211,45 @@ def create_app() -> FastAPI:
         response = render(request, "error.html", status=403,
                           message="You do not have permission to do that.")
         response.status_code = 403
+        return response
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError):
+        """A form submitted with a missing or malformed field.
+
+        FastAPI answers these with a raw JSON body describing its own internals.
+        For the 53 form fields on the auth pages that means a student who leaves
+        one box empty is shown ``{"detail":[{"type":"missing",...}]}`` instead of
+        a page telling them what to fill in. API clients keep the machine-readable
+        shape, with the same keys the rest of /api uses.
+        """
+        problems = []
+        for err in getattr(exc, "errors", lambda: [])() or []:
+            loc = [str(part) for part in err.get("loc", ()) if part not in ("body", "form", "query")]
+            field = loc[-1] if loc else ""
+            kind = err.get("type", "")
+            if kind == "missing":
+                detail = "is required"
+            elif kind.startswith("string_type"):
+                detail = "must be text"
+            else:
+                detail = "is not valid"
+            problems.append(f"{field} {detail}".strip() if field else detail)
+
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                {"ok": False, "error": "Some of the submitted values were not accepted.",
+                 "fields": problems},
+                status_code=422,
+            )
+
+        message = "Please check the form and try again."
+        if problems:
+            message = "Could not read that submission: " + "; ".join(dict.fromkeys(problems)) + "."
+        from web.deps import render
+
+        response = render(request, "error.html", status=422, message=message)
+        response.status_code = 422
         return response
 
     @app.exception_handler(500)
