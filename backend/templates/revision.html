@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Revision — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Revision</h1>
+<p class="muted">Spaced repetition on the SM-2 algorithm: cards come back exactly when you are about to forget them.</p>
+
+{% if not user %}
+  <div class="panel center"><h2>Sign in to start revising</h2>
+    <p class="muted">Your review schedule is personal — we need an account to track it.</p>
+    <a class="btn btn-primary" href="/register">Create a free account</a></div>
+{% else %}
+<div class="layout-2">
+  <div class="stack">
+    <section class="panel">
+      <div class="between"><h2 style="margin:0">Due now</h2>
+        <span class="chip accent" id="due-count">{{ stats.due if stats else 0 }}</span></div>
+      <div id="flashdeck" class="mt" tabindex="0" data-start="0"
+           data-cards='{{ due | tojson }}'>
+        <div class="flashcard"><div class="flashcard-inner" id="card-face">
+          <div class="flashcard-face front"><div class="txt"></div></div>
+          <div class="flashcard-face back"><div class="txt"></div></div>
+        </div></div>
+        <p class="center tiny muted" id="card-counter">Tap or press space to flip</p>
+        <div class="rate-row">
+          <button class="btn btn-danger btn-sm rate" data-rate="again">Again</button>
+          <button class="btn btn-soft btn-sm rate" data-rate="hard">Hard</button>
+          <button class="btn btn-primary btn-sm rate" data-rate="good">Good</button>
+          <button class="btn btn-soft btn-sm rate" data-rate="easy">Easy</button>
+        </div>
+      </div>
+    </section>
+
+    {% if weak %}
+    <section class="panel"><h2>Weakest topics</h2><div class="stack">
+      {% for t in weak %}<a class="card" href="/topics/{{ t.slug }}" style="flex-direction:row;gap:12px">
+        <div style="flex:1"><span class="title">{{ t.title }}</span><span class="desc">{{ t.subject }}</span></div>
+        <span class="chip bad">{{ t.accuracy }}%</span></a>{% endfor %}</div></section>
+    {% endif %}
+  </div>
+  <aside class="sidebar">
+    {% if stats %}<div class="panel tight"><h3>Deck stats</h3>
+      <div class="statgrid" style="grid-template-columns:1fr 1fr">
+        <div class="stat"><div class="n">{{ stats.due }}</div><div class="l">Due</div></div>
+        <div class="stat"><div class="n">{{ stats.total }}</div><div class="l">Cards</div></div>
+        <div class="stat"><div class="n">{{ stats.studied }}</div><div class="l">Studied</div></div>
+        <div class="stat"><div class="n">{{ (stats.total - stats.studied) }}</div><div class="l">New</div></div>
+      </div></div>{% endif %}
+    {% if heatmap %}<div class="panel tight"><h3>Last 6 months</h3>
+      <div class="heatmap">{% for day in heatmap %}
+        <span class="hm l{{ day.level }}" title="{{ day.day }}: {{ day.minutes }} min"></span>{% endfor %}</div></div>{% endif %}
+    <div class="panel tight"><h3>Decks</h3><div class="tags">
+      {% for d in decks %}<span class="chip">{{ d.deck }} ({{ d.count }})</span>{% endfor %}</div></div>
+    <a class="btn btn-soft btn-block" href="/formulas">Formula centre</a>
+  </aside>
+</div>
+{% endif %}
+{% endblock %}

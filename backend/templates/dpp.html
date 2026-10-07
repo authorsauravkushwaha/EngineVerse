@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}Daily Practice {{ dpp.set.date }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div><h1>{{ dpp.set.title }}</h1>
+    <p class="muted">{{ dpp.questions | length }} questions · {{ dpp.set.duration_minutes }} minutes ·
+      answer in any order</p></div>
+  <div class="row">{% if active_date %}<a class="btn btn-ghost" href="/dpp">Today</a>{% endif %}
+    <a class="btn btn-soft" href="/practice">All sets</a></div>
+</div>
+
+<div class="layout-2">
+  <div class="stack">
+    {% for question in dpp.questions %}
+      <div class="q-card" data-quiz="{{ question.id }}" data-set="{{ dpp.set.id }}">
+        <div class="between"><span class="chip">{{ loop.index }} / {{ dpp.questions | length }}</span>
+          <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span></div>
+        <div class="q-stem mt">{{ question.stem }}</div>
+        <form>
+          {% for option in question.options %}
+            <label class="opt" data-index="{{ loop.index0 }}">
+              <input type="radio" name="option" value="{{ loop.index0 }}">
+              <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>
+          {% endfor %}
+          <div class="row"><button type="submit" class="btn btn-primary btn-sm">Check answer</button>
+            <span class="verdict-inline chip" style="display:none"></span></div>
+        </form>
+        <div class="explain"><strong>Why.</strong> {{ question.explanation }}</div>
+      </div>
+    {% else %}
+      <div class="empty"><span class="em">🗓️</span>No set published for that date.</div>
+    {% endfor %}
+  </div>
+  <aside class="sidebar">
+    <div class="panel tight"><h3>Other days</h3><div class="stack">
+      {% for s in sets %}<a class="small {{ 'muted' if s.date == active_date }}" href="/dpp/{{ s.date }}">{{ s.date }}</a>{% endfor %}
+    </div></div>
+    {% if not user %}<div class="panel tight"><h3>Track your progress</h3>
+      <p class="small muted">Sign in to record answers, build a streak and get a mistake notebook.</p>
+      <a class="btn btn-primary btn-block btn-sm" href="/register">Create a free account</a></div>{% endif %}
+  </aside>
+</div>
+{% endblock %}

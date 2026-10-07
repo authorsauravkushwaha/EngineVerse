@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Reset your password — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="form-panel panel">
+  <h1>Reset your password</h1>
+  {% if sent %}
+    <div class="callout"><span class="label">Check your inbox</span>
+      If an account exists for that address, a reset link is on its way. We always show this message so nobody can
+      use this form to discover which emails are registered.</div>
+    <p class="small muted">On a self-hosted instance without an SMTP relay, the reset token is written to the
+      audit log instead. See <code>docs/SECURITY.md</code>.</p>
+    <a class="btn btn-ghost" href="/login">Back to sign in</a>
+  {% else %}
+    <p class="muted">Enter the email you registered with.</p>
+    <form method="post" action="/forgot-password">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="field"><label for="email">Email</label>
+        <input id="email" name="email" type="email" required autocomplete="email" autofocus></div>
+      <button class="btn btn-primary btn-block">Send reset link</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

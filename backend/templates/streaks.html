@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}Streaks — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Your streak</h1>
+{% if stats %}
+<div class="grid g4 mb">
+  <div class="stat"><div class="n">{{ stats.currentStreak }}</div><div class="l">Current streak</div></div>
+  <div class="stat"><div class="n">{{ stats.longestStreak }}</div><div class="l">Longest streak</div></div>
+  <div class="stat"><div class="n">{{ stats.minutes }}</div><div class="l">Total minutes</div></div>
+  <div class="stat"><div class="n">{{ stats.xp }}</div><div class="l">Total XP</div></div>
+</div>
+<section class="panel"><h2>Last six months</h2>
+  <div class="heatmap">{% for day in mine %}
+    <span class="hm l{{ day.level }} {{ 'today' if day.is_today }}" title="{{ day.day }}: {{ day.minutes }} min"></span>
+  {% endfor %}</div>
+  <p class="small muted mt">A day counts when you read a topic, answer a question, submit code or review a card.
+    One minute is enough — consistency beats intensity.</p></section>
+{% else %}<div class="panel center"><a class="btn btn-primary" href="/login">Sign in to track a streak</a></div>{% endif %}
+{% endblock %}

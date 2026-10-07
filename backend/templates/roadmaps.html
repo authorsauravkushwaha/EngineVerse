@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}Roadmaps — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Roadmaps and skill trees</h1>
+<p class="muted">Ordered paths from zero to job-ready, built from the same topics and problems you study here.</p>
+<div class="grid g2">
+  {% for r in roadmaps %}
+    <a class="card" href="/roadmaps/{{ r.slug }}"><span class="title">{{ r.title }}</span>
+      <span class="desc">{{ r.summary }}</span>
+      <div class="tags"><span class="chip accent">{{ r.kind }}</span>
+        {% if r.target_role %}<span class="chip">{{ r.target_role }}</span>{% endif %}</div></a>
+  {% else %}<div class="empty"><span class="em">🗺️</span>No roadmaps yet.</div>{% endfor %}
+</div>
+{% endblock %}

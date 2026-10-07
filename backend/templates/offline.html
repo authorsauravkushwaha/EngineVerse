@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Offline — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="panel center" style="max-width:520px;margin:40px auto">
+  <div style="font-size:3rem">📡</div>
+  <h1>You are offline</h1>
+  <p class="muted">Pages you have already visited are still available from the cache. Anything new will load when
+    you reconnect.</p>
+  <div class="row" style="justify-content:center">
+    <a class="btn btn-primary" href="/">Retry</a>
+    <a class="btn btn-ghost" href="/revision">Open revision</a></div>
+</div>
+{% endblock %}

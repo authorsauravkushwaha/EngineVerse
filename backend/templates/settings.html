@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}Settings — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Settings</h1>
+<div class="layout-2">
+  <div class="stack">
+    <section class="panel"><h2>Profile</h2>
+      <form method="post" action="/settings/profile">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid g2">
+          <div class="field"><label for="fn">Full name</label><input id="fn" name="full_name" maxlength="80"
+            value="{{ user.full_name }}"></div>
+          <div class="field"><label for="hl">Headline</label><input id="hl" name="headline" maxlength="120"
+            placeholder="Third year CSE, backend focus"></div>
+        </div>
+        <div class="field"><label for="bio">Bio</label><textarea id="bio" name="bio" maxlength="1200"
+          placeholder="What are you working on?"></textarea></div>
+        <div class="grid g2">
+          <div class="field"><label for="gh">GitHub URL</label><input id="gh" name="github_url" type="url"></div>
+          <div class="field"><label for="li">LinkedIn URL</label><input id="li" name="linkedin_url" type="url"></div>
+          <div class="field"><label for="pf">Portfolio URL</label><input id="pf" name="portfolio_url" type="url"></div>
+          <div class="field"><label for="ctry">Country</label><input id="ctry" name="country" maxlength="60"></div>
+          <div class="field"><label for="hrs">Study hours per week</label>
+            <input id="hrs" name="weekly_study_hours" type="number" min="1" max="60" value="8"></div>
+        </div>
+        <button class="btn btn-primary">Save profile</button>
+      </form></section>
+
+    <section class="panel"><h2>Your path</h2>
+      <form method="post" action="/settings/onboarding">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid g2">
+          <div class="field"><label for="br">Branch</label><select id="br" name="branch"><option value="">—</option>
+            {% for b in branches %}<option value="{{ b.id }}" {{ 'selected' if user.branch_id == b.id }}>{{ b.name }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="sem">Semester</label><select id="sem" name="semester">
+            {% for s in semesters %}<option value="{{ s.id }}" {{ 'selected' if user.semester_id == s.id }}>{{ s.label }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="uni">University</label><select id="uni" name="university"><option value="">—</option>
+            {% for u in universities %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="col">College</label><select id="col" name="college"><option value="">—</option>
+            {% for c in colleges %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="nq">Default reading depth</label><select id="nq" name="note_quality">
+            {% for d in ('beginner','standard','advanced','industry') %}
+            <option value="{{ d }}" {{ 'selected' if user.note_quality == d }}>{{ d | titlecase }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="lan">Language</label><select id="lan" name="language">
+            <option value="en">English</option><option value="hi">हिन्दी</option></select></div>
+        </div>
+        <button class="btn btn-primary">Save path</button>
+      </form></section>
+
+    <section class="panel"><h2>Privacy and notifications</h2>
+      <form method="post" action="/settings/preferences">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <h3>Public profile</h3>
+        <label class="checkbox"><input type="checkbox" name="show_activity" checked> Show my activity on my portfolio</label>
+        <label class="checkbox"><input type="checkbox" name="show_progress" checked> Show my progress and badges</label>
+        <label class="checkbox"><input type="checkbox" name="show_email"> Show my email address</label>
+        <label class="checkbox"><input type="checkbox" name="searchable" checked> Let other members find me in search</label>
+        <h3 class="mt">Notifications</h3>
+        <label class="checkbox"><input type="checkbox" name="new_dpp" checked> New daily practice set</label>
+        <label class="checkbox"><input type="checkbox" name="streak_reminder" checked> Streak reminders</label>
+        <label class="checkbox"><input type="checkbox" name="milestone" checked> Milestones and badges</label>
+        <label class="checkbox"><input type="checkbox" name="community_reply" checked> Replies to my posts</label>
+        <button class="btn btn-primary mt">Save preferences</button>
+      </form></section>
+
+    <section class="panel" id="error-password"><h2>Password</h2>
+      <form method="post" action="/settings/password">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field"><label for="cp">Current password</label>
+          <input id="cp" name="current_password" type="password" required autocomplete="current-password"></div>
+        <div class="grid g2">
+          <div class="field"><label for="np">New password</label>
+            <input id="np" name="new_password" type="password" required minlength="10" autocomplete="new-password"></div>
+          <div class="field"><label for="np2">Confirm new password</label>
+            <input id="np2" name="confirm_password" type="password" required minlength="10" autocomplete="new-password"></div>
+        </div>
+        <p class="small muted">Changing your password signs out every other session immediately.</p>
+        <button class="btn btn-primary">Change password</button>
+      </form></section>
+
+    <section class="panel"><h2>Active sessions</h2>
+      <div class="tablewrap"><table><thead><tr><th>Signed in</th><th>Last seen</th><th>IP</th><th></th></tr></thead>
+      <tbody>{% for s in sessions %}<tr><td>{{ s.created_at | ago }}</td><td>{{ s.last_seen_at | ago }}</td>
+        <td class="mono small">{{ s.ip or '—' }}</td>
+        <td>{% if s.id != user.session_id %}<form method="post" action="/settings/sessions/revoke">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="session_id" value="{{ s.id }}">
+          <button class="btn btn-ghost btn-sm">Sign out</button></form>{% else %}<span class="chip ok">This device</span>{% endif %}</td>
+      </tr>{% else %}<tr><td colspan="4" class="muted">No other sessions.</td></tr>{% endfor %}</tbody></table></div></section>
+
+    <section class="panel"><h2>Plan</h2>
+      {% if subscription %}<p>Your plan: <strong>{{ subscription.plan_name }}</strong>
+        ({{ subscription.status }})</p>{% else %}<p class="muted">You are on the free plan — every note, problem,
+        project and flashcard is included.</p>{% endif %}
+      <div class="grid g3 mt">{% for plan in plans %}
+        <div class="card"><span class="title">{{ plan.name }}</span>
+          <span class="desc">{{ plan.features | fromjson([]) | join(' · ') | excerpt(140) }}</span>
+          <span class="chip accent">{{ 'Free' if not plan.price_cents else (plan.price_cents / 100) | int ~ ' INR/mo' }}</span></div>
+      {% endfor %}</div></section>
+
+    <section class="panel"><h2>Install as an app</h2>
+      <p class="muted">{{ brand.site_name }} is an installable progressive web app — it works offline and lives on
+        your home screen.</p>
+      <button class="btn btn-soft hide" id="install-btn">Install</button>
+      <a class="btn btn-ghost" href="/install">Instructions</a></section>
+
+    <section class="panel"><h2 style="color:var(--bad)">Delete account</h2>
+      <p class="muted">This permanently removes your account, progress, notes and submissions. It cannot be undone.</p>
+      <form method="post" action="/settings/account/delete">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field"><label for="cf">Type DELETE to confirm</label>
+          <input id="cf" name="confirm" required placeholder="DELETE"></div>
+        <button class="btn btn-danger" type="submit">Delete my account</button>
+      </form></section>
+  </div>
+
+  <aside class="sidebar">
+    <div class="panel tight"><h3>Your data</h3>
+      <p class="small muted">We store your email, a scrypt hash of your password, your profile and your learning
+        history. Nothing is sold or shared. Sessions store only a hash of the cookie token.</p></div>
+    <div class="panel tight"><h3>Security</h3>
+      <ul class="small muted" style="padding-left:1.1em;margin:0">
+        <li>Passwords hashed with scrypt (N=16384)</li>
+        <li>HttpOnly, SameSite cookies</li>
+        <li>CSRF token on every state change</li>
+        <li>Rate-limited login with lockout</li>
+        <li>No third-party scripts or trackers</li></ul></div>
+  </aside>
+</div>
+{% endblock %}

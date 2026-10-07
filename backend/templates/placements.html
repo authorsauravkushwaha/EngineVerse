@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}Placement preparation — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Placement preparation</h1>
+<p class="muted">Everything a recruiter tests, in one place: fundamentals, coding, projects and the questions
+  behind them.</p>
+
+{% if my_stats %}
+<div class="grid g4 mb">
+  <div class="stat"><div class="n">{{ my_stats.problemsSolved }}</div><div class="l">Problems solved</div></div>
+  <div class="stat"><div class="n">{{ my_stats.topicsCompleted }}</div><div class="l">Topics completed</div></div>
+  <div class="stat"><div class="n">{{ my_stats.accuracy }}%</div><div class="l">Accuracy</div></div>
+  <div class="stat"><div class="n">{{ my_stats.badges }}</div><div class="l">Badges</div></div>
+</div>
+{% endif %}
+
+<section class="section"><h2>1. Core subjects interviewers test</h2>
+  <div class="grid g4">{% for row in interview_topics %}
+    <a class="card" href="/subjects/{{ row.subject_slug }}"><span class="title">{{ row.subject }}</span>
+      <span class="chip">{{ row.total }} questions</span></a>{% endfor %}</div></section>
+
+<section class="section"><h2>2. Coding rounds</h2>
+  <div class="grid g4">{% for p in problems[:16] %}
+    <a class="card" href="/practice/problems/{{ p.slug }}"><span class="title">{{ p.title }}</span>
+      <span class="chip diff-{{ p.difficulty }}">{{ p.difficulty }}</span></a>{% endfor %}</div>
+  <a class="btn btn-ghost mt" href="/practice/problems">All problems →</a></section>
+
+<section class="section"><h2>3. Projects to talk about</h2>
+  <div class="grid g3">{% for p in projects %}
+    <a class="card" href="/projects/{{ p.slug }}"><span class="title">{{ p.title }}</span>
+      <span class="desc">{{ p.summary | excerpt(110) }}</span>
+      <div class="tags"><span class="chip accent">{{ p.difficulty }}</span></div></a>{% endfor %}</div></section>
+
+{% if roadmaps %}<section class="section"><h2>4. Structured paths</h2>
+  <div class="grid g2">{% for r in roadmaps %}
+    <a class="card" href="/roadmaps/{{ r.slug }}"><span class="title">{{ r.title }}</span>
+      <span class="desc">{{ r.summary }}</span></a>{% endfor %}</div></section>{% endif %}
+
+<section class="section panel"><h2>What actually gets people hired</h2>
+  <ol class="muted">
+    <li><strong>Fundamentals you can explain, not recite.</strong> Interviewers probe one layer deeper than the
+      definition. Our notes include the "why" and the interview questions for exactly this reason.</li>
+    <li><strong>Two or three projects you understand deeply.</strong> One project you can defend beats five you
+      copied. Every project brief here lists the questions you will be asked about it.</li>
+    <li><strong>Consistent practice.</strong> A 30-day streak beats a weekend marathon. The daily practice set and
+      spaced repetition exist to make consistency easy.</li>
+    <li><strong>Clear communication.</strong> Say what you are doing while you code. Silence reads as confusion.</li>
+  </ol></section>
+{% endblock %}

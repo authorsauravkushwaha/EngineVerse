@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Create your account — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="form-panel panel">
+  <h1>Create your account</h1>
+  <p class="muted">Free forever for all notes, practice problems, coding and projects. No card, no trial timer.</p>
+  {% if error %}<div class="callout warning"><span class="label">Please fix these</span>{{ error }}</div>{% endif %}
+  <form method="post" action="/register">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next or '/' }}">
+    <div class="field"><label for="full_name">Full name</label>
+      <input id="full_name" name="full_name" required maxlength="80" autocomplete="name" value="{{ full_name or '' }}"
+        {% if fields and fields.fullName %}aria-invalid="true"{% endif %}>
+      {% if fields and fields.fullName %}<div class="err">{{ fields.fullName }}</div>{% endif %}</div>
+    <div class="field"><label for="username">Username</label>
+      <input id="username" name="username" required minlength="3" maxlength="24" pattern="[A-Za-z0-9_.-]+"
+        autocomplete="username" value="{{ username or '' }}">
+      <div class="hint">3–24 characters: letters, numbers, dot, dash, underscore. This becomes your portfolio URL.</div>
+      {% if fields and fields.username %}<div class="err">{{ fields.username }}</div>{% endif %}</div>
+    <div class="field"><label for="email">Email</label>
+      <input id="email" name="email" type="email" required maxlength="254" autocomplete="email" value="{{ email or '' }}">
+      {% if fields and fields.email %}<div class="err">{{ fields.email }}</div>{% endif %}</div>
+    <div class="field"><label for="password">Password</label>
+      <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
+      <div class="hint">At least 10 characters, and not a common password or your own name.</div>
+      {% if fields and fields.password %}<div class="err">{{ fields.password }}</div>{% endif %}</div>
+    <div class="field"><label for="confirm">Confirm password</label>
+      <input id="confirm" name="password_confirm" type="password" required minlength="10" autocomplete="new-password"></div>
+    <div class="field"><label for="branch">Branch <span class="muted">(optional)</span></label>
+      <select id="branch" name="branch"><option value="">Choose later</option>
+        {% for b in branches %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></div>
+    <div class="field"><label for="semester">Semester <span class="muted">(optional)</span></label>
+      <select id="semester" name="semester"><option value="">Choose later</option>
+        {% for s in semesters %}<option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}</select></div>
+    <button class="btn btn-primary btn-block" type="submit">Create account</button>
+  </form>
+  <p class="small center mt">Already registered? <a href="/login">Sign in</a></p>
+</div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Choose a new password — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="form-panel panel">
+  <h1>Choose a new password</h1>
+  {% if error %}<div class="callout warning"><span class="label">Not accepted</span>{{ error }}</div>{% endif %}
+  <form method="post" action="/reset-password">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="token" value="{{ token }}">
+    <div class="field"><label for="password">New password</label>
+      <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
+      <div class="hint">At least 10 characters. Every other session will be signed out.</div></div>
+    <button class="btn btn-primary btn-block">Set new password</button>
+  </form>
+</div>
+{% endblock %}

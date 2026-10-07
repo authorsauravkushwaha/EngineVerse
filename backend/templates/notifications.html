@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Notifications — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Notifications</h1>
+<div class="stack">{% for n in notifications %}
+  <div class="panel tight {{ 'muted' if n.read_at }}">
+    <div class="between"><strong>{{ n.title }}</strong><span class="tiny muted">{{ n.created_at | ago }}</span></div>
+    <p class="small" style="margin:4px 0 0">{{ n.body }}</p>
+    {% if n.url %}<a class="small" href="{{ n.url }}">Open →</a>{% endif %}</div>
+{% else %}<div class="empty"><span class="em">🔔</span>Nothing here yet.</div>{% endfor %}</div>
+{% endblock %}

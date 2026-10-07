@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Today — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Today's plan</h1>
+<p class="muted">Three things, in order. Do them and your streak survives.</p>
+
+<div class="grid g3">
+  <div class="panel"><h2>1. Practise</h2>
+    {% if dpp %}<p class="muted">{{ dpp.questions | length }} questions in today's set.</p>
+      <a class="btn btn-primary btn-block" href="/dpp/{{ dpp.set.date }}">Open today's DPP</a>
+    {% else %}<p class="muted">No set published today.</p>{% endif %}</div>
+  <div class="panel"><h2>2. Revise</h2>
+    <p class="muted">{{ cards | length }} flashcards are due.</p>
+    <a class="btn btn-primary btn-block" href="/revision">Start reviewing</a></div>
+  <div class="panel"><h2>3. Learn</h2>
+    {% if next_topics %}<p class="muted">Next up: <strong>{{ next_topics[0].title }}</strong></p>
+      <a class="btn btn-primary btn-block" href="/topics/{{ next_topics[0].slug }}">Open topic</a>
+    {% else %}<p class="muted">Pick a subject from the catalogue.</p>
+      <a class="btn btn-primary btn-block" href="/explore">Browse subjects</a>{% endif %}</div>
+</div>
+
+{% if next_topics | length > 1 %}
+<section class="section"><h2>Up next</h2><div class="stack">
+  {% for t in next_topics[1:] %}<a class="card" href="/topics/{{ t.slug }}"><span class="title">{{ t.title }}</span>
+    <span class="desc">{{ t.reason }}</span></a>{% endfor %}</div></section>
+{% endif %}
+
+{% if retry %}
+<section class="section"><h2>Worth another attempt</h2><div class="grid g3">
+  {% for q in retry %}<a class="card" href="/practice/questions?subject={{ q.subject_id }}">
+    <span class="desc">{{ q.stem | excerpt(130) }}</span>
+    <span class="chip bad">{{ q.wrong_count }} wrong</span></a>{% endfor %}</div></section>
+{% endif %}
+{% endblock %}

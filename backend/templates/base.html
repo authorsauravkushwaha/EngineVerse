@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>{% block title %}{{ brand.site_name }}{% endblock %}</title>
+  <meta name="description" content="{% block description %}{{ brand.tagline }}{% endblock %}">
+  <meta name="theme-color" content="#070b16">
+  <meta name="color-scheme" content="dark light">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <link rel="stylesheet" href="/static/css/app.css">
+  <meta name="csrf-token" content="{{ csrf_token }}">
+  <meta property="og:title" content="{% block og_title %}{{ brand.site_name }}{% endblock %}">
+  <meta property="og:description" content="{{ brand.tagline }}">
+  <meta property="og:type" content="website">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="topbar">
+  <div class="wrap topbar-inner">
+    <a class="logo" href="/" aria-label="{{ brand.site_name }} home">
+      <span class="logo-mark" aria-hidden="true">
+        <svg viewBox="0 0 32 32" width="28" height="28"><defs>
+          <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#a78bfa"/>
+          </linearGradient></defs>
+          <path d="M16 2 4 9v14l12 7 12-7V9z" fill="none" stroke="url(#lg)" stroke-width="2.2"
+                stroke-linejoin="round"/>
+          <path d="M11 20V12l5 5 5-5v8" fill="none" stroke="url(#lg)" stroke-width="2.2"
+                stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="logo-text">{{ brand.site_name }}</span>
+    </a>
+
+    <nav class="mainnav" aria-label="Main">
+      <a href="/explore" class="{{ 'on' if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}">Learn</a>
+      <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}">Practice</a>
+      <a href="/programming" class="{{ 'on' if path.startswith('/programming') }}">Code</a>
+      <a href="/projects" class="{{ 'on' if path.startswith('/projects') }}">Projects</a>
+      <a href="/revision" class="{{ 'on' if path.startswith('/revision') or path.startswith('/formulas') or path.startswith('/roadmaps') }}">Revise
+        {% if due_cards %}<span class="pill pill-hot">{{ due_cards }}</span>{% endif %}</a>
+      <a href="/community" class="{{ 'on' if path.startswith('/community') }}">Community</a>
+      <a href="/placements" class="{{ 'on' if path.startswith('/placements') }}">Placements</a>
+    </nav>
+
+    <form class="searchbox" action="/search" method="get" role="search">
+      <input type="search" name="q" value="{{ query.get('q', '') }}" placeholder="Search topics, problems, formulas..."
+             autocomplete="off" aria-label="Search EngineVerse" id="global-search">
+      <button type="submit" aria-label="Search">
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+      </button>
+      <div class="suggest" id="suggest" hidden></div>
+    </form>
+
+    <div class="topbar-right">
+      {% if user %}
+        <a class="streak" href="/streaks" title="{{ stats.currentStreak }} day streak">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
+            <path d="M12 2s5 5 5 9a5 5 0 0 1-10 0c0-1.5.7-2.9 1.5-4 .2 1.6 1 2.5 2 2.5 1.4 0 2-1.3 1.5-3-.3-1.6-.5-3.2 0-4.5z"/>
+          </svg><span>{{ stats.currentStreak }}</span>
+        </a>
+        <a class="xpchip" href="/profile" title="Level {{ stats.level }} - {{ stats.rank }}">
+          <span class="lvl">{{ stats.level }}</span><span class="xpv">{{ stats.xp }} XP</span>
+        </a>
+        <a class="iconbtn" href="/notifications" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          {% if unread %}<span class="dot"></span>{% endif %}
+        </a>
+        {% if is_staff %}<a class="iconbtn" href="/admin" aria-label="Admin">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></a>{% endif %}
+        <div class="menu" data-menu>
+          <button class="avatar" aria-haspopup="true" aria-expanded="false">{{ user.initial }}</button>
+          <div class="menu-pop" role="menu">
+            <div class="menu-head">
+              <strong>{{ user.full_name }}</strong>
+              <span>@{{ user.username }}</span>
+            </div>
+            <a role="menuitem" href="/profile">My profile</a>
+            <a role="menuitem" href="/portfolio/{{ user.username }}">Public portfolio</a>
+            <a role="menuitem" href="/today">Today's plan</a>
+            <a role="menuitem" href="/leaderboard">Leaderboard</a>
+            <a role="menuitem" href="/settings">Settings</a>
+            <form method="post" action="/logout">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <button role="menuitem" type="submit" class="linklike">Sign out</button>
+            </form>
+          </div>
+        </div>
+      {% else %}
+        <a class="btn btn-ghost" href="/login">Sign in</a>
+        <a class="btn btn-primary" href="/register">Start free</a>
+      {% endif %}
+      <button class="iconbtn only-mobile" id="navtoggle" aria-label="Menu" aria-expanded="false">
+        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
+          <path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+    </div>
+  </div>
+  {% if brand.announcement %}<div class="announce">{{ brand.announcement }}</div>{% endif %}
+</header>
+
+{% if flash %}<div class="flash" role="status">{{ flash }}</div>{% endif %}
+
+<main id="main" class="wrap">
+  {% block content %}{% endblock %}
+</main>
+
+<footer class="footer">
+  <div class="wrap footer-grid">
+    <div>
+      <div class="logo logo-footer"><span class="logo-text">{{ brand.site_name }}</span></div>
+      <p class="muted">{{ brand.tagline }}</p>
+      <p class="muted small">{{ brand.free_tier_note }}</p>
+    </div>
+    <div>
+      <h4>Learn</h4>
+      <a href="/explore">All subjects</a>
+      <a href="/formulas">Formula centre</a>
+      <a href="/videos">Video library</a>
+      <a href="/books">Books</a>
+      <a href="/resources">Resources</a>
+    </div>
+    <div>
+      <h4>Practise</h4>
+      <a href="/dpp">Daily practice</a>
+      <a href="/practice/problems">Coding problems</a>
+      <a href="/programming">Learn to code</a>
+      <a href="/mistakes">Mistake notebook</a>
+      <a href="/revision">Flashcards</a>
+    </div>
+    <div>
+      <h4>Career</h4>
+      <a href="/projects">Projects</a>
+      <a href="/placements">Placement prep</a>
+      <a href="/roadmaps">Roadmaps</a>
+      <a href="/leaderboard">Leaderboard</a>
+    </div>
+    <div>
+      <h4>Platform</h4>
+      <a href="/about">About</a>
+      <a href="/install">Install the app</a>
+      <a href="/community">Community</a>
+      <a href="/privacy">Privacy</a>
+      <a href="/terms">Terms</a>
+    </div>
+  </div>
+  <div class="wrap footer-base">
+    <span>&copy; {{ brand.site_name }}. Built for engineers, by engineers.</span>
+    <span class="muted">Self-hosted. No trackers. No third-party scripts.</span>
+  </div>
+</footer>
+
+<script nonce="{{ request.state.csp_nonce }}">
+  window.EngineVerse = { csrf: "{{ csrf_token }}", user: {{ 'true' if user else 'false' }} };
+</script>
+<script src="/static/js/app.js" defer></script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

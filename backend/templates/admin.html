@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Admin — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Admin</h1>
+<p class="muted">Signed in as {{ user.username }} ({{ user.role }}).</p>
+
+<div class="grid g4 mb">
+  <div class="stat"><div class="n">{{ stats.users }}</div><div class="l">Users</div></div>
+  <div class="stat"><div class="n">{{ stats.topics }}</div><div class="l">Topics</div></div>
+  <div class="stat"><div class="n">{{ stats.questions }}</div><div class="l">Questions</div></div>
+  <div class="stat"><div class="n">{{ stats.problems }}</div><div class="l">Problems</div></div>
+</div>
+
+<div class="layout-2">
+  <div class="stack">
+    <section class="panel"><h2>Site configuration</h2>
+      <form method="post" action="/admin/config">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid g2">
+          <div class="field"><label for="sn">Site name</label>
+            <input id="sn" name="site_name" value="{{ config.get('site_name', 'EngineVerse') }}" maxlength="60"></div>
+          <div class="field"><label for="ac">Accent colour</label>
+            <input id="ac" name="accent_color" value="{{ config.get('accent_color', '#4f7cff') }}" maxlength="20"></div>
+        </div>
+        <div class="field"><label for="tg">Tagline</label>
+          <input id="tg" name="tagline" value="{{ config.get('tagline', '') }}" maxlength="200"></div>
+        <div class="field"><label for="an">Announcement banner</label>
+          <input id="an" name="announcement" value="{{ config.get('announcement', '') }}" maxlength="300"></div>
+        <div class="field"><label for="se">Support email</label>
+          <input id="se" name="support_email" value="{{ config.get('support_email', '') }}" maxlength="120"></div>
+        <label class="checkbox"><input type="checkbox" name="registration_open" value="1"
+          {{ 'checked' if config.get('registration_open', '1') == '1' }}> Registration open</label>
+        <label class="checkbox"><input type="checkbox" name="maintenance_mode" value="1"
+          {{ 'checked' if config.get('maintenance_mode') == '1' }}> Maintenance mode</label>
+        <button class="btn btn-primary">Save configuration</button>
+      </form></section>
+
+    <section class="panel"><h2>Users</h2>
+      <div class="tablewrap"><table><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Joined</th><th></th></tr></thead>
+      <tbody>{% for u in users %}<tr>
+        <td><a href="/portfolio/{{ u.username }}">{{ u.full_name or u.username }}</a>
+          <br><span class="tiny muted">{{ u.email }}</span></td>
+        <td><form method="post" action="/admin/users/role" class="row" style="gap:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="user_id" value="{{ u.id }}">
+          <select name="role" style="width:auto">
+            {% for r in ('student','faculty','moderator','content_author','reviewer','admin','super_admin') %}
+            <option value="{{ r }}" {{ 'selected' if u.role == r }}>{{ r }}</option>{% endfor %}</select>
+          <button class="btn btn-ghost btn-sm">Set</button></form></td>
+        <td><span class="chip {{ 'ok' if u.status == 'active' else 'bad' }}">{{ u.status }}</span></td>
+        <td class="tiny">{{ u.created_at | ago }}</td>
+        <td><form method="post" action="/admin/users/status">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="user_id" value="{{ u.id }}">
+          <input type="hidden" name="status" value="{{ 'suspended' if u.status == 'active' else 'active' }}">
+          <button class="btn btn-ghost btn-sm">{{ 'Suspend' if u.status == 'active' else 'Restore' }}</button></form></td>
+      </tr>{% endfor %}</tbody></table></div></section>
+
+    {% if pending_topics %}<section class="panel"><h2>Content awaiting review</h2>
+      <div class="tablewrap"><table><thead><tr><th>Topic</th><th>State</th><th>Updated</th></tr></thead>
+      <tbody>{% for t in pending_topics %}<tr><td>{{ t.title }}</td>
+        <td><span class="chip warn">{{ t.accuracy_state }}</span></td>
+        <td class="tiny">{{ t.updated_at | ago }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+
+    {% if reports %}<section class="panel"><h2>Open reports</h2>
+      {% for r in reports %}<div class="between panel tight mb">
+        <div><strong>{{ r.reason }}</strong><p class="small muted" style="margin:2px 0">{{ r.detail }}
+          · {{ r.entity_type }} · {{ r.created_at | ago }}</p></div>
+        <form method="post" action="/admin/reports/resolve">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="report_id" value="{{ r.id }}">
+          <button class="btn btn-soft btn-sm">Resolve</button></form></div>
+      {% endfor %}</section>{% endif %}
+  </div>
+
+  <aside class="sidebar">
+    {% if searches %}<div class="panel tight"><h3>Top searches</h3>
+      <div class="stack">{% for s in searches %}<span class="small">{{ s.query }} <span class="muted">×{{ s.c }}</span></span>{% endfor %}</div></div>{% endif %}
+    <div class="panel tight"><h3>Audit log</h3>
+      <div class="stack">{% for row in recent_audit[:20] %}
+        <span class="tiny"><code>{{ row.action }}</code> {{ row.created_at | ago }}</span>{% endfor %}</div></div>
+  </aside>
+</div>
+{% endblock %}

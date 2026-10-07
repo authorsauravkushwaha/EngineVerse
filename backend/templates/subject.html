@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ subject.name }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/explore">Subjects</a> › <span>{{ subject.name }}</span></nav>
+<div class="between mb">
+  <div>
+    <h1>{{ subject.name }}</h1>
+    <p class="muted">{{ subject.description }}</p>
+    <div class="tags">
+      {% if subject.code %}<span class="chip">{{ subject.code }}</span>{% endif %}
+      {% if subject.credits %}<span class="chip">{{ subject.credits }} credits</span>{% endif %}
+      {% if subject.semester_id %}<span class="chip">Semester {{ subject.semester_id }}</span>{% endif %}
+      <span class="chip diff-{{ subject.difficulty }}">{{ subject.difficulty }}</span>
+      <span class="chip">{{ stats.topics }} topics</span>
+    </div>
+  </div>
+</div>
+
+{% if my_progress %}
+<div class="panel mb">
+  <div class="between">
+    <div><strong>Your progress</strong><p class="small muted" style="margin:2px 0 0">
+      {{ my_progress.done }} of {{ my_progress.total }} topics completed · {{ (my_progress.mastery or 0) | round | int }}% average mastery</p></div>
+    <div style="min-width:180px"><div class="bar"><span style="width:{{ ((my_progress.done / my_progress.total * 100) if my_progress.total else 0) | round | int }}%"></span></div></div>
+  </div>
+</div>
+{% endif %}
+
+<div class="layout-2">
+  <div class="stack">
+    {% for module in outline %}
+      <section class="panel">
+        <h2>{{ module.title }}</h2>
+        {% if module.summary %}<p class="muted small">{{ module.summary }}</p>{% endif %}
+        <div class="stack">
+          {% for topic in module.topics %}
+            <a class="card" href="/topics/{{ topic.slug }}" style="flex-direction:row;align-items:center;gap:12px">
+              <span class="chip">{{ loop.index }}</span>
+              <div style="flex:1"><span class="title">{{ topic.title }}</span>
+                <span class="desc">{{ topic.summary | excerpt(120) }}</span></div>
+              <span class="chip diff-{{ topic.difficulty }}">{{ topic.difficulty }}</span>
+              <span class="tiny muted nowrap">{{ topic.est_minutes }}m</span>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    {% else %}
+      <div class="empty"><span class="em">🚧</span>Topics for this subject are being written.</div>
+    {% endfor %}
+
+    {% if questions %}
+    <section class="panel">
+      <div class="between"><h2 style="margin:0">Practice questions</h2>
+        <a class="btn btn-sm btn-soft" href="/practice/questions?subject={{ subject.id }}">All {{ questions | length }}+</a></div>
+      <div class="stack mt">
+        {% for q in questions[:8] %}
+          <a class="card" href="/practice/questions?subject={{ subject.id }}">
+            <span class="desc">{{ q.stem | excerpt(160) }}</span>
+            <span class="chip diff-{{ q.difficulty }}">{{ q.difficulty }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <aside class="sidebar">
+    {% if videos %}
+    <div class="panel tight"><h3>Videos</h3><div class="stack">
+      {% for v in videos[:6] %}<a class="small" href="{{ v.url }}" target="_blank" rel="noopener noreferrer nofollow">▶ {{ v.title }}</a>{% endfor %}
+    </div></div>
+    {% endif %}
+    {% if books %}
+    <div class="panel tight"><h3>Books</h3><div class="stack">
+      {% for b in books[:5] %}<a class="small" href="{{ b.legal_url }}" target="_blank" rel="noopener noreferrer nofollow">📖 {{ b.title }}</a>{% endfor %}
+    </div></div>
+    {% endif %}
+    <div class="panel tight"><h3>Related</h3><div class="stack">
+      <a class="small" href="/formulas">Formula centre</a>
+      <a class="small" href="/revision">Flashcards</a>
+      <a class="small" href="/roadmaps">Roadmaps</a>
+    </div></div>
+  </aside>
+</div>
+{% endblock %}

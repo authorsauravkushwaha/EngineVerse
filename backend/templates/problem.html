@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}{{ problem.title }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/practice/problems">Problems</a> › <span>{{ problem.title }}</span></nav>
+<div class="editor-shell">
+  <section>
+    <div class="between mb">
+      <div><h1 style="font-size:1.6rem;margin-bottom:4px">{{ problem.title }}</h1>
+        <div class="tags"><span class="chip diff-{{ problem.difficulty }}">{{ problem.difficulty }}</span>
+          <span id="solved-chip" class="chip ok {{ '' if submissions and submissions[0].is_accepted else 'hide' }}">Solved ✓</span>
+          {% for t in (problem.topics | fromjson([])) %}<span class="chip">{{ t }}</span>{% endfor %}</div></div>
+    </div>
+    <div class="panel prose">{{ problem.statement | md | safe }}</div>
+
+    <details class="panel mt"><summary><strong>Hints</strong> ({{ (problem.hints | fromjson([])) | length }})</summary>
+      <ol>{% for hint in (problem.hints | fromjson([])) %}<li>{{ hint }}</li>{% endfor %}</ol></details>
+    <details class="panel mt"><summary><strong>Editorial</strong> — full explanation and complexity</summary>
+      <div class="prose mt">{{ problem.editorial | md | safe }}</div>
+      {% if problem.solution_md %}<h3>Reference solution</h3>
+        <pre class="console">{{ problem.solution_md }}</pre>{% endif %}
+      <p class="small muted">Expected time {{ problem.expected_time }} · space {{ problem.expected_space }}</p></details>
+
+    {% if submissions %}
+    <section class="panel mt"><h3>Your submissions</h3>
+      <div class="tablewrap"><table><thead><tr><th>Status</th><th>Language</th><th>Tests</th><th>Time</th><th>When</th></tr></thead>
+      <tbody>{% for s in submissions %}
+        <tr><td><span class="chip {{ 'ok' if s.is_accepted else 'bad' }}">{{ s.status | replace('_',' ') }}</span></td>
+        <td>{{ s.language }}</td><td>{{ s.passed }}/{{ s.total }}</td>
+        <td>{{ s.runtime_ms or '—' }} ms</td><td>{{ s.created_at | ago }}</td></tr>
+      {% endfor %}</tbody></table></div></section>
+    {% endif %}
+  </section>
+
+  <section>
+    <div class="editor-bar">
+      <label for="lang-select" style="margin:0">Language</label>
+      <select id="lang-select">
+        {% for lang in languages %}
+          <option value="{{ lang.slug }}" {{ 'selected' if lang.slug == 'python' }}>{{ lang.name }}
+            {{ '' if lang.runnable else '(no runtime here)' }}</option>
+        {% endfor %}
+      </select>
+      <button class="btn btn-soft btn-sm" id="btn-reset" type="button">Reset</button>
+      <span class="tiny muted" id="stub-signature"></span>
+    </div>
+    <textarea id="code-editor" spellcheck="false" data-problem="{{ problem.slug }}"
+      data-stubs='{{ stub_map | tojson }}'
+      aria-label="Code editor">{{ saved or (stubs[0].stub if stubs else '') }}</textarea>
+
+    <div class="row mt">
+      <button class="btn btn-ghost" id="btn-run" type="button">Run</button>
+      {% if user %}<button class="btn btn-primary" id="btn-submit" type="button">Submit</button>
+      {% else %}<a class="btn btn-primary" href="/login">Sign in to submit</a>{% endif %}
+      <span class="tiny muted">Ctrl+Enter to run · Ctrl+Shift+B to submit</span>
+    </div>
+
+    <div class="mt"><label for="custom-input">Custom input (stdin)</label>
+      <textarea id="custom-input" rows="3" placeholder="Optional"></textarea></div>
+
+    <div id="run-output" class="mt" aria-live="polite"></div>
+
+    {% if samples %}
+    <h3 class="mt">Sample tests</h3>
+    {% for tc in samples %}
+      <div class="testcase"><div class="lbl">Example {{ loop.index }}</div>
+        <pre>input:    {{ tc.input or '(none)' }}
+expected: {{ tc.expected }}</pre></div>
+    {% endfor %}
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

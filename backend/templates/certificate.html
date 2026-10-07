@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Certificate {{ certificate.verify_id }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="cert"><div class="cert-inner">
+  <p class="muted small" style="letter-spacing:.16em;text-transform:uppercase">Certificate of completion</p>
+  <h1>{{ certificate.title }}</h1>
+  <p class="muted">This certifies that</p>
+  <div class="name">{{ certificate.full_name or certificate.username }}</div>
+  <p class="muted">completed the above on {{ certificate.issued_at | ago }}.</p>
+  <p class="small muted">Issued by {{ brand.site_name }}. This is a platform completion record, not a university
+    or government accreditation.</p>
+  <div class="verify">Verify: {{ certificate.verify_id }}</div>
+</div></div>
+<div class="center mt"><a class="btn btn-ghost" href="/">Back to {{ brand.site_name }}</a></div>
+{% endblock %}

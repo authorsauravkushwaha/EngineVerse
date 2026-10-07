@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}{{ topic.title }} — {{ brand.site_name }}{% endblock %}
+{% block description %}{{ topic.summary }}{% endblock %}
+{% block content %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <a href="/explore">Subjects</a> ›
+  <a href="/subjects/{{ topic.subject_slug }}">{{ topic.subject_name }}</a> ›
+  <span>{{ topic.title }}</span>
+</nav>
+
+<div class="layout-2">
+  <article>
+    <header class="topic-head">
+      <div class="grow">
+        <h1>{{ topic.title }}</h1>
+        <p class="muted">{{ topic.summary }}</p>
+        <div class="tags">
+          <span class="chip diff-{{ topic.difficulty }}">{{ topic.difficulty }}</span>
+          <span class="chip">{{ topic.est_minutes }} min</span>
+          {% for tag in (topic.tags | fromjson([]))[:6] %}<span class="chip">{{ tag }}</span>{% endfor %}
+        </div>
+      </div>
+      <div class="row">
+        {% if user %}
+          {% if my_progress and my_progress.status in ('completed','mastered') %}
+            <span class="chip ok">Completed ✓</span>
+          {% else %}
+            <button class="btn btn-primary btn-sm" data-complete-topic data-id="{{ topic.id }}">Mark complete</button>
+          {% endif %}
+          <button class="btn btn-soft btn-sm" data-bookmark="topic" data-type="topic" data-id="{{ topic.id }}"
+                  aria-pressed="false">☆ Save</button>
+        {% endif %}
+      </div>
+    </header>
+
+    {% if available_depths | length > 1 %}
+    <nav class="depthbar" aria-label="Reading depth">
+      {% for row in available_depths %}
+        <a class="chip {{ 'accent' if row.quality_level == quality }}"
+           href="/topics/{{ topic.slug }}?depth={{ row.quality_level }}">{{ row.quality_level | titlecase }}</a>
+      {% endfor %}
+    </nav>
+    {% endif %}
+
+    {% if not sections %}
+      <div class="empty"><span class="em">📝</span>Notes for this topic are being written.</div>
+    {% endif %}
+
+    {% for section in sections %}
+      <section class="note-section" id="{{ section.kind }}">
+        <h2>{{ section.title }}</h2>
+        {% if section.callout %}
+          <div class="callout {{ section.callout }}">
+            <span class="label">{{ section.callout }}</span>
+            <div class="prose">{{ section.body | md | safe }}</div>
+          </div>
+        {% else %}
+          <div class="prose">{{ section.body | md | safe }}</div>
+        {% endif %}
+      </section>
+    {% endfor %}
+
+    {% for diagram in diagrams %}
+      <section class="note-section">
+        <h2>Diagram</h2>
+        <figure class="diagram" data-diagram data-hotspots='{{ diagram.hotspots | safe }}'>
+          {{ diagram.spec | safe }}
+          <figcaption><strong>{{ diagram.title }}.</strong> {{ diagram.caption }}
+            {% if diagram.hotspots != '[]' %}<br><span class="tiny muted">Tap a highlighted region for an explanation.</span>{% endif %}
+          </figcaption>
+          <div class="hotspot-note" role="status"></div>
+        </figure>
+      </section>
+    {% endfor %}
+
+    {% if formulas %}
+      <section class="note-section">
+        <h2>Formulas from this topic</h2>
+        {% for formula in formulas %}
+          <div class="panel tight mb">
+            <strong>{{ formula.name }}</strong>
+            <div class="prose"><div class="math-display">{{ ("$$ " + formula.latex + " $$") | md | safe }}</div></div>
+            <p class="small muted" style="margin:0">{{ formula.meaning }}</p>
+          </div>
+        {% endfor %}
+        <a class="small" href="/formulas">Open the formula centre →</a>
+      </section>
+    {% endif %}
+
+    {% if questions %}
+      <section class="note-section">
+        <h2>Check yourself</h2>
+        {% for question in questions %}
+          <div class="q-card mb" data-quiz="{{ question.id }}">
+            <div class="q-stem">{{ question.stem }}</div>
+            <form>
+              {% for option in question.options %}
+                <label class="opt" data-index="{{ loop.index0 }}">
+                  <input type="radio" name="option" value="{{ loop.index0 }}">
+                  <span class="k">{{ option.label }}</span><span>{{ option.body }}</span>
+                </label>
+              {% endfor %}
+              <div class="row">
+                <button type="submit" class="btn btn-primary btn-sm">Check answer</button>
+                <span class="verdict-inline chip" style="display:none"></span>
+                <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
+              </div>
+            </form>
+            <div class="explain"><strong>Why.</strong> {{ question.explanation }}</div>
+          </div>
+        {% endfor %}
+      </section>
+    {% endif %}
+
+    {% if flashcards %}
+      <section class="note-section">
+        <h2>Flashcards</h2>
+        <div class="stack">
+          {% for card in flashcards %}
+            <div class="panel tight"><strong>{{ card.front }}</strong>
+              <p class="muted small" style="margin:6px 0 0">{{ card.back }}</p></div>
+          {% endfor %}
+        </div>
+        <a class="small" href="/revision">Practise with spaced repetition →</a>
+      </section>
+    {% endif %}
+
+    <nav class="between mt">
+      {% if siblings.prev %}<a class="btn btn-ghost btn-sm" href="/topics/{{ siblings.prev.slug }}">← {{ siblings.prev.title }}</a>
+      {% else %}<span></span>{% endif %}
+      {% if siblings.next %}<a class="btn btn-primary btn-sm" href="/topics/{{ siblings.next.slug }}">{{ siblings.next.title }} →</a>{% endif %}
+    </nav>
+  </article>
+
+  <aside class="sidebar">
+    {% if user %}
+    <div class="panel tight">
+      <h3>Your progress</h3>
+      {% if my_progress %}
+        <div class="bar"><span style="width:{{ my_progress.mastery }}%"></span></div>
+        <p class="small muted">{{ my_progress.mastery }}% mastery · {{ my_progress.status }}</p>
+      {% else %}
+        <p class="small muted">Not started yet.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    {% if related %}
+    <div class="panel tight">
+      <h3>Related topics</h3>
+      <div class="stack">
+        {% for item in related %}
+          <a class="small" href="/topics/{{ item.slug }}">{{ item.title }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if recommendations %}
+    <div class="panel tight">
+      <h3>Next up</h3>
+      <div class="stack">
+        {% for rec in recommendations %}
+          <a class="card" href="{{ rec.url }}"><span class="title small">{{ rec.title }}</span>
+            <span class="desc tiny">{{ rec.reason }}</span></a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    {% if resources.videos or resources.books %}
+    <div class="panel tight">
+      <h3>Study material</h3>
+      <div class="stack">
+        {% for video in resources.videos[:5] %}
+          <a class="small" href="{{ video.url }}" rel="noopener noreferrer nofollow" target="_blank">▶ {{ video.title }}</a>
+        {% endfor %}
+        {% for book in resources.books[:4] %}
+          <a class="small" href="{{ book.legal_url }}" rel="noopener noreferrer nofollow" target="_blank">📖 {{ book.title }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

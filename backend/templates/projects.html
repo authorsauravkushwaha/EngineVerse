@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}Projects — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Real-world projects</h1>
+<p class="muted">Each project is a full brief: problem, architecture, database design, build steps, testing,
+  the résumé line to write and the questions an interviewer will ask about it.</p>
+
+<form class="panel mb" method="get">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end">
+    <div><label for="difficulty">Difficulty</label><select id="difficulty" name="difficulty"><option value="">Any</option>
+      {% for d in difficulties %}<option value="{{ d.difficulty }}" {{ 'selected' if active_difficulty == d.difficulty }}>{{ d.difficulty | titlecase }} ({{ d.count }})</option>{% endfor %}</select></div>
+    <div><label for="branch">Branch</label><select id="branch" name="branch"><option value="">All</option>
+      {% for b in branches %}<option value="{{ b.id }}" {{ 'selected' if active_branch == b.id }}>{{ b.name }}</option>{% endfor %}</select></div>
+    <div><button class="btn btn-primary btn-block">Filter</button></div>
+  </div>
+</form>
+
+<div class="grid g2">
+  {% for p in projects %}
+    <a class="card" href="/projects/{{ p.slug }}">
+      <span class="title">{{ p.title }}</span>
+      <span class="desc">{{ p.summary }}</span>
+      <div class="tags"><span class="chip accent">{{ p.difficulty }}</span>
+        <span class="chip">{{ p.est_hours }} h</span>
+        <span class="chip">{{ p.category }}</span>
+        {% for tech in (p.tech | fromjson([]))[:4] %}<span class="chip">{{ tech }}</span>{% endfor %}</div>
+    </a>
+  {% else %}<div class="empty"><span class="em">🔍</span>No projects match.</div>{% endfor %}
+</div>
+{% endblock %}

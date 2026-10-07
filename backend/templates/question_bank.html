@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Question bank — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Question bank</h1>
+<form class="panel mb" method="get">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end">
+    <div><label for="subject">Subject</label><select id="subject" name="subject"><option value="">All</option>
+      {% for s in subjects %}<option value="{{ s.id }}" {{ 'selected' if active_subject == s.id }}>{{ s.name }}</option>{% endfor %}</select></div>
+    <div><label for="difficulty">Difficulty</label><select id="difficulty" name="difficulty"><option value="">Any</option>
+      {% for d in ('easy','medium','hard','expert') %}<option value="{{ d }}" {{ 'selected' if active_difficulty == d }}>{{ d | titlecase }}</option>{% endfor %}</select></div>
+    <div><label for="kind">Kind</label><select id="kind" name="kind"><option value="">Any</option>
+      {% for k in kinds %}<option value="{{ k.kind }}" {{ 'selected' if active_kind == k.kind }}>{{ k.kind }} ({{ k.count }})</option>{% endfor %}</select></div>
+    <div><button class="btn btn-primary btn-block">Filter</button></div>
+  </div>
+</form>
+<div class="stack">
+  {% for question in questions %}
+    <div class="q-card" data-quiz="{{ question.id }}">
+      <div class="row"><span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
+        <span class="chip">{{ question.kind }}</span></div>
+      <div class="q-stem mt">{{ question.stem }}</div>
+      <form>{% for option in question.options %}
+        <label class="opt" data-index="{{ loop.index0 }}"><input type="radio" name="option" value="{{ loop.index0 }}">
+          <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>{% endfor %}
+        <div class="row"><button type="submit" class="btn btn-primary btn-sm">Check answer</button>
+          <span class="verdict-inline chip" style="display:none"></span></div></form>
+      <div class="explain"><strong>Why.</strong> {{ question.explanation }}</div>
+    </div>
+  {% else %}<div class="empty"><span class="em">🔍</span>No questions match that filter.</div>{% endfor %}
+</div>
+{% endblock %}

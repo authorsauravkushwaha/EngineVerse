@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Set up your path — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="form-panel panel form-wide" style="max-width:640px">
+  <h1>Set up your path</h1>
+  <p class="muted">Tell us where you are and we will build your roadmap, daily practice and recommendations around it.
+    You can change all of this later.</p>
+  <form method="post" action="/settings/onboarding">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="grid g2">
+      <div class="field"><label for="branch">Engineering branch</label>
+        <select id="branch" name="branch"><option value="">Not sure yet</option>
+          {% for b in branches %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="semester">Current semester</label>
+        <select id="semester" name="semester">{% for s in semesters %}
+          <option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="university">University</label>
+        <select id="university" name="university"><option value="">Independent learner</option>
+          {% for u in universities %}<option value="{{ u.id }}">{{ u.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="college">College</label>
+        <select id="college" name="college"><option value="">Skip</option>
+          {% for c in colleges %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select></div>
+      <div class="field"><label for="goal">Your goal right now</label>
+        <select id="goal" name="goal"><option value="placement">Campus placement</option>
+          <option value="gate">GATE / competitive exam</option><option value="skills">Build real skills</option>
+          <option value="switch">Switch to engineering</option><option value="upskill">Upskill at work</option></select></div>
+      <div class="field"><label for="hours">Hours per week you can study</label>
+        <input id="hours" name="hours" type="number" min="1" max="60" value="8"></div>
+      <div class="field"><label for="experience">Programming experience</label>
+        <select id="experience" name="experience"><option value="none">None</option>
+          <option value="some">A little</option><option value="comfortable">Comfortable</option>
+          <option value="professional">Professional</option></select></div>
+      <div class="field"><label for="note_quality">Default reading depth</label>
+        <select id="note_quality" name="note_quality"><option value="beginner">Beginner — short and simple</option>
+          <option value="standard" selected>Standard — the full note</option>
+          <option value="advanced">Advanced — derivations and proofs</option>
+          <option value="industry">Industry — how it is used at work</option></select></div>
+    </div>
+    <button class="btn btn-primary btn-block" type="submit">Build my path</button>
+  </form>
+</div>
+{% endblock %}

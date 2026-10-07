@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}{{ roadmap.title }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/roadmaps">Roadmaps</a> › <span>{{ roadmap.title }}</span></nav>
+<h1>{{ roadmap.title }}</h1>
+<p class="muted">{{ roadmap.summary }}</p>
+<div class="tags mb"><span class="chip accent">{{ roadmap.kind }}</span>
+  {% if roadmap.target_role %}<span class="chip">{{ roadmap.target_role }}</span>{% endif %}
+  <span class="chip">{{ nodes | length }} steps</span></div>
+<div class="layout-2">
+  <article class="panel">
+    <div class="prose mb">{{ roadmap.description | md | safe }}</div>
+    <div class="roadmap">{% for node in nodes %}
+      <div class="rnode">
+        <div class="t">{% if node.ref_id %}
+          <a href="{{ '/topics/' + node.ref_id if node.ref_type == 'topic' else '/practice/problems/' + node.ref_id if node.ref_type == 'coding' else '/subjects/' + node.ref_id if node.ref_type == 'subject' else '/programming' }}">{{ node.title }}</a>
+          {% else %}{{ node.title }}{% endif %}
+          {% if not node.is_required %}<span class="chip">optional</span>{% endif %}</div>
+        <p class="small muted" style="margin:2px 0 0">{{ node.summary }}</p>
+      </div>{% endfor %}</div>
+  </article>
+  <aside class="sidebar"><div class="panel tight"><h3>How to use this</h3>
+    <p class="small muted">Work top to bottom. Do not skip a node because it looks easy — the later nodes assume
+      it. Each node links to the exact topic or problem to study.</p></div></aside>
+</div>
+{% endblock %}

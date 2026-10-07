@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}About — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>About {{ brand.site_name }}</h1>
+<p class="lead muted">{{ brand.description }}</p>
+<div class="grid g4 mb">
+  <div class="stat"><div class="n">{{ stats.branches }}</div><div class="l">Branches</div></div>
+  <div class="stat"><div class="n">{{ stats.subjects }}</div><div class="l">Subjects</div></div>
+  <div class="stat"><div class="n">{{ stats.topics }}</div><div class="l">Topics</div></div>
+  <div class="stat"><div class="n">{{ stats.questions }}</div><div class="l">Questions</div></div>
+</div>
+<div class="grid g2">
+  <div class="panel"><h2>The problem we are solving</h2>
+    <p>Engineering education is scattered: a textbook you cannot search, a YouTube playlist with no order,
+      previous-year papers with no explanations, and projects copied from a blog with nobody to ask why. Students
+      end up memorising without understanding and graduating without anything they can defend in an interview.</p>
+    <p>{{ brand.site_name }} puts the whole degree in one place, in a fixed structure, with practice attached to
+      every concept and a project attached to every skill.</p></div>
+  <div class="panel"><h2>How the notes are written</h2>
+    <p>Every topic follows the same 13-section template: a plain-language explanation, the formal definition, the
+      intuition behind it, key points, the formula with every variable and unit, the derivation, a worked numerical,
+      real-world applications, common mistakes, exam questions, interview questions, a diagram, and how it is used
+      in industry.</p>
+    <p>You can switch reading depth between beginner, standard, advanced and industry without leaving the page.</p></div>
+  <div class="panel"><h2>How we keep it honest</h2>
+    <ul><li>AI-generated content is labelled as such and cites the platform content it came from.</li>
+      <li>We never host pirated books or videos. Open-access titles link to the legal copy.</li>
+      <li>Certificates carry a verification id and state plainly that they are platform records, not
+        accreditation.</li>
+      <li>Basic education is never behind a paywall.</li></ul></div>
+  <div class="panel"><h2>How it is built</h2>
+    <p>Python and FastAPI on the server, server-rendered HTML with vanilla CSS and JavaScript in the browser, SQL
+      for the whole data layer, and an isolated Java sandbox service for running user code. No third-party
+      services, no trackers, no CDN. Everything is self-hosted and open.</p>
+    <p><a href="/api/docs">API documentation</a> · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></p></div>
+</div>
+{% endblock %}

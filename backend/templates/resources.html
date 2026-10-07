@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Resources — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Resources</h1>
+<p class="muted">Official documentation, free courses and tools. Nothing pirated, nothing behind a paywall we
+  cannot justify.</p>
+<div class="chips-row">
+  <a class="chip {{ 'on' if not active_kind }}" href="/resources">All</a>
+  {% for k in kinds %}<a class="chip {{ 'on' if active_kind == k.kind }}" href="/resources?kind={{ k.kind }}">{{ k.kind }} ({{ k.count }})</a>{% endfor %}
+</div>
+<div class="grid g3">
+  {% for r in resources %}
+    <a class="card" href="{{ r.url }}" target="_blank" rel="noopener noreferrer nofollow">
+      <span class="title">{{ r.title }}</span><span class="desc">{{ r.description }}</span>
+      <div class="tags"><span class="chip accent">{{ r.kind }}</span>
+        <span class="chip">{{ r.level }}</span>
+        <span class="chip {{ 'ok' if r.is_free else '' }}">{{ 'Free' if r.is_free else 'Paid' }}</span></div>
+    </a>
+  {% else %}<div class="empty"><span class="em">🔍</span>Nothing here yet.</div>{% endfor %}
+</div>
+{% endblock %}

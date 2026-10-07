@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}My profile — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div class="row"><div class="ring" style="--p:{{ stats.levelPct }}"><b>{{ stats.level }}</b></div>
+    <div><h1 style="margin:0">{{ user.full_name }}</h1>
+      <p class="muted" style="margin:0">@{{ user.username }} · {{ stats.rank }}</p>
+      <p class="small muted">{{ stats.xp }} XP · {{ stats.neededForNext }} to next level</p></div></div>
+  <div class="row"><a class="btn btn-ghost" href="/portfolio/{{ user.username }}">Public portfolio</a>
+    <a class="btn btn-primary" href="/settings">Settings</a></div>
+</div>
+
+<div class="grid g4 mb">
+  <div class="stat"><div class="n">{{ stats.currentStreak }}</div><div class="l">Day streak</div></div>
+  <div class="stat"><div class="n">{{ stats.topicsCompleted }}</div><div class="l">Topics done</div></div>
+  <div class="stat"><div class="n">{{ stats.problemsSolved }}</div><div class="l">Problems solved</div></div>
+  <div class="stat"><div class="n">{{ stats.accuracy }}%</div><div class="l">Accuracy</div></div>
+  <div class="stat"><div class="n">{{ stats.minutes }}</div><div class="l">Minutes studied</div></div>
+  <div class="stat"><div class="n">{{ stats.dppCompleted }}</div><div class="l">DPP sets</div></div>
+  <div class="stat"><div class="n">{{ stats.bookmarks }}</div><div class="l">Bookmarks</div></div>
+  <div class="stat"><div class="n">{{ stats.badges }}</div><div class="l">Badges</div></div>
+</div>
+
+<div class="layout-2">
+  <div class="stack">
+    <section class="panel"><h2>Activity</h2>
+      <div class="heatmap">{% for day in heatmap %}
+        <span class="hm l{{ day.level }}" title="{{ day.day }}: {{ day.minutes }} min, {{ day.xp }} XP"></span>
+      {% endfor %}</div>
+      <div class="row tiny muted mt"><span>Less</span>
+        <span class="hm"></span><span class="hm l1"></span><span class="hm l2"></span>
+        <span class="hm l3"></span><span class="hm l4"></span><span>More</span></div></section>
+
+    <section class="panel"><h2>Badges</h2><div class="badge-grid">
+      {% for b in badges %}<div class="badge {{ 'earned' if b.earned }}"><div class="em">
+        {{ '🏆' if b.tier == 'gold' else '🥈' if b.tier == 'silver' else '🥉' }}</div>
+        <div class="nm">{{ b.name }}</div><div class="ds">{{ b.description }}</div></div>
+      {% endfor %}</div></section>
+
+    {% if submissions %}<section class="panel"><h2>Recent code submissions</h2>
+      <div class="tablewrap"><table><thead><tr><th>Problem</th><th>Status</th><th>Language</th><th>When</th></tr></thead>
+      <tbody>{% for s in submissions %}<tr>
+        <td><a href="/practice/problems/{{ s.problem_slug }}">{{ s.problem_title }}</a></td>
+        <td><span class="chip {{ 'ok' if s.is_accepted else 'bad' }}">{{ s.status | replace('_',' ') }}</span></td>
+        <td>{{ s.language }}</td><td>{{ s.created_at | ago }}</td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+
+    {% if notes %}<section class="panel"><h2>My notes</h2><div class="stack">
+      {% for n in notes %}<div class="panel tight"><div class="between">
+        <span class="chip">{{ n.entity_type }}</span><span class="tiny muted">{{ n.created_at | ago }}</span></div>
+        <p class="small" style="margin:6px 0 0">{{ n.content }}</p></div>{% endfor %}</div></section>{% endif %}
+  </div>
+
+  <aside class="sidebar">
+    {% if bookmarks %}<div class="panel tight"><h3>Bookmarks</h3><div class="stack">
+      {% for b in bookmarks[:12] %}<span class="small">{{ b.entity_type }} · {{ b.entity_id }}</span>{% endfor %}
+    </div></div>{% endif %}
+    {% if notifications %}<div class="panel tight" id="notifications"><h3>Notifications</h3><div class="stack">
+      {% for n in notifications %}<div class="small {{ 'muted' if n.read_at }}">
+        <strong>{{ n.title }}</strong><br>{{ n.body }}
+        <span class="tiny muted">{{ n.created_at | ago }}</span></div>{% endfor %}</div></div>{% endif %}
+    <div class="panel tight"><h3>Certificates</h3>
+      <p class="small muted">Complete a topic or project, then claim a verifiable certificate.</p>
+      <a class="btn btn-soft btn-sm btn-block" href="/api/certificates">View mine</a></div>
+  </aside>
+</div>
+{% endblock %}

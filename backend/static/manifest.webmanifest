@@ -1,0 +1,25 @@
+{
+  "name": "EngineVerse",
+  "short_name": "EngineVerse",
+  "description": "Learn every engineering branch. Build real projects. Get placed.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#070b16",
+  "theme_color": "#070b16",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["education", "productivity"],
+  "icons": [
+    { "src": "/static/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/static/icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Daily practice", "url": "/dpp", "description": "Today's practice problems" },
+    { "name": "Coding", "url": "/programming", "description": "Solve coding problems" },
+    { "name": "Revision", "url": "/revision", "description": "Flashcards and formulas" }
+  ]
+}
