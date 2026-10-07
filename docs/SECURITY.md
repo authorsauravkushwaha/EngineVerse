@@ -146,10 +146,12 @@ process.
 - A wall-clock deadline. The submission runs in its own session, so on timeout
   the **whole process group** is killed, not just the direct child. A test
   asserts a fork bomb is contained and leaves no processes behind.
-- An empty `tmpfs` is mounted over the checkout inside the sandbox's mount
-  namespace, so a submission can neither read the source tree nor write into it.
-  A test lists the application root from inside a submission and asserts it comes
-  back empty. Whether the host permits an unprivileged mount namespace is
+- An empty `tmpfs` is mounted over the application user's home directory — and
+  therefore over the checkout inside it — within the sandbox's mount namespace.
+  A submission can neither read the source tree nor write anywhere that account
+  can. Tests assert the checkout cannot be listed, that a source file cannot be
+  opened, and that writes aimed at both the repository and the home directory
+  leave nothing behind on the real filesystem. Whether the host permits an unprivileged mount namespace is
   **probed at startup** rather than assumed; when it is not available the run
   falls back to the rlimits alone and says so.
 - Privileges are dropped to `nobody` where the parent is allowed to do so.

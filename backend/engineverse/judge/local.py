@@ -55,6 +55,34 @@ SANDBOX_GID = 65534
 APP_ROOT = Path(__file__).resolve().parents[3]
 
 
+def _paths_to_hide() -> list[Path]:
+    """Directories an empty tmpfs is mounted over inside the sandbox.
+
+    The checkout alone is not enough: a submission could still write anywhere
+    else the application user can, such as the parent of the checkout or a
+    sibling directory. Hiding the account's home directory as well covers the
+    usual layout without needing to enumerate what happens to be nearby.
+    """
+    candidates = [APP_ROOT]
+    try:
+        home = Path.home().resolve()
+    except RuntimeError:  # pragma: no cover - no HOME set
+        home = None
+    if home and home.is_dir():
+        candidates.append(home)
+
+    live = {c for c in candidates if c.is_dir()}
+    # Keep only the topmost paths. When the home directory contains the
+    # checkout, one tmpfs over the home covers both; mounting the checkout
+    # separately would be redundant, and mounting a parent *after* its child
+    # would make the child's mount point disappear underneath it.
+    topmost = {
+        path for path in live
+        if not any(path != other and other in path.parents for other in live)
+    }
+    return sorted(topmost, key=lambda item: len(item.parts))
+
+
 def _processes_for_uid(uid: int) -> int:
     """Counts processes already owned by ``uid``.
 
@@ -314,12 +342,14 @@ class LocalSandboxProvider:
             script = []
             if self._have_mount_ns:
                 # Inside the user namespace this shell is root, so it can mount.
-                # An empty tmpfs over the checkout means a submission can neither
-                # read the source tree nor write into it. Best effort: if the
-                # mount is refused the run continues under the rlimits alone.
-                script.append(
-                    f"mount -t tmpfs -o size=1k tmpfs {_shell_quote(str(APP_ROOT))} 2>/dev/null || true"
-                )
+                # An empty tmpfs over these paths means a submission can neither
+                # read the source tree nor write anywhere the application user
+                # can. Best effort: if a mount is refused the run continues
+                # under the rlimits alone.
+                for hidden in _paths_to_hide():
+                    script.append(
+                        f"mount -t tmpfs -o size=1k tmpfs {_shell_quote(str(hidden))} 2>/dev/null || true"
+                    )
             script += [
                 f"ulimit -v {vlimit_kb} 2>/dev/null || true",
                 f"ulimit -t {timeout_seconds} 2>/dev/null || true",

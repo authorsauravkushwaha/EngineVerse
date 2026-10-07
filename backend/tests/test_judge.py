@@ -510,12 +510,35 @@ class TestSandboxFilesystemIsolation:
             pytest.skip("this host does not allow an unprivileged mount namespace")
         result = provider.run(
             "python",
-            f"import os\nprint(os.listdir({str(APP_ROOT)!r}))\n",
+            "import os\n"
+            "try:\n"
+            f"    print('LISTED', os.listdir({str(APP_ROOT)!r}))\n"
+            "except OSError as exc:\n"
+            "    print('HIDDEN', type(exc).__name__)\n",
             "",
         )
-        assert result.stdout.strip() == "[]", (
+        # Either the directory is gone entirely, or it is an empty tmpfs. Both
+        # mean the checkout cannot be read; a listing means the mount failed.
+        assert "LISTED" not in result.stdout or result.stdout.strip().endswith("[]"), (
             f"a submission can still list the checkout: {result.stdout.strip()}"
         )
+
+    def test_the_home_directory_is_not_writable(self, provider):
+        """The checkout is not the only thing the application user can write."""
+        from pathlib import Path
+
+        if not provider._have_mount_ns:
+            pytest.skip("this host does not allow an unprivileged mount namespace")
+        home = Path.home().resolve()
+        marker = home / "_judge_home_probe.txt"
+        if marker.exists():
+            marker.unlink()
+        provider.run(
+            "python",
+            f"open({str(marker)!r}, 'w').write('pwned')\nprint('attempted')\n",
+            "",
+        )
+        assert not marker.exists(), "a submission wrote into the application user's home"
 
     def test_a_source_file_cannot_be_read(self, provider):
         from engineverse.judge.local import APP_ROOT
