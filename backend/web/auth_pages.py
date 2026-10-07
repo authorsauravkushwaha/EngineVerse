@@ -394,7 +394,7 @@ async def set_user_status(request: Request, user_id: str = Form(...), status: st
 async def update_site_config(request: Request, site_name: str = Form(""), tagline: str = Form(""),
                              announcement: str = Form(""), support_email: str = Form(""),
                              accent_color: str = Form("#4f7cff"), maintenance_mode: str = Form("0"),
-                             registration_open: str = Form("1")):
+                             registration_open: str = Form("1"), theme: str = Form("dark")):
     viewer = require_user(request)
     assert_can(viewer.role, "settings.manage")
     from engineverse import brand
@@ -407,6 +407,7 @@ async def update_site_config(request: Request, site_name: str = Form(""), taglin
         "accent_color": accent_color.strip()[:20],
         "maintenance_mode": "1" if maintenance_mode else "0",
         "registration_open": "1" if registration_open else "0",
+        "theme": theme.strip() if theme.strip() in ("dark", "light") else "dark",
     })
     response = RedirectResponse("/admin", status_code=303)
     flash(response, "Site configuration saved.")

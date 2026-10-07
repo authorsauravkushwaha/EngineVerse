@@ -588,3 +588,115 @@ class TestFlashCookie:
             cookies = {"ev_flash": raw.split("ev_flash=")[1].split(";")[0]}
 
         assert read_flash(FakeRequest()).startswith("Thanks — ")
+
+
+class TestThemeAndJsonForms:
+    """Two controls that existed but did nothing.
+
+    base.html hard-coded data-theme="dark", so the admin theme setting and the
+    whole [data-theme="light"] variable set in app.css were unreachable. And
+    data-json-form was an attribute with no handler in app.js.
+    """
+
+    def test_the_html_element_carries_the_configured_theme(self, client, seeded):
+        from engineverse import brand
+
+        original = brand.get("theme")
+        try:
+            brand.set_many({"theme": "light"})
+            assert 'data-theme="light"' in client.get("/").text
+            brand.set_many({"theme": "dark"})
+            assert 'data-theme="dark"' in client.get("/").text
+        finally:
+            brand.set_many({"theme": original or "dark"})
+
+    def test_the_admin_form_can_change_the_theme(self, app, seeded):
+        from starlette.testclient import TestClient
+
+        from engineverse import brand, db
+
+        original = brand.get("theme")
+        try:
+            client = TestClient(app, raise_server_exceptions=False)
+            page = client.get("/login").text
+            client.post(
+                "/login",
+                data={"csrf_token": _csrf(page), "identifier": "admin@engineverse.local",
+                      "password": "Str0ngPassphrase#42!", "next": "/"},
+                follow_redirects=False,
+            )
+            admin = client.get("/admin")
+            assert 'name="theme"' in admin.text, "the admin form has no theme control"
+
+            response = client.post(
+                "/admin/config",
+                data={"site_name": "EngineVerse", "theme": "light",
+                      "csrf_token": _csrf(admin.text)},
+                follow_redirects=False,
+            )
+            assert response.status_code == 303
+            assert db.query_one("SELECT value FROM site_config WHERE key = 'theme'")["value"] == "light"
+
+            # A value that is not a real theme must not reach the page.
+            admin = client.get("/admin")
+            client.post("/admin/config",
+                        data={"site_name": "EngineVerse", "theme": "chartreuse",
+                              "csrf_token": _csrf(admin.text)},
+                        follow_redirects=False)
+            assert db.query_one("SELECT value FROM site_config WHERE key = 'theme'")["value"] == "dark"
+        finally:
+            brand.set_many({"theme": original or "dark"})
+
+    def test_a_stored_preference_is_restored_before_first_paint(self, client, seeded):
+        """Without this the page flashes the default theme for one frame."""
+        html = client.get("/").text
+        assert 'localStorage.getItem("ev-theme")' in html
+        assert 'id="theme-toggle"' in html
+
+    def test_every_data_json_form_attribute_has_a_handler(self, seeded):
+        """The attribute implied a handler that did not exist for several commits."""
+        import pathlib
+
+        js = (pathlib.Path(__file__).resolve().parents[1] / "static" / "js" / "app.js").read_text()
+        assert "form[data-json-form]" in js, "app.js has no data-json-form handler"
+        assert "theme-toggle" in js, "app.js has no theme toggle handler"
+
+    def test_json_clients_get_a_destination_and_a_message(self, signed_in):
+        """The fetch handler navigates using url and toasts using message."""
+        from engineverse import db
+
+        token = _csrf(signed_in.get("/community").text)
+        headers = {"Accept": "*/*", "x-csrf-token": token}
+        topic = db.query_one("SELECT id FROM topics LIMIT 1")
+
+        created = signed_in.post(
+            "/api/community/threads",
+            json={"title": "Thread for a JSON reply", "body": "Body text for the post.",
+                  "kind": "question"},
+            headers=headers,
+        )
+        thread_id = created.json()["id"]
+        assert created.json()["url"] == f"/community/{thread_id}"
+
+        reply = signed_in.post(
+            "/api/community/comments",
+            json={"threadId": thread_id, "body": "A reply from the fetch handler."},
+            headers=headers,
+        )
+        body = reply.json()
+        assert body["url"].startswith(f"/community/{thread_id}#c-"), body
+        assert body["message"]
+
+        note = signed_in.post(
+            "/api/notes/personal",
+            json={"entityType": "topic", "entityId": topic["id"], "content": "A JSON note."},
+            headers=headers,
+        )
+        assert note.json()["message"]
+
+        feedback = signed_in.post(
+            "/api/feedback",
+            json={"message": "Feedback from the fetch handler.", "path": "/dpp"},
+            headers=headers,
+        )
+        assert feedback.json()["message"]

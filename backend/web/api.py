@@ -322,7 +322,7 @@ async def api_personal_note(request: Request):
     note_id = progress.save_personal_note(viewer.id, entity_type, entity_id, content)
     if wants_html(request):
         return RedirectResponse(_entity_url(entity_type, entity_id), status_code=303)
-    return ok(id=note_id)
+    return ok(id=note_id, message="Note saved.")
 
 
 def _entity_url(entity_type: str, entity_id: str) -> str:
@@ -398,9 +398,10 @@ async def api_comment(request: Request):
     if not community.get_thread(threadId):
         return fail("That discussion does not exist.", 404)
     comment_id = community.add_comment(viewer.id, threadId, body, parentId)
+    url = f"/community/{threadId}#c-{comment_id}"
     if wants_html(request):
-        return RedirectResponse(f"/community/{threadId}#c-{comment_id}", status_code=303)
-    return ok(id=comment_id)
+        return RedirectResponse(url, status_code=303)
+    return ok(id=comment_id, url=url, message="Reply posted.")
 
 
 @router.post("/community/vote")
@@ -448,7 +449,7 @@ async def api_project_track(request: Request):
     projects.record_build(viewer.id, project["id"])
     if wants_html(request):
         return RedirectResponse(f"/projects/{slug}", status_code=303)
-    return ok()
+    return ok(message="Logged. Nice build.")
 
 
 # ---------------------------------------------------------------------------
@@ -501,9 +502,10 @@ async def api_issue_certificate(request: Request):
     issued = db.query_one("SELECT verify_id FROM certificates WHERE id = ?", cert_id)
     verify_id = issued["verify_id"] if issued else None
     bundle = progress.verify_certificate(verify_id) if verify_id else None
-    if wants_html(request) and verify_id:
-        return RedirectResponse(f"/certificates/{verify_id}", status_code=303)
-    return ok(certificate=bundle, verifyId=verify_id)
+    url = f"/certificates/{verify_id}" if verify_id else None
+    if wants_html(request) and url:
+        return RedirectResponse(url, status_code=303)
+    return ok(certificate=bundle, verifyId=verify_id, url=url, message="Certificate issued.")
 
 
 # ---------------------------------------------------------------------------
@@ -551,13 +553,7 @@ async def api_feedback(request: Request):
         return _reject(request, back_to, "Tell us a little more than that.")
     record("app.feedback", actor_id=viewer.id if viewer else None,
            meta={"message": message[:2000], "path": path})
-    if wants_html(request):
-        return _reject_ok(request, back_to, "Thanks — that reached the team.")
-    return ok()
-
-
-def _reject_ok(request: Request, back_to: str, message: str):
-    """The success twin of _reject: flash and go back."""
+    message = "Thanks — that reached the team."
     if wants_html(request):
         from .deps import flash
 

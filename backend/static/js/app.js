@@ -425,5 +425,52 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
     });
   }
 
+  // ------------------------------------------------- data-json-form forms
+  // Progressive enhancement only. Every one of these forms is a real HTML form
+  // that posts urlencoded and is handled server-side, so with scripting off the
+  // browser submits it natively and follows the 303 back. This handler just
+  // upgrades that to a fetch so the page does not reload on every save.
+  $$("form[data-json-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      if (!form.reportValidity()) return;
+      const payload = {};
+      new FormData(form).forEach((value, key) => {
+        // The community forms take tags as a list; the field is comma-separated.
+        payload[key] = key === "tags"
+          ? String(value).split(",").map((t) => t.trim()).filter(Boolean)
+          : value;
+      });
+      const button = $("button[type=submit]", form);
+      if (button) button.disabled = true;
+      try {
+        const data = await api(form.action, { method: "POST", body: payload });
+        toast(data.message || "Saved.");
+        if (data.url) { window.location.href = data.url; return; }
+        setTimeout(() => window.location.reload(), 700);
+      } catch (err) {
+        toast(err.message || "That did not work.", "bad");
+        if (button) button.disabled = false;
+      }
+    });
+  });
+
+  // --------------------------------------------------------- theme toggle
+  // The [data-theme="light"] variable set in app.css was unreachable: base.html
+  // hard-coded dark, so neither the admin setting nor any user preference could
+  // take effect. The server default is applied on the <html> element and an
+  // inline script in <head> restores the stored choice before first paint.
+  const themeBtn = $("#theme-toggle");
+  if (themeBtn) {
+    themeBtn.addEventListener("click", () => {
+      const root = document.documentElement;
+      const next = root.getAttribute("data-theme") === "light" ? "dark" : "light";
+      root.setAttribute("data-theme", next);
+      try { localStorage.setItem("ev-theme", next); } catch (e) { /* private mode */ }
+      const meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute("content", next === "light" ? "#f5f7fc" : "#070b16");
+    });
+  }
+
   window.EV = { api, toast, escapeHtml };
 })();
