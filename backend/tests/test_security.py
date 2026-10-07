@@ -620,3 +620,77 @@ class TestFormValidationErrors:
         assert response.status_code == 422
         assert response.json()["ok"] is False
         assert "fields" in response.json()
+
+
+class TestSvgSanitising:
+    """Diagram specs are stored markup rendered with `| safe`.
+
+    CSP with a per-request nonce stops an injected script from running, but that
+    is a header doing the work of a sanitiser. The admin CMS is meant to grow a
+    diagram editor, so the markup is cleaned where it is read instead.
+    """
+
+    def test_script_elements_are_removed(self):
+        from engineverse.security.sanitize import sanitize_svg
+
+        out = sanitize_svg('<svg><rect x="1" /><script>alert(1)</script></svg>')
+        assert "<script" not in out
+        assert "<rect" in out, "legitimate drawing elements must survive"
+
+    def test_event_handlers_are_removed(self):
+        from engineverse.security.sanitize import sanitize_svg
+
+        out = sanitize_svg('<svg><circle onload="alert(1)" r="4" onclick="x()" /></svg>')
+        assert "onload" not in out
+        assert "onclick" not in out
+        assert 'r="4"' in out
+
+    def test_script_urls_are_removed(self):
+        from engineverse.security.sanitize import sanitize_svg
+
+        for payload in ('javascript:alert(1)', 'JaVaScRiPt:alert(1)', 'data:text/html;base64,PHN2Zz4=',
+                        'vbscript:msgbox(1)'):
+            out = sanitize_svg(f'<svg><a href="{payload}"><text>x</text></a></svg>')
+            assert "alert" not in out and "msgbox" not in out, f"{payload} survived"
+
+    def test_foreign_elements_are_dropped(self):
+        from engineverse.security.sanitize import sanitize_svg
+
+        out = sanitize_svg('<svg><foreignObject><iframe src="//evil"></iframe></foreignObject>'
+                           '<text>keep</text></svg>')
+        assert "<iframe" not in out and "<foreignobject" not in out.lower()
+        assert "keep" in out
+
+    def test_markup_that_is_not_svg_is_refused(self):
+        from engineverse.security.sanitize import sanitize_svg
+
+        assert sanitize_svg("<div onclick=alert(1)>hi</div>") == ""
+        assert sanitize_svg("") == ""
+
+    def test_the_seeded_diagrams_survive_intact(self):
+        """A sanitiser that mangles the real diagrams is not a fix."""
+        import re
+
+        from engineverse import db
+        from engineverse.security.sanitize import sanitize_svg
+
+        rows = db.query("SELECT title, spec FROM diagrams")
+        assert rows, "expected seeded diagrams to compare against"
+        for row in rows:
+            before = len(re.findall(r"<[a-zA-Z]", row["spec"]))
+            after = len(re.findall(r"<[a-zA-Z]", sanitize_svg(row["spec"])))
+            assert before == after, f"{row['title']} lost {before - after} elements"
+
+    def test_the_read_path_returns_sanitised_markup(self):
+        from engineverse import catalog, db
+
+        topic = db.query_one(
+            "SELECT topic_id FROM diagrams LIMIT 1"
+        )
+        if not topic:
+            pytest.skip("no seeded diagrams")
+        diagrams = catalog.diagrams_for_topic(topic["topic_id"])
+        assert diagrams
+        for diagram in diagrams:
+            assert diagram["spec"].lstrip().startswith("<svg")
+            assert "<script" not in diagram["spec"]

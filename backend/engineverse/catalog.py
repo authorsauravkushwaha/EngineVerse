@@ -9,6 +9,7 @@ import json
 from typing import Any
 
 from . import db
+from .security.sanitize import sanitize_svg
 
 NOTE_ORDER = ("beginner", "standard", "advanced", "industry")
 
@@ -280,10 +281,22 @@ def sections_for_note(note_id: str) -> list[dict]:
 
 
 def diagrams_for_topic(topic_id: str) -> list[dict]:
+    """Diagrams for a topic, with the SVG sanitised before it is rendered.
+
+    The template emits ``diagram.spec | safe`` because a diagram is markup by
+    definition. Cleaning it here rather than in the template means the safe
+    version is the only version any caller can reach, including a future admin
+    form. A spec that holds no SVG is dropped rather than rendered.
+    """
     rows = db.query("SELECT * FROM diagrams WHERE topic_id = ? ORDER BY rowid", topic_id)
+    kept: list[dict] = []
     for row in rows:
+        row["spec"] = sanitize_svg(row.get("spec") or "")
+        if not row["spec"]:
+            continue
         row["hotspots_data"] = _json(row.get("hotspots"), [])
-    return rows
+        kept.append(row)
+    return kept
 
 
 def formulas_for_topic(topic_id: str) -> list[dict]:

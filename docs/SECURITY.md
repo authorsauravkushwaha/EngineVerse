@@ -125,9 +125,19 @@ instead and drop that block from `forgot.html`.
 - **SQL** — every query is parameterised through `db.query/execute/scalar`. No
   query in the codebase interpolates a value into SQL text. Foreign keys are
   enforced (verified by a test that an insert referencing a missing user fails).
-- **XSS** — Jinja2 runs with `autoescape=True`. The one deliberate exception is
+- **XSS** — Jinja2 runs with `autoescape=True`. The two deliberate exceptions are
   rendered markdown, which passes through `markdown.py`'s own escaping and is
-  never fed raw user HTML.
+  never fed raw user HTML, and diagram SVG.
+- **Stored SVG** — a diagram *is* markup, so `topic.html` emits `diagram.spec`
+  with `| safe`. The spec is therefore run through `sanitize_svg()` where it is
+  read, not in the template, so the clean version is the only one any caller can
+  reach — including a future admin form. It allowlists elements and attributes
+  rather than blocking known-bad ones, drops `on*` handlers and `javascript:`/
+  `data:`/`vbscript:` URLs, and returns an empty string for input that is not SVG
+  at all. A test asserts all six seeded diagrams survive with every element
+  intact, because a sanitiser that mangles real diagrams is not a fix. CSP's
+  nonce already stops an injected script; this is the layer that does not depend
+  on a header being present.
 - **Open redirect** — `is_safe_url()` allows only same-site paths and the
   `http`, `https` and `mailto` schemes. It explicitly rejects **protocol-relative
   URLs** (`//evil.com`, `/\evil.com`), which every browser resolves against the
