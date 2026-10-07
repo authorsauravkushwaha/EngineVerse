@@ -1,0 +1,34 @@
+# EngineVerse - Python runtime dependencies.
+#
+# Deliberately short. The platform is self-hosted: no SaaS client, no hosted
+# auth, no CDN, no search service. Anything not on this list is implemented in
+# this repository (including the LaTeX renderer, which has no dependency at all).
+#
+# Install:  pip install -r requirements.txt
+
+# --- web framework and server -------------------------------------------------
+fastapi==0.142.3
+uvicorn==0.54.0
+starlette==1.7.0
+pydantic==2.13.5
+anyio==4.15.1
+
+# --- templating and forms ----------------------------------------------------
+Jinja2==3.1.6
+python-multipart==0.0.32
+
+# --- HTTP client (used by the optional Judge0 bridge) -------------------------
+httpx==0.28.1
+
+# --- signed cookies ----------------------------------------------------------
+itsdangerous==2.2.0
+
+# --- database ----------------------------------------------------------------
+# SQLite is in the standard library, so development needs nothing extra.
+# For production, uncomment the driver matching your DB_URL:
+# psycopg[binary]==3.2.6
+
+# --- development and CI -------------------------------------------------------
+pytest==9.1.1
+pytest-asyncio==1.4.0
+sqlglot==30.21.0

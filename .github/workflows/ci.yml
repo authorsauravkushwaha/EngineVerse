@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  python:
+    name: Python · tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio sqlglot
+
+      - name: Seed a throwaway database
+        run: |
+          cp .env.example .env
+          python scripts/seed.py --fresh --stats
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+
+      - name: Run the test suite
+        run: python -m pytest backend/tests -q
+        env:
+          ENGINEVERSE_SECRET: ci-only-secret-not-used-in-production-0123456789
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+          ENGINEVERSE_ENV: test
+
+      - name: Report seed volume
+        run: python scripts/seed.py --stats
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+
+  postgres:
+    name: PostgreSQL · schema applies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: engineverse
+          POSTGRES_PASSWORD: engineverse
+          POSTGRES_DB: engineverse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U engineverse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply the production schema
+        env:
+          PGPASSWORD: engineverse
+        run: |
+          psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
+            -f db/postgres/schema.pg.sql
+
+      - name: Verify partitions and row limits were created
+        env:
+          PGPASSWORD: engineverse
+        run: |
+          psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 <<'SQL'
+          -- Every partitioned table must have its full fan-out.
+          SELECT c.relname AS parent, count(i.inhrelid) AS partitions
+            FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhparent
+           WHERE c.relname IN ('submissions','activity','audit_logs','coding_submissions')
+           GROUP BY c.relname
+          HAVING count(i.inhrelid) >= 128;
+
+          -- Inserts must land in a partition rather than failing.
+          INSERT INTO users (id, email, username, password_hash, password_changed_at, created_at, updated_at)
+          VALUES ('01TEST', 'schema-check@engineverse.test', 'schemacheck', 'scrypt$16384$8$1$AA$BB', 0, 0, 0);
+          INSERT INTO submissions (id, user_id, question_id, is_correct, created_at)
+          SELECT '01SUB', '01TEST', q.id, true, 0 FROM questions q LIMIT 1;
+          SQL
+
+      - name: Re-applying the schema must be a no-op
+        env:
+          PGPASSWORD: engineverse
+        run: |
+          psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
+            -f db/postgres/schema.pg.sql
+
+  javascript:
+    name: Assets · no build step required
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: The client bundle parses as valid JavaScript
+        run: node --check backend/static/js/app.js
+
+      - name: No CDN or third-party origins are referenced
+        run: |
+          if grep -rnE 'https?://[^"]*(cdn|unpkg|jsdelivr|googleapis|gstatic)' \
+               backend/static backend/templates; then
+            echo "error: a third-party asset host is referenced" >&2
+            exit 1
+          fi
+          echo "OK: every asset is self-hosted"
