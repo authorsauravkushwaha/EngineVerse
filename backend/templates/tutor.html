@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}AI tutor — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>AI tutor</h1>
+<p class="muted">Ask about anything in the library. The tutor reads this platform's own notes, formulas and topics
+  and answers <strong>only from what it finds</strong> &mdash; if the library has nothing on a subject it says so
+  rather than inventing an explanation.</p>
+
+<div class="panel mb">
+  <form id="tutor-form" class="row" autocomplete="off">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input id="tutor-question" name="question" placeholder="Ask about a topic, formula or concept&hellip;"
+           maxlength="400" aria-label="Your question" style="flex:1;min-width:220px">
+    <button class="btn btn-primary" type="submit" id="tutor-send">Ask</button>
+  </form>
+  <div class="chips-row mt">
+    {% for prompt in prompts %}<button type="button" class="chip" data-tutor-prompt>{{ prompt }}</button>{% endfor %}
+  </div>
+  <p class="tiny muted mt">30 questions per hour. Nothing you ask is shown to other users.</p>
+</div>
+
+<div id="tutor-result" class="panel" hidden>
+  <div class="callout callout-ai">
+    <span class="label">AI-generated</span>
+    <span id="tutor-disclosure">This answer was assembled by the tutor from platform content. Check the sources
+      before you rely on it.</span>
+  </div>
+  <div id="tutor-message" class="muted" hidden></div>
+  <div id="tutor-answer" class="prose"></div>
+  <div id="tutor-sources" class="mt" hidden>
+    <h3>Sources on {{ brand.site_name }}</h3>
+    <ol class="source-list" id="tutor-source-list"></ol>
+  </div>
+</div>
+
+<div class="empty" id="tutor-empty"><span class="em">✦</span>
+  Ask a question above, or pick one of the suggestions.</div>
+{% endblock %}

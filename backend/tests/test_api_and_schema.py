@@ -700,3 +700,45 @@ class TestThemeAndJsonForms:
             headers=headers,
         )
         assert feedback.json()["message"]
+
+
+class TestSearchIndexSelfHeal:
+    """The search index is derived data and must not go stale on an upgrade.
+
+    Notes were added to the indexer, but a deployment upgraded in place kept the
+    index it already had, so its note content stayed unsearchable until someone
+    remembered to reseed. The version marker makes that automatic.
+    """
+
+    def test_a_stale_index_is_rebuilt(self):
+        from engineverse import db, search
+
+        original = db.query_one(
+            "SELECT value FROM site_config WHERE key = 'search_index_version'"
+        )
+        db.execute("DELETE FROM search_index")
+        db.execute("UPDATE site_config SET value = '0' WHERE key = 'search_index_version'")
+        try:
+            reindexed = search.refresh_if_stale()
+            assert reindexed > 0, "a stale index was not rebuilt"
+            assert db.query_one(
+                "SELECT count(*) AS c FROM search_index WHERE entity_type = 'note'"
+            )["c"] > 0, "notes are still missing from the rebuilt index"
+        finally:
+            search.refresh_if_stale()
+            assert db.query_one(
+                "SELECT value AS v FROM site_config WHERE key = 'search_index_version'"
+            )["v"] == str(search.INDEX_SCHEMA_VERSION)
+
+    def test_a_current_index_is_left_alone(self):
+        from engineverse import search
+
+        search.refresh_if_stale()
+        assert search.refresh_if_stale() == 0, "an up-to-date index was rebuilt needlessly"
+
+    def test_notes_are_searchable(self):
+        from engineverse import search
+
+        search.refresh_if_stale()
+        types = {row["type"] for row in search.search("array", limit=10)["results"]}
+        assert "note" in types, "a search for a covered concept returns no notes"

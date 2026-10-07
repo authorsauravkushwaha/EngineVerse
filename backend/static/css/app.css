@@ -310,6 +310,12 @@ sup, sub { font-size: .74em; }
 .callout.exam { border-left-color: var(--warn); background: rgba(245, 158, 11, .07); }
 .callout.interview { border-left-color: var(--accent-3); background: rgba(167, 139, 250, .08); }
 .callout.realworld { border-left-color: var(--ok); background: rgba(34, 197, 94, .07); }
+/* AI-generated content is always visibly labelled (see engineverse/tutor.py). */
+.callout-ai { border-left-color: var(--accent-3); background: rgba(167, 139, 250, .09); }
+.callout-ai .label { color: var(--accent-3); }
+.source-list { margin: 6px 0 0; padding-left: 22px; }
+.source-list li { margin: 5px 0; }
+.source-list .tiny { margin-left: 7px; text-transform: capitalize; }
 .callout .label {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .07em; font-weight: 800;
   color: var(--muted); display: block; margin-bottom: 5px;

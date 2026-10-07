@@ -283,7 +283,7 @@ ROLE_PAGES = [
     "/", "/explore", "/about", "/install", "/offline", "/privacy", "/terms",
     "/practice", "/dpp", "/practice/problems", "/practice/questions", "/programming",
     "/programming/python", "/projects", "/resources", "/videos", "/books", "/formulas",
-    "/revision", "/roadmaps", "/community", "/placements", "/leaderboard",
+    "/revision", "/roadmaps", "/tutor", "/community", "/placements", "/leaderboard",
     "/login", "/register", "/forgot-password", "/reset-password", "/streaks",
     "/search?q=bernoulli", "/topics/arrays", "/topics/bernoullis-equation",
     "/subjects/data-structures-algorithms", "/subjects/thermodynamics",

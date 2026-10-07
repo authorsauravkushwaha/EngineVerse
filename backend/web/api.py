@@ -24,6 +24,7 @@ from engineverse import (
     projects,
     recommend,
     srs,
+    tutor,
 )
 from engineverse.security.audit import record
 
@@ -286,6 +287,37 @@ async def api_review(request: Request, cardId: str = Body(...), rating: str = Bo
     progress.award_xp(viewer.id, 2, "flashcard", "flashcard", cardId)
     progress.bump_activity(viewer.id, "revisions")
     return ok(state=state, stats=library.flashcard_stats(viewer.id))
+
+
+# ---------------------------------------------------------------------------
+# AI tutor
+# ---------------------------------------------------------------------------
+
+
+@router.post("/tutor/ask")
+async def api_tutor_ask(request: Request):
+    """Answers from platform content only, with the sources it used.
+
+    Available signed in or out so a visitor can judge the platform before
+    registering; the per-IP limit in RateLimitMiddleware is what stops it being
+    used as a free query hose.
+    """
+    viewer = current_user(request)
+    data = await payload(request)
+    question = (data.get("question") or "").strip()
+    if not question:
+        return fail("Ask a question first.", status=422)
+    if len(question) > 400:
+        return fail("Keep the question under 400 characters.", status=422)
+
+    result = tutor.answer(question, user_id=viewer.id if viewer else None)
+    record("tutor.asked", actor_id=viewer.id if viewer else None,
+           ip=request.client.host if request.client else None,
+           meta={"question": question[:200], "grounded": result["grounded"],
+                 "sources": len(result["sources"])})
+    return ok(question=question, answer=result["answer"], sources=result["sources"],
+              grounded=result["grounded"], disclosure=result["disclosure"],
+              message=result["message"])
 
 
 # ---------------------------------------------------------------------------

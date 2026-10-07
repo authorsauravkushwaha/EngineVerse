@@ -19,6 +19,7 @@ from typing import Any
 from . import db
 
 ENTITY_URLS = {
+    "note": "/topics/{id}",   # a note is read on its topic's page
     "topic": "/topics/{id}",
     "subject": "/subjects/{id}",
     "formula": "/formulas#{id}",
@@ -233,6 +234,36 @@ def indexed_count() -> int:
     return int(db.scalar("SELECT count(*) AS c FROM search_index") or 0)
 
 
+# Bump whenever reindex_all() starts covering a new entity type or changes what
+# a body contains. The search index is derived data, so a deployment whose code
+# indexes more than its stored index holds must rebuild it; without this a site
+# upgraded in place silently keeps searching the old, narrower index. Notes were
+# exactly that case: added to the indexer, absent from every existing index.
+INDEX_SCHEMA_VERSION = 2
+
+
+def refresh_if_stale() -> int:
+    """Rebuilds the index when the code indexes more than the stored index does.
+
+    Records the version it wrote in site_config so the check is cheap on every
+    later start. Returns the number of entities reindexed, or 0 when the index
+    was already current.
+    """
+    from .security.ids import now_ms
+
+    row = db.query_one("SELECT value FROM site_config WHERE key = 'search_index_version'")
+    if row and row["value"] == str(INDEX_SCHEMA_VERSION):
+        return 0
+    count = reindex_all()
+    if row:
+        db.execute("UPDATE site_config SET value = ?, updated_at = ? WHERE key = 'search_index_version'",
+                   str(INDEX_SCHEMA_VERSION), now_ms())
+    else:
+        db.execute("INSERT INTO site_config (key, value, updated_at) VALUES (?,?,?)",
+                   "search_index_version", str(INDEX_SCHEMA_VERSION), now_ms())
+    return count
+
+
 def reindex_all() -> int:
     """Rebuilds the whole index from the content tables."""
     db.execute("DELETE FROM search_index")
@@ -271,6 +302,29 @@ def reindex_all() -> int:
     ):
         index_entity(entity_type="question", entity_id=row["slug"], title=row["stem"][:300],
                      body=row["kind"], branch=row["branch"] or "", difficulty=row["difficulty"], tags=row["kind"])
+        count += 1
+
+    # Notes were never indexed, so the 192 published notes and their 957
+    # sections were invisible to global search - a student searching for a
+    # concept found the topic page but not the writing that explains it. The
+    # body is capped: the index is a pointer into the note, not a copy of it.
+    for row in db.query(
+        "SELECT n.id, n.quality_level, t.slug AS topic_slug, t.title AS topic_title, s.name AS subject, "
+        "       b.slug AS branch, s.semester_id AS semester, t.difficulty "
+        "FROM notes n JOIN topics t ON t.id = n.topic_id JOIN subjects s ON s.id = t.subject_id "
+        "LEFT JOIN branches b ON b.id = s.branch_id WHERE n.status = 'published'"
+    ):
+        sections = db.query(
+            "SELECT title, body FROM note_sections WHERE note_id = ? ORDER BY order_index", row["id"]
+        )
+        body = " ".join(f"{sec['title']}. {sec['body']}" for sec in sections)[:4000]
+        index_entity(
+            entity_type="note", entity_id=row["topic_slug"],
+            title=f"{row['topic_title']} — {row['quality_level']} notes",
+            body=f"{row['subject']}. {body}", branch=row["branch"] or "",
+            semester=str(row["semester"] or ""), difficulty=row["difficulty"],
+            tags=row["quality_level"],
+        )
         count += 1
 
     for row in db.query("SELECT slug, title, statement, difficulty, topics FROM coding_problems"):

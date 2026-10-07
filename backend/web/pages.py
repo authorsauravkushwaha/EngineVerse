@@ -338,6 +338,20 @@ async def formulas_page(request: Request, category: str | None = None, q: str | 
     )
 
 
+@router.get("/tutor")
+async def tutor_page(request: Request):
+    """The AI tutor. Retrieval-grounded and labelled; see engineverse/tutor.py."""
+    return render(
+        request, "tutor.html",
+        prompts=[
+            "Explain Bernoulli's equation and when it applies",
+            "What is an array and when is it faster than a linked list?",
+            "How does cache locality affect my code's speed?",
+            "Summarise the second law of thermodynamics",
+        ],
+    )
+
+
 @router.get("/revision")
 async def revision_page(request: Request):
     viewer = current_user(request)

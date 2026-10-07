@@ -116,6 +116,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         limit = None
         if path.startswith("/api/run") or path.startswith("/api/submit"):
             limit = ("judge", 30, 60)
+        elif path.startswith("/api/tutor/"):
+            # Reads the configured ceiling rather than a literal, so the "ai"
+            # entry in LIMITS - defined but previously unused - is what applies.
+            count, window = ratelimit.LIMITS["ai"]
+            limit = ("ai", count, window)
         elif path.startswith("/api/"):
             limit = ("api", 300, 60)
         if limit is None:
@@ -137,6 +142,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.migrate()
+    # Derived data: rebuild the search index when this version of the code
+    # indexes more than the stored index holds. Cheap no-op once current.
+    from engineverse import search
+
+    search.refresh_if_stale()
     app.state.started_at = time.time()
     yield
     db.close_connection()

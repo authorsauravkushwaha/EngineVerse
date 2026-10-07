@@ -30,6 +30,7 @@ credentials printed by the seeder on every run.
 | **Projects** | 6 end-to-end builds with steps, skills and resources — not "make a todo app". |
 | **Revision** | 34 flashcards on SM-2 spaced repetition, a formula centre, and a mistake notebook that turns wrong answers into a recovery plan. |
 | **Roadmaps** | 5 skill trees with 57 prerequisite-linked nodes. |
+| **Tutor** | A retrieval-grounded AI tutor. It answers only from this platform's own notes, formulas and topics, cites every source it used, is labelled AI-generated, and refuses rather than inventing when the library has nothing on a subject. Self-hosted — no external model call. |
 | **Community** | Threads, comments, votes, answers, moderation. |
 | **Placements** | Interview questions by topic, company tags, contest scaffolding. |
 | **Gamification** | XP, 40 levels, streaks, 12 badges, a contribution heatmap, a leaderboard. |
@@ -37,7 +38,7 @@ credentials printed by the seeder on every run.
 | **Admin** | Content lifecycle, roles, audit log, branding. |
 
 Everything in that table works. There are no dead buttons and no stub pages: the
-route suite renders all 48 pages as anonymous, student, faculty *and* admin, and
+route suite renders all 49 pages as anonymous, student, faculty *and* admin, and
 asserts none of them errors or renders an undefined template variable. Pages that
 look fine to a visitor but break for a signed-in user are the easy ones to miss,
 so every role is covered separately. The suite also checks 9 infrastructure
@@ -125,7 +126,7 @@ password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/S
 ## Testing
 
 ```bash
-python -m pytest backend/tests -q          # 301 tests
+python -m pytest backend/tests -q          # 317 tests
 python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 ```
 
@@ -133,13 +134,17 @@ python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 |---|---|---|
 | `test_security.py` | 83 | Hashing, salting, NFKC, policy, RBAC, safe URLs, ULIDs; every POST form carries a CSRF token; every capability the web layer checks actually exists |
 | `test_judge.py` | 53 | All 13 reference solutions through the real sandbox; rlimits read back from inside a submission; fork bomb containment; the checkout is invisible to submitted code |
+| `test_tutor.py` | 13 | Grounded answers cite only listed sources; uncovered subjects are refused, not invented; stored markup never reaches the client; the rate limit engages |
 | `test_routes.py` | 97 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
-| `test_api_and_schema.py` | 68 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; theme wiring; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
+| `test_api_and_schema.py` | 71 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; theme wiring; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
 
-The tests are how four real defects were found: every `/api/*` request 500ing on
-a rate-limit unpacking error, every authenticated form POST 403ing because the
-CSRF check only read a header an HTML form cannot set, an open redirect through
-protocol-relative URLs, and a seeded role that RBAC did not define.
+The tests are how the platform's worst defects were found: every `/api/*` request
+500ing on a rate-limit unpacking error, every authenticated form POST 403ing
+because the CSRF check only read a header an HTML form cannot set, an open
+redirect through protocol-relative URLs, a seeded role that RBAC did not define,
+every subject page 500ing for a signed-in user, the entire admin panel refusing
+even a `super_admin`, a judge with no resource limits at all, and an account
+takeover through the password reset form.
 
 ## Repository
 
@@ -147,9 +152,9 @@ protocol-relative URLs, and a seeded role that RBAC did not define.
 backend/
   engineverse/        domain, services, security, judge, markdown renderer
   web/                pages.py (SSR), auth_pages.py, api.py (JSON)
-  templates/          47 Jinja2 templates
+  templates/          48 Jinja2 templates
   static/             one CSS file, one JS file, PWA manifest, service worker, icons
-  tests/              301 tests
+  tests/              317 tests
 db/
   schema.sql          SQLite, 63 tables (development)
   postgres/           hash-partitioned Postgres schema (production)

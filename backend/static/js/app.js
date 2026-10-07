@@ -455,6 +455,85 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
     });
   });
 
+  // ------------------------------------------------------------ AI tutor
+  // Renders only what the server returned, escaped. The answer is assembled
+  // from platform notes, but nothing goes into innerHTML unescaped: the tutor
+  // is a surface like any other, and a note body is still user-authored data.
+  const tutorForm = $("#tutor-form");
+  if (tutorForm) {
+    const questionEl = $("#tutor-question");
+    const resultEl = $("#tutor-result");
+    const answerEl = $("#tutor-answer");
+    const messageEl = $("#tutor-message");
+    const sourcesEl = $("#tutor-sources");
+    const sourceList = $("#tutor-source-list");
+    const disclosureEl = $("#tutor-disclosure");
+    const emptyEl = $("#tutor-empty");
+    const sendBtn = $("#tutor-send");
+
+    // The server sends a small markdown subset: **bold**, `code`, and
+    // paragraphs. Anything else is treated as text.
+    const inline = (text) => escapeHtml(text)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>");
+
+    const render = (data) => {
+      emptyEl.hidden = true;
+      resultEl.hidden = false;
+      if (data.disclosure && disclosureEl) disclosureEl.textContent = data.disclosure;
+
+      if (data.message) {
+        messageEl.hidden = false;
+        messageEl.textContent = data.message;
+      } else {
+        messageEl.hidden = true;
+        messageEl.textContent = "";
+      }
+
+      answerEl.innerHTML = (data.answer || "")
+        .split(/\n{2,}/)
+        .map((para) => `<p>${inline(para).replace(/\n/g, "<br>")}</p>`)
+        .join("");
+      answerEl.hidden = !data.answer;
+
+      const sources = data.sources || [];
+      if (sources.length) {
+        sourcesEl.hidden = false;
+        sourceList.innerHTML = sources
+          .map((src) => `<li><a href="${escapeHtml(src.url)}">${escapeHtml(src.title)}</a>
+            <span class="tiny muted">${escapeHtml(src.type)}</span></li>`)
+          .join("");
+      } else {
+        sourcesEl.hidden = true;
+        sourceList.innerHTML = "";
+      }
+    };
+
+    const ask = async (question) => {
+      if (!question || !question.trim()) { toast("Type a question first.", "bad"); return; }
+      questionEl.value = question;
+      sendBtn.disabled = true;
+      const previous = sendBtn.textContent;
+      sendBtn.textContent = "Thinking\u2026";
+      try {
+        render(await api("/api/tutor/ask", { method: "POST", body: { question } }));
+      } catch (err) {
+        toast(err.message, "bad");
+      } finally {
+        sendBtn.disabled = false;
+        sendBtn.textContent = previous;
+      }
+    };
+
+    tutorForm.addEventListener("submit", (event) => {
+      event.preventDefault();
+      ask(questionEl.value);
+    });
+    $$("[data-tutor-prompt]").forEach((chip) => {
+      chip.addEventListener("click", () => ask(chip.textContent.trim()));
+    });
+  }
+
   // --------------------------------------------------------- theme toggle
   // The [data-theme="light"] variable set in app.css was unreachable: base.html
   // hard-coded dark, so neither the admin setting nor any user preference could

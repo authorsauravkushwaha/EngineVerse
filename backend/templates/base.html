@@ -56,6 +56,7 @@
       <a href="/projects" class="{{ 'on' if path.startswith('/projects') }}">Projects</a>
       <a href="/revision" class="{{ 'on' if path.startswith('/revision') or path.startswith('/formulas') or path.startswith('/roadmaps') }}">Revise
         {% if due_cards %}<span class="pill pill-hot">{{ due_cards }}</span>{% endif %}</a>
+      <a href="/tutor" class="{{ 'on' if path.startswith('/tutor') }}">Tutor</a>
       <a href="/community" class="{{ 'on' if path.startswith('/community') }}">Community</a>
       <a href="/placements" class="{{ 'on' if path.startswith('/placements') }}">Placements</a>
     </nav>

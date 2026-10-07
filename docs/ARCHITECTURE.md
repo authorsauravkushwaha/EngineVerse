@@ -62,6 +62,7 @@ rest of the codebase sees.
 | `engineverse/srs.py` | SM-2 spaced repetition scheduling |
 | `engineverse/progress.py` | XP, levels, streaks, heatmaps, badges, certificates |
 | `engineverse/search.py` | Fuzzy search over the SQL full-text index |
+| `engineverse/tutor.py` | Retrieval-grounded AI tutor; refuses rather than inventing |
 | `engineverse/recommend.py` | Weak-topic detection and next-step suggestions |
 | `engineverse/community.py` | Threads, comments, votes, reports |
 | `engineverse/markdown.py` | Markdown + LaTeX rendering with **no dependency** |
@@ -105,6 +106,36 @@ prints in exactly the shape the expected output uses. Thirteen wrappers cover th
 current catalogue — arrays, linked lists, cycles, trees, graphs, an LRU cache and
 plain stdin. Adding a new problem shape means adding one wrapper; the judge, the
 editor and the stored test cases are untouched.
+
+## The tutor
+
+`engineverse/tutor.py` answers study questions from the platform's own content.
+There is no model call and no external service, which is a consequence of the
+self-hosting constraint rather than a shortcut around it.
+
+The sequence is retrieve, filter, compose:
+
+1. **Retrieve** through `search.search()`, the same index the search box uses, so
+   the tutor can never surface content a student could not have found themselves.
+2. **Filter** to hits that actually contain the question's subject words. This
+   step is the reason the tutor is safe to trust. The search deliberately falls
+   back from an AND match to an OR match to a LIKE match so a search box is never
+   empty — correct behaviour there, and dangerous here, because the OR fallback
+   answered "how do I bake a souffle" with CPU scheduling notes. Requiring
+   overlap with the question's content words is what turns "found something" into
+   "found something about this".
+3. **Compose** from note sections and formulae, minting numbered citations as it
+   goes. The citation cap is applied when a reference is minted rather than by
+   truncating the list afterwards, so the answer can never cite a `[6]` the
+   reader cannot look up.
+
+If nothing survives the filter the tutor says so and returns no prose. It would
+be easy to produce a fluent paragraph anyway; a study tool that invents
+explanations is worse than one that admits a gap, so it does not.
+
+Two invariants the tests hold: every source is a relative platform URL, and note
+bodies are stripped of markup server-side before they enter an answer, so a
+stored `<script>` cannot reach a client even one that trusted the response.
 
 ## Data layer
 
