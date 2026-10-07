@@ -319,3 +319,132 @@ class TestPostgresSchema:
     def test_the_helper_functions_exist(self, text):
         assert "CREATE OR REPLACE FUNCTION engineverse_create_partitions" in text
         assert "CREATE OR REPLACE FUNCTION engineverse_prune_before" in text
+
+
+class TestCommunityEndpoints:
+    """Regression coverage for the community forms.
+
+    These post from plain HTML to JSON endpoints, so both body shapes and both
+    response shapes have to work: a browser navigating gets a redirect, a script
+    fetching gets JSON.
+    """
+
+    BROWSER = {"Accept": "text/html,application/xhtml+xml"}
+
+    def _token(self, client):
+        return _csrf(client.get("/community").text)
+
+    def test_a_form_post_creates_a_thread(self, signed_in):
+        token = self._token(signed_in)
+        response = signed_in.post(
+            "/api/community/threads",
+            data={
+                "title": "Why does Bernoulli assume inviscid flow?",
+                "body": "I am unclear on when the assumption breaks down.",
+                "kind": "question",
+                "tags": "fluid-mechanics, exam",
+            },
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 200, response.text
+        thread_id = response.json()["id"]
+
+        from engineverse import db
+
+        row = db.query_one("SELECT tags, kind FROM discussions WHERE id = ?", thread_id)
+        assert row is not None
+        assert row["kind"] == "question"
+        # The form sends a comma-separated string; it must be stored as a list.
+        assert "fluid-mechanics" in row["tags"]
+
+    def test_a_json_post_creates_a_thread(self, signed_in):
+        token = self._token(signed_in)
+        response = signed_in.post(
+            "/api/community/threads",
+            json={"title": "Posted from the JS client", "body": "Body from a fetch call.",
+                  "kind": "discussion", "tags": ["a", "b"]},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["id"]
+
+    def test_a_navigating_browser_is_redirected_not_shown_json(self, signed_in):
+        token = self._token(signed_in)
+        response = signed_in.post(
+            "/api/community/threads",
+            data={"title": "Browser navigation", "body": "Submitted without scripting.",
+                  "kind": "question"},
+            headers={**self.BROWSER, "x-csrf-token": token},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"].startswith("/community/")
+
+    def test_a_navigating_browser_gets_a_flash_on_a_bad_post(self, signed_in):
+        token = self._token(signed_in)
+        response = signed_in.post(
+            "/api/community/threads",
+            data={"title": "hi", "body": "x", "kind": "question"},
+            headers={**self.BROWSER, "x-csrf-token": token},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/community"
+        followed = signed_in.get("/community")
+        assert "at least 5 characters" in followed.text
+
+    def test_a_script_gets_json_on_a_bad_post(self, signed_in):
+        token = self._token(signed_in)
+        response = signed_in.post(
+            "/api/community/threads",
+            json={"title": "hi", "body": "x", "kind": "question"},
+            headers={"Accept": "application/json", "x-csrf-token": token},
+        )
+        assert response.status_code == 400
+        assert response.json()["ok"] is False
+
+    def test_a_reply_is_stored_and_renders(self, signed_in):
+        token = self._token(signed_in)
+        created = signed_in.post(
+            "/api/community/threads",
+            json={"title": "Thread that gets a reply", "body": "Original post body here.",
+                  "kind": "question"},
+            headers={"x-csrf-token": token},
+        )
+        thread_id = created.json()["id"]
+        response = signed_in.post(
+            "/api/community/comments",
+            data={"threadId": thread_id,
+                  "body": "Because viscosity is negligible at high Reynolds number."},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 200, response.text
+        page = signed_in.get(f"/community/{thread_id}")
+        assert page.status_code == 200
+        assert "Reynolds" in page.text
+
+    def test_replying_to_a_missing_thread_is_404_not_500(self, signed_in):
+        """A foreign-key violation must not surface as an internal error."""
+        token = self._token(signed_in)
+        response = signed_in.post(
+            "/api/community/comments",
+            json={"threadId": "no-such-thread", "body": "orphan reply"},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 404
+        assert response.json()["ok"] is False
+
+    def test_an_empty_reply_is_refused(self, signed_in):
+        token = self._token(signed_in)
+        created = signed_in.post(
+            "/api/community/threads",
+            json={"title": "Thread for an empty reply", "body": "Body text for the post.",
+                  "kind": "question"},
+            headers={"x-csrf-token": token},
+        )
+        response = signed_in.post(
+            "/api/community/comments",
+            json={"threadId": created.json()["id"], "body": "   "},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 400

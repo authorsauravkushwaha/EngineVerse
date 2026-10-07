@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from fastapi import APIRouter, Body, Form, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from engineverse import (
     auth,
@@ -37,10 +37,56 @@ def ok(**payload: Any) -> JSONResponse:
     return JSONResponse(payload)
 
 
+def _reject(request: Request, back_to: str, message: str):
+    """Sends a navigating browser back with a flash; returns JSON to a script."""
+    if wants_html(request):
+        from .deps import flash
+
+        response = RedirectResponse(back_to, status_code=303)
+        flash(response, message)  # sets the cookie in place and returns None
+        return response
+    return fail(message)
+
+
+def wants_html(request: Request) -> bool:
+    """True when the caller is a browser navigating, not a script fetching."""
+    return "text/html" in (request.headers.get("accept") or "")
+
+
 def fail(message: str, status: int = 400, **extra: Any) -> JSONResponse:
     body: dict[str, Any] = {"ok": False, "error": message}
     body.update(extra)
     return JSONResponse(body, status_code=status)
+
+
+async def payload(request: Request) -> dict:
+    """Reads a request body as JSON, falling back to form fields.
+
+    The community forms are plain HTML so they work without JavaScript, but they
+    post to JSON endpoints. Accepting both keeps the no-JS path real instead of
+    returning a 422 to anyone with scripting disabled.
+    """
+    content_type = (request.headers.get("content-type") or "").lower()
+    if "application/json" in content_type:
+        try:
+            data = await request.json()
+            return data if isinstance(data, dict) else {}
+        except Exception:
+            return {}
+    try:
+        form = await request.form()
+    except Exception:
+        return {}
+    return {key: value for key, value in form.items()}
+
+
+def split_tags(value: Any) -> list[str]:
+    """Accepts a list, or the comma-separated string an HTML form sends."""
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -288,21 +334,50 @@ async def api_notifications_read(request: Request, notificationId: str | None = 
 # ---------------------------------------------------------------------------
 
 @router.post("/community/threads")
-async def api_create_thread(request: Request, title: str = Body(...), body: str = Body(...),
-                            kind: str = Body("question"), tags: list[str] = Body(default_factory=list),
-                            subjectId: str | None = Body(None), topicId: str | None = Body(None)):
+async def api_create_thread(request: Request):
     viewer = require_user(request)
+    data = await payload(request)
+    title = (data.get("title") or "").strip()
+    body = (data.get("body") or "").strip()
+    kind = (data.get("kind") or "question").strip() or "question"
+    tags = split_tags(data.get("tags"))
+    subjectId = data.get("subjectId") or None
+    topicId = data.get("topicId") or None
+    if len(title) < 5:
+        return _reject(request, "/community", "Give your post a title of at least 5 characters.")
+    if len(body) < 10:
+        return _reject(request, "/community", "Add a little more detail so people can help.")
+    # create_thread attaches a thread to one entity, so a topic wins over a
+    # subject when both are supplied.
+    entity_type, entity_id = (None, None)
+    if topicId:
+        entity_type, entity_id = "topic", topicId
+    elif subjectId:
+        entity_type, entity_id = "subject", subjectId
     thread_id = community.create_thread(
-        viewer.id, title=title, body=body, kind=kind, tags=tags, subject_id=subjectId, topic_id=topicId
+        viewer.id, title=title, body=body, kind=kind, tags=tags,
+        entity_type=entity_type, entity_id=entity_id,
     )
-    return ok(id=thread_id, url=f"/community/{thread_id}")
+    url = f"/community/{thread_id}"
+    if wants_html(request):
+        return RedirectResponse(url, status_code=303)
+    return ok(id=thread_id, url=url)
 
 
 @router.post("/community/comments")
-async def api_comment(request: Request, threadId: str = Body(...), body: str = Body(...),
-                      parentId: str | None = Body(None)):
+async def api_comment(request: Request):
     viewer = require_user(request)
+    data = await payload(request)
+    threadId = (data.get("threadId") or "").strip()
+    body = (data.get("body") or "").strip()
+    parentId = data.get("parentId") or None
+    if not body:
+        return _reject(request, f"/community/{threadId}", "Write something before posting.")
+    if not community.get_thread(threadId):
+        return fail("That discussion does not exist.", 404)
     comment_id = community.add_comment(viewer.id, threadId, body, parentId)
+    if wants_html(request):
+        return RedirectResponse(f"/community/{threadId}#c-{comment_id}", status_code=303)
     return ok(id=comment_id)
 
 
