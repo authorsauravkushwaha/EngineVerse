@@ -139,9 +139,20 @@ process.
 
 - A child process with a scrubbed environment — a test asserts
   `os.environ.get('ENGINEVERSE_SECRET')` is `None` inside a submission.
-- CPU-time, wall-clock, memory and file-size ceilings; the process is killed at
-  the deadline, and a test asserts an infinite loop returns `timeout`.
-- No writable path outside a temporary directory that is deleted afterwards.
+- Resource ceilings applied with `setrlimit` **in the child**, not with `ulimit`
+  in the generated script: process count, address space, CPU seconds, file size,
+  open files and core dumps. A test reads each limit back from inside a
+  submission and asserts it is bounded.
+- A wall-clock deadline. The submission runs in its own session, so on timeout
+  the **whole process group** is killed, not just the direct child. A test
+  asserts a fork bomb is contained and leaves no processes behind.
+- An empty `tmpfs` is mounted over the checkout inside the sandbox's mount
+  namespace, so a submission can neither read the source tree nor write into it.
+  A test lists the application root from inside a submission and asserts it comes
+  back empty. Whether the host permits an unprivileged mount namespace is
+  **probed at startup** rather than assumed; when it is not available the run
+  falls back to the rlimits alone and says so.
+- Privileges are dropped to `nobody` where the parent is allowed to do so.
 - Outbound network is blocked: a test opens a socket to `1.1.1.1:80` and asserts
   it does not connect.
 - Output is truncated, so a submission cannot exhaust memory by printing.
@@ -149,8 +160,37 @@ process.
   `System.exit`, a thread that never stops, or an exhausted heap cannot reach the
   sandbox itself.
 
-Process isolation is not OS containment. A production deployment should run the
-judge as a non-root user inside a container or user namespace.
+### Why the limits are set in Python
+
+They were originally `ulimit` lines inside the generated shell script. `/bin/sh`
+is dash on Debian-family images, and dash implements neither `ulimit -u` nor
+`ulimit -t`. Both lines failed with `Illegal option`, the `2>/dev/null || true`
+suffix swallowed the error, and every submission ran with an unbounded
+`RLIMIT_NPROC` and `RLIMIT_CPU` of `0`. A submitted fork bomb then exhausted the
+host and the application server was killed alongside it. `setrlimit` cannot fail
+silently in the same way, and the tests read the limits back from inside the
+sandbox rather than trusting that they were set.
+
+### What the built-in provider does not contain
+
+The mount namespace hides the checkout and the network namespace removes
+outbound access, but this is still process isolation, not full OS containment:
+
+- Everything outside the mounted-over checkout is visible to a submission.
+  `/etc/passwd`, the interpreter and the standard library are all readable, as
+  they must be for the code to run.
+- Privilege dropping to `nobody` only happens when the parent is privileged
+  enough to do it. Running the application as an unprivileged user — which is
+  the recommended deployment — means the drop is refused and the rlimits plus
+  the tmpfs are what contain the submission.
+- The mount namespace itself depends on unprivileged user namespaces being
+  enabled. That is why support is **probed at startup** rather than assumed;
+  `provider_info()` reports it, so an operator can see what they actually have.
+
+For a hard boundary, do not use the built-in provider: run the judge as a
+non-root user in a container with its own filesystem, which is what
+`deploy/docker-compose.yml` does for the Java sandbox (`network_mode: none`,
+`cap_drop: [ALL]`, `no-new-privileges`, CPU, memory and PID ceilings).
 
 ## Audit
 

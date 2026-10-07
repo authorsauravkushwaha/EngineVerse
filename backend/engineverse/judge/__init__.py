@@ -110,8 +110,22 @@ def reset_provider() -> None:
 
 
 def provider_info() -> dict:
+    """Describes the active provider, including what it actually isolates.
+
+    Reporting only the name invites an operator to assume a hard boundary. The
+    containment flags come from the provider itself so they reflect the host
+    rather than what the code hopes for - a kernel with unprivileged user
+    namespaces disabled simply reports fewer guarantees.
+    """
     provider = resolve_provider()
-    return {"name": provider.name, "available": getattr(provider, "available", True)}
+    info: dict = {"name": provider.name, "available": getattr(provider, "available", True)}
+    for flag in ("_have_namespace", "_have_mount_ns"):
+        if hasattr(provider, flag):
+            info[flag.lstrip("_")] = bool(getattr(provider, flag))
+    if hasattr(provider, "_have_namespace"):
+        info["network_isolated"] = bool(provider._have_namespace)
+        info["filesystem_isolated"] = bool(getattr(provider, "_have_mount_ns", False))
+    return info
 
 
 def runnable_languages() -> list[str]:

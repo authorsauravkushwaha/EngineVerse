@@ -6,22 +6,125 @@ Every submission runs in a brand-new OS process:
   namespace with **no interfaces at all**, so it cannot reach the database, the
   loopback API or the internet.
 * ``timeout -s KILL`` - hard wall-clock cap.
-* ``ulimit`` - address space, CPU seconds, file size, open files and process
-  count are all capped.
+* rlimits set **in Python** via ``preexec_fn`` - address space, CPU seconds,
+  file size, open files and process count.
+* privileges dropped to an unprivileged uid before any user code runs.
 * a fresh, empty, disposable working directory
 * a scrubbed environment: the child receives none of the application's secrets
 * output is capped byte-wise
+
+Why the limits are set in Python and not with ``ulimit`` in the shell script:
+``/bin/sh`` is dash on Debian-family images, and dash does not implement
+``ulimit -u`` or ``-t``. Those two lines failed with "Illegal option", the
+``2>/dev/null || true`` swallowed the error, and the child inherited an
+unbounded RLIMIT_NPROC - so a fork bomb took the whole application server down
+with it. Setting them through the ``resource`` module cannot be silently
+ignored.
+
+Privilege dropping stops submitted code from writing into the repository (it
+could previously create files next to the source) and from tampering with
+anything the application user owns. It does not stop it *reading*
+world-readable files; for that boundary use the containerised sandbox service
+in ``deploy/`` rather than this provider.
 
 Interpreted languages get an explicit parse check so a syntax error is reported
 as ``compile_error`` instead of a confusing runtime failure.
 """
 from __future__ import annotations
 
+import os
 import shutil
+import signal
 import subprocess
 import tempfile
 import time
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # pragma: no cover - non-POSIX
+    resource = None
+
+#: uid/gid the child drops to. ``nobody`` owns nothing, so submitted code cannot
+#: write into the repository or read anything that is not world-readable.
+SANDBOX_UID = 65534
+SANDBOX_GID = 65534
+
+#: The checkout this module lives in, i.e. the tree a submission must not be able
+#: to read or write. backend/engineverse/judge/local.py -> repository root.
+APP_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _processes_for_uid(uid: int) -> int:
+    """Counts processes already owned by ``uid``.
+
+    RLIMIT_NPROC is enforced against the *total* number of processes owned by
+    the real uid, not against the child's own process tree. Setting it to a flat
+    32 therefore blocks the child from forking at all once the application
+    server already has a few dozen threads and processes running - which breaks
+    ordinary submissions. The budget has to be measured, not assumed.
+    """
+    if not hasattr(os, "listdir") or not os.path.isdir("/proc"):
+        return 0
+    count = 0
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/status", "rb") as handle:
+                for line in handle:
+                    if line.startswith(b"Uid:"):
+                        if int(line.split()[1]) == uid:
+                            count += 1
+                        break
+        except OSError:
+            continue
+    return count
+
+
+def _set_limits_and_drop(max_processes: int, memory_kb: int, cpu_seconds: int) -> None:
+    """Runs in the forked child, before exec.
+
+    Order matters: apply every rlimit while still privileged, then give up
+    privileges last so nothing can raise a limit back afterwards.
+    """
+    if resource is not None:
+        # Head-room on top of what this uid is already using, so a fork bomb
+        # hits the wall quickly without starving the application server.
+        nproc_budget = _processes_for_uid(os.getuid()) + max_processes
+        limits = (
+            (resource.RLIMIT_NPROC, nproc_budget),
+            (resource.RLIMIT_AS, memory_kb * 1024),
+            (resource.RLIMIT_CPU, cpu_seconds),
+            (resource.RLIMIT_FSIZE, 4 * 1024 * 1024),
+            (resource.RLIMIT_NOFILE, 64),
+            (resource.RLIMIT_CORE, 0),
+        )
+        for which, value in limits:
+            try:
+                resource.setrlimit(which, (value, value))
+            except (ValueError, OSError):
+                # A limit the kernel refuses is not worth failing the run over,
+                # but it must never be swallowed silently the way ulimit was.
+                pass
+    if hasattr(os, "setgroups"):
+        try:
+            os.setgroups([SANDBOX_GID])
+        except OSError:
+            pass
+    if os.getgid() != SANDBOX_GID:
+        try:
+            os.setgid(SANDBOX_GID)
+        except OSError:
+            pass
+    if os.getuid() != SANDBOX_UID:
+        try:
+            os.setuid(SANDBOX_UID)
+        except OSError:
+            # Only a privileged parent can hand the child to another uid. When
+            # the application itself runs unprivileged this is expected, and the
+            # rlimits above are what contain the submission instead.
+            pass
 
 from ..config import get_settings
 from . import RunResult
@@ -77,6 +180,66 @@ def _command(argv: list[str]) -> str:
     return " ".join(_quote(part) for part in argv)
 
 
+def _shell_quote(value: str) -> str:
+    """Quotes a path for interpolation into the generated shell script."""
+    return "'" + value.replace("'", "'\\''") + "'"
+
+
+def _kill_tree(process: "subprocess.Popen") -> None:
+    """Signals the submission's whole process group, then reaps it.
+
+    Safe to call more than once: a group that has already exited simply raises
+    ProcessLookupError, which is not an error worth propagating.
+    """
+    if process.poll() is None:
+        try:
+            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        except (ProcessLookupError, PermissionError, OSError):
+            try:
+                process.kill()
+            except OSError:
+                pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:  # pragma: no cover - kernel should not stall
+        pass
+
+
+def _preexec(max_processes: int, memory_kb: int, cpu_seconds: int):
+    """Builds the preexec_fn closure.
+
+    Kept as a factory so the values are captured rather than read from globals
+    at fork time, which keeps the child's limits deterministic.
+    """
+
+    def _apply() -> None:
+        _set_limits_and_drop(max_processes, memory_kb, cpu_seconds)
+
+    return _apply
+
+
+def _hand_over(workdir: Path) -> None:
+    """Gives the sandbox uid ownership of the working directory.
+
+    The child runs as ``nobody`` once privileges are dropped, so a directory
+    created by the application user would not be writable and every submission
+    would fail to produce a binary or write output. Best effort: if the
+    platform will not allow the chown the run still proceeds and the error
+    surfaces as an ordinary runtime failure.
+    """
+    if not hasattr(os, "chown"):
+        return
+    try:
+        os.chown(workdir, SANDBOX_UID, SANDBOX_GID)
+        for entry in workdir.iterdir():
+            try:
+                os.chown(entry, SANDBOX_UID, SANDBOX_GID)
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+
 class LocalSandboxProvider:
     """Runs untrusted code in an isolated child process."""
 
@@ -84,6 +247,25 @@ class LocalSandboxProvider:
 
     def __init__(self) -> None:
         self._have_namespace = shutil.which("unshare") is not None and shutil.which("timeout") is not None
+        self._have_mount_ns = self._have_namespace and self._probe_mount_ns()
+
+    @staticmethod
+    def _probe_mount_ns() -> bool:
+        """Checks once whether a mount namespace can actually be created.
+
+        ``unshare --map-root-user --mount`` needs an unprivileged user namespace,
+        which kernels and container runtimes disable far more often than the
+        network namespace. Probing avoids advertising a guarantee the host will
+        not honour, and avoids failing every submission when it cannot.
+        """
+        try:
+            probe = subprocess.run(
+                ["unshare", "--map-root-user", "--mount", "--", "true"],
+                capture_output=True, timeout=5,
+            )
+            return probe.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
 
     @property
     def available(self) -> bool:
@@ -116,14 +298,29 @@ class LocalSandboxProvider:
         memory_kb = min(max(settings.judge_memory_kb, 65_536), 1_048_576)
         vlimit_kb = int(runner.get("vlimit", memory_kb))
         timeout_seconds = max(1, -(-timeout_ms // 1000))
+        # Hard caps enforced through setrlimit in the child. NPROC is the one
+        # that matters most: without it a fork bomb exhausts the host and the
+        # application server is killed alongside the submission.
+        max_processes = 32
+        memory_kb = max(vlimit_kb, memory_kb)
 
         workdir = Path(tempfile.mkdtemp(prefix="evjudge-"))
         started = time.monotonic()
         try:
             (workdir / runner["file"]).write_text(code, encoding="utf-8")
             (workdir / "input.txt").write_text(stdin or "", encoding="utf-8")
+            _hand_over(workdir)
 
-            script = [
+            script = []
+            if self._have_mount_ns:
+                # Inside the user namespace this shell is root, so it can mount.
+                # An empty tmpfs over the checkout means a submission can neither
+                # read the source tree nor write into it. Best effort: if the
+                # mount is refused the run continues under the rlimits alone.
+                script.append(
+                    f"mount -t tmpfs -o size=1k tmpfs {_shell_quote(str(APP_ROOT))} 2>/dev/null || true"
+                )
+            script += [
                 f"ulimit -v {vlimit_kb} 2>/dev/null || true",
                 f"ulimit -t {timeout_seconds} 2>/dev/null || true",
                 "ulimit -f 8192 2>/dev/null || true",
@@ -138,8 +335,11 @@ class LocalSandboxProvider:
             (workdir / "run.sh").write_text("\n".join(script), encoding="utf-8")
 
             if self._have_namespace:
-                argv = [
-                    "unshare", "--net", "--map-root-user", "--",
+                argv = ["unshare", "--net"]
+                if self._have_mount_ns:
+                    argv.append("--mount")
+                argv += [
+                    "--map-root-user", "--",
                     "timeout", "-s", "KILL", str(timeout_seconds), "sh", "run.sh",
                 ]
             else:  # pragma: no cover - only when unshare/timeout are missing
@@ -154,17 +354,35 @@ class LocalSandboxProvider:
                 "PYTHONDONTWRITEBYTECODE": "1",
             }
 
+            # Popen in its own session rather than subprocess.run: `timeout -s
+            # KILL` signals only its direct child, so a submission that forks
+            # leaves its descendants orphaned and still running after the run is
+            # reported as finished. A private session makes the whole tree one
+            # process group that can be signalled as a unit.
+            process = subprocess.Popen(
+                argv,
+                cwd=workdir,
+                env=env,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                preexec_fn=_preexec(max_processes, memory_kb, timeout_seconds),
+                start_new_session=True,
+            )
             try:
-                completed = subprocess.run(
-                    argv,
-                    cwd=workdir,
-                    env=env,
-                    input=(stdin or "")[:20_000].encode("utf-8", "replace"),
-                    capture_output=True,
+                raw_out, raw_err = process.communicate(
+                    (stdin or "")[:20_000].encode("utf-8", "replace"),
                     timeout=(timeout_ms + 3000) / 1000,
                 )
+                completed = subprocess.CompletedProcess(argv, process.returncode, raw_out, raw_err)
             except subprocess.TimeoutExpired:
+                _kill_tree(process)
+                process.communicate()
                 return RunResult(status="timeout", stderr="Time limit exceeded.", runtime_ms=_ms(started))
+            finally:
+                # Whatever the outcome, nothing from the submission's process
+                # tree should outlive the verdict.
+                _kill_tree(process)
 
             stdout = completed.stdout.decode("utf-8", "replace")[:MAX_OUTPUT_BYTES]
             stderr = completed.stderr.decode("utf-8", "replace")[:MAX_OUTPUT_BYTES]

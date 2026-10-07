@@ -361,3 +361,194 @@ class TestReferenceSolutions:
         evaluation = evaluate("python", program, cases)
         assert evaluation.status != "accepted"
         assert evaluation.passed < evaluation.total
+
+
+class TestSandboxLimits:
+    """The limits must actually be enforced.
+
+    They used to be applied with ``ulimit`` inside the generated shell script.
+    /bin/sh is dash on Debian-family images and dash implements neither
+    ``ulimit -u`` nor ``-t``, so those two lines failed with "Illegal option",
+    the ``2>/dev/null || true`` swallowed it, and the child ran with an
+    unbounded RLIMIT_NPROC. A fork bomb then exhausted the host and the
+    application server was killed along with the submission.
+    """
+
+    @pytest.fixture()
+    def provider(self):
+        from engineverse.judge.local import LocalSandboxProvider
+
+        local = LocalSandboxProvider()
+        if not local.supports("python"):
+            pytest.skip("no python interpreter available to the judge")
+        return local
+
+    def test_the_child_receives_a_process_limit(self, provider):
+        result = provider.run(
+            "python",
+            "import resource\n"
+            "soft, hard = resource.getrlimit(resource.RLIMIT_NPROC)\n"
+            "print(soft)\n",
+            "",
+        )
+        assert result.stdout.strip(), result.stderr
+        assert int(result.stdout.strip()) < 100_000, (
+            f"RLIMIT_NPROC is effectively unbounded: {result.stdout.strip()}"
+        )
+
+    def test_the_child_receives_a_cpu_limit(self, provider):
+        result = provider.run(
+            "python",
+            "import resource\nprint(resource.getrlimit(resource.RLIMIT_CPU)[0])\n",
+            "",
+        )
+        assert result.stdout.strip(), result.stderr
+        assert int(result.stdout.strip()) > 0, "RLIMIT_CPU is 0, i.e. unlimited"
+
+    def test_the_child_receives_an_address_space_limit(self, provider):
+        result = provider.run(
+            "python",
+            "import resource\nprint(resource.getrlimit(resource.RLIMIT_AS)[0])\n",
+            "",
+        )
+        assert result.stdout.strip(), result.stderr
+        assert int(result.stdout.strip()) > 0, "RLIMIT_AS is unlimited"
+
+    def test_a_fork_bomb_is_contained_and_does_not_outlive_its_timeout(self, provider):
+        """Runs in a subprocess so a regression cannot take the test worker down."""
+        import os
+        import time
+
+        before = _count_processes_for(os.getuid())
+        started = time.monotonic()
+        result = provider.run("python", "import os\nwhile True: os.fork()\n", "", timeout_ms=4000)
+        elapsed = time.monotonic() - started
+
+        assert result.status in ("timeout", "runtime_error"), result.status
+        assert elapsed < 30, f"the fork bomb ran for {elapsed:.1f}s"
+        after = _count_processes_for(os.getuid())
+        assert after <= before + 8, f"the fork bomb left {after - before} processes behind"
+
+    def test_a_memory_bomb_is_refused(self, provider):
+        result = provider.run(
+            "python", 'x = []\nwhile True: x.append("A" * 10**7)\n', "", timeout_ms=6000
+        )
+        assert result.status in ("runtime_error", "timeout"), result.status
+
+    def test_a_legitimate_solution_still_runs(self, provider):
+        """Guards against tightening the limits until real code cannot run."""
+        result = provider.run(
+            "python",
+            "def two_sum(nums, target):\n"
+            "    seen = {}\n"
+            "    for i, n in enumerate(nums):\n"
+            "        if target - n in seen:\n"
+            "            return [seen[target - n], i]\n"
+            "        seen[n] = i\n"
+            "    return []\n",
+            "",
+            timeout_ms=10_000,
+        )
+        assert result.status == "accepted", f"{result.status}: {result.stderr[:200]}"
+
+    def test_stdout_is_still_captured(self, provider):
+        result = provider.run("python", "print('hello from the judge')\n", "", timeout_ms=8000)
+        assert "hello from the judge" in result.stdout
+
+    def test_the_secret_never_reaches_the_child(self, provider):
+        result = provider.run(
+            "python",
+            'import os\nprint(os.environ.get("ENGINEVERSE_SECRET", "<absent>"))\n',
+            "",
+        )
+        assert "<absent>" in result.stdout, result.stdout
+
+
+def _count_processes_for(uid: int) -> int:
+    """Counts live processes owned by uid; returns 0 where /proc is unavailable."""
+    import os
+
+    if not os.path.isdir("/proc"):
+        return 0
+    total = 0
+    for entry in os.listdir("/proc"):
+        if not entry.isdigit():
+            continue
+        try:
+            with open(f"/proc/{entry}/status", "rb") as handle:
+                for line in handle:
+                    if line.startswith(b"Uid:"):
+                        if int(line.split()[1]) == uid:
+                            total += 1
+                        break
+        except OSError:
+            continue
+    return total
+
+
+class TestSandboxFilesystemIsolation:
+    """A submission must not be able to reach the application tree.
+
+    The child previously ran with the application's own uid, so submitted code
+    could list the checkout, read the source and write files into it. An empty
+    tmpfs is mounted over the repository inside the sandbox's mount namespace.
+    """
+
+    @pytest.fixture()
+    def provider(self):
+        from engineverse.judge.local import LocalSandboxProvider
+
+        local = LocalSandboxProvider()
+        if not local.supports("python"):
+            pytest.skip("no python interpreter available to the judge")
+        return local
+
+    def test_the_application_tree_is_not_readable(self, provider):
+        from engineverse.judge.local import APP_ROOT
+
+        if not provider._have_mount_ns:
+            pytest.skip("this host does not allow an unprivileged mount namespace")
+        result = provider.run(
+            "python",
+            f"import os\nprint(os.listdir({str(APP_ROOT)!r}))\n",
+            "",
+        )
+        assert result.stdout.strip() == "[]", (
+            f"a submission can still list the checkout: {result.stdout.strip()}"
+        )
+
+    def test_a_source_file_cannot_be_read(self, provider):
+        from engineverse.judge.local import APP_ROOT
+
+        if not provider._have_mount_ns:
+            pytest.skip("this host does not allow an unprivileged mount namespace")
+        target = APP_ROOT / "backend" / "main.py"
+        result = provider.run(
+            "python",
+            "try:\n"
+            f"    print(open({str(target)!r}).read(20))\n"
+            "except OSError as exc:\n"
+            "    print('BLOCKED', type(exc).__name__)\n",
+            "",
+        )
+        assert "BLOCKED" in result.stdout, f"a submission read the source: {result.stdout!r}"
+
+    def test_a_write_into_the_repository_does_not_land(self, provider, tmp_path):
+        from engineverse.judge.local import APP_ROOT
+
+        if not provider._have_mount_ns:
+            pytest.skip("this host does not allow an unprivileged mount namespace")
+        marker = APP_ROOT / "_judge_write_probe.txt"
+        if marker.exists():
+            marker.unlink()
+        provider.run(
+            "python",
+            f"open({str(marker)!r}, 'w').write('pwned')\nprint('attempted')\n",
+            "",
+        )
+        assert not marker.exists(), "a submission wrote a file into the repository"
+
+    def test_the_mount_is_probed_not_assumed(self, provider):
+        """The provider must report what the host actually supports."""
+        assert hasattr(provider, "_have_mount_ns")
+        assert isinstance(provider._have_mount_ns, bool)
