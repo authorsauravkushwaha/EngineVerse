@@ -448,3 +448,143 @@ class TestCommunityEndpoints:
             headers={"x-csrf-token": token},
         )
         assert response.status_code == 400
+
+
+class TestBranding:
+    """The brand keys must line up across the seed data, brand() and the templates.
+
+    They drifted apart once (brand_name vs site_name), which rendered an empty
+    product name on every page without raising an error.
+    """
+
+    def test_site_name_is_populated_on_every_page(self, client):
+        for path in ("/", "/explore", "/about"):
+            html = client.get(path).text
+            title = html[html.index("<title>") + 7:html.index("</title>")]
+            assert "EngineVerse" in title, f"{path} rendered {title!r}"
+
+    def test_brand_exposes_every_key_the_templates_use(self, seeded):
+        from engineverse import brand
+
+        data = brand.brand()
+        required = {"site_name", "tagline", "description", "support_email",
+                    "free_tier_note", "announcement", "accent_color"}
+        missing = required - set(data)
+        assert not missing, f"brand() is missing keys the templates read: {missing}"
+        for key in ("site_name", "tagline", "accent_color"):
+            assert data[key].strip(), f"brand['{key}'] is blank"
+
+    def test_an_unset_key_falls_back_rather_than_rendering_blank(self, seeded):
+        from engineverse import brand
+
+        assert brand.get("site_name") == "EngineVerse"
+
+    def test_the_registration_toggle_is_enforced(self, app, seeded):
+        """Each attempt uses a fresh client: a successful sign-up leaves a session
+        cookie behind, and /register redirects a signed-in visitor home, which
+        would hide the very banner this asserts on."""
+        from starlette.testclient import TestClient
+
+        from engineverse import brand, db
+
+        def signup(email, username):
+            with TestClient(app, raise_server_exceptions=False) as anon:
+                return anon.post(
+                    "/register",
+                    data={"email": email, "username": username, "full_name": "Toggle Test",
+                          "password": "FreshStart#2026!", "password_confirm": "FreshStart#2026!"},
+                    follow_redirects=False,
+                )
+
+        original = brand.get("registration_open")
+        try:
+            brand.set_many({"registration_open": "1"})
+            assert signup("toggle-open@example.com", "toggleopen").status_code == 303
+
+            brand.set_many({"registration_open": "0"})
+            with TestClient(app, raise_server_exceptions=False) as anon:
+                page = anon.get("/register")
+            assert "Registration closed" in page.text
+            refused = signup("toggle-closed@example.com", "toggleclosed")
+            assert refused.status_code == 403
+            assert db.query_one(
+                "SELECT id FROM users WHERE email = 'toggle-closed@example.com'"
+            ) is None, "an account was created while registration was closed"
+
+            brand.set_many({"registration_open": "1"})
+            assert signup("toggle-reopen@example.com", "togglereopen").status_code == 303
+        finally:
+            # The database is session-scoped; leaving this closed would 403 every
+            # later registration test in the run.
+            brand.set_many({"registration_open": original or "1"})
+
+    def test_a_validation_error_does_not_look_like_a_closure(self, app, seeded):
+        from starlette.testclient import TestClient
+
+        from engineverse import brand
+
+        brand.set_many({"registration_open": "1"})
+        client = TestClient(app, raise_server_exceptions=False)
+        response = client.post(
+            "/register",
+            data={"email": "mismatch@example.com", "username": "mismatchuser",
+                  "full_name": "Mismatch Person", "password": "SomePass#2026!",
+                  "password_confirm": "DifferentPass#2026!"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 422
+        assert "do not match" in response.text
+        assert "Registration closed" not in response.text
+
+
+class TestErrorStatusCodes:
+    """render() must honour status_code, not swallow it into the template context."""
+
+    def test_a_bad_login_is_401_not_200(self, client):
+        page = client.get("/login")
+        response = client.post(
+            "/login",
+            data={"csrf_token": _csrf(page.text), "identifier": "asha@example.com",
+                  "password": "DefinitelyWrong#9"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 401
+
+    def test_a_weak_password_is_422_not_200(self, client):
+        page = client.get("/register")
+        response = client.post(
+            "/register",
+            data={"csrf_token": _csrf(page.text), "email": "weak@example.com",
+                  "username": "weakuser", "full_name": "Weak User",
+                  "password": "abc", "password_confirm": "abc"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 422
+
+
+class TestFlashCookie:
+    """Cookie values must be latin-1; a flash containing an em dash used to 500."""
+
+    def test_a_non_ascii_flash_does_not_raise(self, signed_in):
+        response = signed_in.post(
+            "/api/feedback",
+            json={"message": "The explanation is cut off on mobile.", "path": "/dpp"},
+            headers={"Accept": "application/json", "x-csrf-token": _csrf(signed_in.get("/community").text)},
+        )
+        assert response.status_code == 200
+
+        # The message that used to break it: an em dash is U+2014, not latin-1.
+        from starlette.responses import RedirectResponse
+
+        from web.deps import flash, read_flash
+
+        redir = RedirectResponse("/dpp", status_code=303)
+        flash(redir, "Thanks — that reached the team.")  # must not raise
+
+        raw = redir.headers["set-cookie"]
+        assert "Thanks" in raw
+
+        class FakeRequest:
+            cookies = {"ev_flash": raw.split("ev_flash=")[1].split(";")[0]}
+
+        assert read_flash(FakeRequest()).startswith("Thanks — ")

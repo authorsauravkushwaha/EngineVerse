@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
+from urllib.parse import quote, unquote
 from datetime import datetime, timezone
 from typing import Any
 
@@ -163,7 +164,7 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "csrf_token": csrf.issue_token(session_id(request)),
         "path": request.url.path,
         "query": dict(request.query_params),
-        "flash": request.cookies.get("ev_flash", ""),
+        "flash": read_flash(request),
         "due_cards": 0,
         "unread": 0,
         "stats": None,
@@ -182,9 +183,37 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
     return context
 
 
-def render(request: Request, template: str, **extra: Any):
-    return templates.TemplateResponse(request, template, base_context(request, **extra))
+def render(request: Request, template: str, status_code: int = 200, **extra: Any):
+    """Renders a template.
+
+    ``status_code`` is pulled out of the kwargs on purpose. Every kwarg lands in
+    the template context, so passing it through the way the other values do would
+    silently bind it as a template variable and the response would still be 200 -
+    which is exactly what made the login and register error paths report success
+    to clients that check the status code.
+    """
+    return templates.TemplateResponse(
+        request, template, base_context(request, **extra), status_code=status_code
+    )
 
 
 def flash(response, message: str) -> None:
-    response.set_cookie("ev_flash", message[:200], max_age=8, path="/", httponly=False, samesite="lax")
+    """Stores a one-shot message in a short-lived cookie.
+
+    HTTP header values must be latin-1, so the text is percent-encoded first.
+    Without that, an em dash or any non-ASCII glyph raises UnicodeEncodeError
+    from inside set_cookie and turns the response into a 500.
+    """
+    encoded = quote(message[:200], safe="")
+    response.set_cookie("ev_flash", encoded, max_age=8, path="/", httponly=False, samesite="lax")
+
+
+def read_flash(request) -> str:
+    """Returns and clears the pending flash message, if any."""
+    raw = request.cookies.get("ev_flash")
+    if not raw:
+        return ""
+    try:
+        return unquote(raw)
+    except Exception:
+        return raw

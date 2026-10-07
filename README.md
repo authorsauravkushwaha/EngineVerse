@@ -122,7 +122,7 @@ password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/S
 ## Testing
 
 ```bash
-python -m pytest backend/tests -q          # 250 tests
+python -m pytest backend/tests -q          # 258 tests
 python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 ```
 
@@ -131,7 +131,7 @@ python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 | `test_security.py` | 63 | Hashing, salting, NFKC, policy, RBAC, safe URLs, ULIDs |
 | `test_judge.py` | 40 | All 13 reference solutions through the real sandbox; sandbox isolation; deadline enforcement |
 | `test_routes.py` | 92 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
-| `test_api_and_schema.py` | 55 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; migration idempotence; Postgres schema parsed |
+| `test_api_and_schema.py` | 63 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
 
 The tests are how four real defects were found: every `/api/*` request 500ing on
 a rate-limit unpacking error, every authenticated form POST 403ing because the
@@ -146,7 +146,7 @@ backend/
   web/                pages.py (SSR), auth_pages.py, api.py (JSON)
   templates/          47 Jinja2 templates
   static/             one CSS file, one JS file, PWA manifest, service worker, icons
-  tests/              250 tests
+  tests/              258 tests
 db/
   schema.sql          SQLite, 63 tables (development)
   postgres/           hash-partitioned Postgres schema (production)

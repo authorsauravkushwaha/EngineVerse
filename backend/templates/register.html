@@ -5,6 +5,13 @@
   <h1>Create your account</h1>
   <p class="muted">Free forever for all notes, practice problems, coding and projects. No card, no trial timer.</p>
   {% if error %}<div class="callout warning"><span class="label">Please fix these</span>{{ error }}</div>{% endif %}
+  {# Only the routes that pass the flag can report a closure; an undefined value means "not checked". #}
+  {% if registration_open is defined and not registration_open %}
+    <div class="callout warning"><span class="label">Registration closed</span>
+      The administrator has turned new sign-ups off. Existing accounts can still
+      <a href="/login">sign in</a>.</div>
+    <p class="small muted"><a href="/">Back to {{ brand.site_name }}</a></p>
+  {% else %}
   <form method="post" action="/register">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="next" value="{{ next or '/' }}">
@@ -34,6 +41,7 @@
         {% for s in semesters %}<option value="{{ s.id }}">{{ s.label }}</option>{% endfor %}</select></div>
     <button class="btn btn-primary btn-block" type="submit">Create account</button>
   </form>
+  {% endif %}
   <p class="small center mt">Already registered? <a href="/login">Sign in</a></p>
 </div>
 {% endblock %}

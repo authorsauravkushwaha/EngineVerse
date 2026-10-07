@@ -48,6 +48,24 @@ def seeded():
     return seed
 
 
+@pytest.fixture(autouse=True)
+def _clear_rate_limits():
+    """Empties the in-process sliding-window buckets around every test.
+
+    The buckets are module-level and the database is session-scoped, so without
+    this a test that registers five accounts leaves the ``register`` limiter
+    (5 per hour per IP) exhausted and every later test sees a 403 that has
+    nothing to do with what it is asserting. Test order should not matter.
+    """
+    from engineverse.security import ratelimit
+
+    with ratelimit._lock:
+        ratelimit._buckets.clear()
+    yield
+    with ratelimit._lock:
+        ratelimit._buckets.clear()
+
+
 @pytest.fixture()
 def app(seeded):
     from main import create_app

@@ -6,7 +6,8 @@
   <h1>{{ certificate.title }}</h1>
   <p class="muted">This certifies that</p>
   <div class="name">{{ certificate.full_name or certificate.username }}</div>
-  <p class="muted">completed the above on {{ certificate.issued_at | ago }}.</p>
+  <p class="muted">completed the above on {{ certificate.issued_at | ago }}.
+    {% if certificate.branch %}<span class="small muted">Branch: {{ certificate.branch }}.</span>{% endif %}</p>
   <p class="small muted">Issued by {{ brand.site_name }}. This is a platform completion record, not a university
     or government accreditation.</p>
   <div class="verify">Verify: {{ certificate.verify_id }}</div>

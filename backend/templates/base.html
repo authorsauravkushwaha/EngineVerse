@@ -151,6 +151,19 @@
       <a href="/privacy">Privacy</a>
       <a href="/terms">Terms</a>
     </div>
+    <div>
+      <h4>Tell us what's wrong</h4>
+      <form class="stack" method="post" action="/api/feedback" data-json-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="path" value="{{ path }}">
+        <label class="field">
+          <span class="label">Broken page? Wrong answer? Missing subject?</span>
+          <textarea name="message" rows="3" required minlength="5"
+                    placeholder="Be specific — a URL and what you expected helps us fix it."></textarea>
+        </label>
+        <button class="btn btn-soft btn-sm" type="submit">Send feedback</button>
+      </form>
+    </div>
   </div>
   <div class="wrap footer-base">
     <span>&copy; {{ brand.site_name }}. Built for engineers, by engineers.</span>

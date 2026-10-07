@@ -9,7 +9,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import RedirectResponse
 
-from engineverse import auth, catalog, db, progress
+from engineverse import auth, brand, catalog, db, progress
 from engineverse.security import validators
 from engineverse.security.audit import record
 from engineverse.security.passwords import check_password_strength
@@ -81,6 +81,7 @@ async def register_page(request: Request, next: str | None = None):
         return RedirectResponse("/", status_code=303)
     return render(
         request, "register.html", next=next, mode="register",
+        registration_open=brand.registration_open(),
         universities=catalog.list_universities(),
         branches=catalog.list_branches(),
         semesters=catalog.list_semesters(),
@@ -100,6 +101,14 @@ async def register_submit(
     semester: str = Form(""),
 ):
     target = _next_url(next)
+    if not brand.registration_open():
+        return render(request, "register.html", next=target, mode="register",
+                      registration_open=False,
+                      error="Registration is currently closed. Contact the site administrator.",
+                      email=email, username=username, full_name=full_name,
+                      universities=catalog.list_universities(),
+                      branches=catalog.list_branches(), semesters=catalog.list_semesters(),
+                      status_code=403)
     if password != password_confirm:
         return render(request, "register.html", next=target, mode="register",
                       error="The two passwords do not match.", email=email, username=username,

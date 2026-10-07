@@ -562,7 +562,10 @@ def verify_certificate(verify_id: str) -> dict | None:
     if not row:
         return None
     holder = db.query_one(
-        "SELECT full_name, username, branch_id FROM profiles WHERE user_id = ?", row["user_id"]
+        "SELECT p.full_name, u.username, p.branch_id "
+        "FROM profiles p JOIN users u ON u.id = p.user_id "
+        "WHERE p.user_id = ?",
+        row["user_id"],
     )
     branch = db.query_one("SELECT name FROM branches WHERE id = ?", holder["branch_id"]) if holder and holder.get("branch_id") else None
     try:

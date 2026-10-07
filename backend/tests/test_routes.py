@@ -185,7 +185,9 @@ class TestForms:
             },
             follow_redirects=False,
         )
-        assert response.status_code in (200, 303)
+        # 401, not 200: an error page that reports success is indistinguishable
+        # from a working login for any client that checks the status code.
+        assert response.status_code == 401
         assert client.get("/profile", follow_redirects=False).status_code in (302, 303, 401)
 
     def test_authenticated_post_without_a_csrf_token_is_refused(self, signed_in):
@@ -233,7 +235,7 @@ class TestForms:
             },
             follow_redirects=False,
         )
-        assert response.status_code in (200, 303)
+        assert response.status_code == 422
         from engineverse import db
 
         assert db.query_one("SELECT id FROM users WHERE email = 'weakling@example.com'") is None

@@ -307,13 +307,35 @@ async def api_bookmarks(request: Request, entityType: str | None = None):
 
 
 @router.post("/notes/personal")
-async def api_personal_note(request: Request, entityType: str = Body(...), entityId: str = Body(...),
-                            content: str = Body(...)):
+async def api_personal_note(request: Request):
     viewer = require_user(request)
+    data = await payload(request)
+    entity_type = (data.get("entityType") or "").strip()
+    entity_id = (data.get("entityId") or "").strip()
+    content = (data.get("content") or "").strip()
+    if entity_type not in ("topic", "problem", "project", "flashcard"):
+        return _reject(request, "/", "That is not something you can attach a note to.")
+    if len(content) < 2:
+        return _reject(request, _entity_url(entity_type, entity_id), "Write something first.")
     if len(content) > 20_000:
-        return fail("That note is too long.", 413)
-    note_id = progress.save_personal_note(viewer.id, entityType, entityId, content)
+        return _reject(request, _entity_url(entity_type, entity_id), "That note is too long.")
+    note_id = progress.save_personal_note(viewer.id, entity_type, entity_id, content)
+    if wants_html(request):
+        return RedirectResponse(_entity_url(entity_type, entity_id), status_code=303)
     return ok(id=note_id)
+
+
+def _entity_url(entity_type: str, entity_id: str) -> str:
+    """Best-effort path back to the thing a note was attached to."""
+    if entity_type == "topic":
+        row = db.query_one("SELECT slug FROM topics WHERE id = ?", entity_id)
+        if row:
+            return f"/topics/{row['slug']}"
+    if entity_type == "project":
+        row = db.query_one("SELECT slug FROM projects WHERE id = ?", entity_id)
+        if row:
+            return f"/projects/{row['slug']}"
+    return "/library"
 
 
 @router.get("/notifications")
@@ -402,12 +424,16 @@ async def api_report(request: Request, entityType: str = Body(...), entityId: st
 # ---------------------------------------------------------------------------
 
 @router.post("/projects/track")
-async def api_project_track(request: Request, projectSlug: str = Body(...)):
+async def api_project_track(request: Request):
     viewer = require_user(request)
-    project = projects.get_project(projectSlug)
+    data = await payload(request)
+    slug = (data.get("projectSlug") or "").strip()
+    project = projects.get_project(slug)
     if not project:
         return fail("Unknown project.", 404)
     projects.record_build(viewer.id, project["id"])
+    if wants_html(request):
+        return RedirectResponse(f"/projects/{slug}", status_code=303)
     return ok()
 
 
@@ -440,17 +466,30 @@ async def api_certificates(request: Request):
 
 
 @router.post("/certificates/issue")
-async def api_issue_certificate(request: Request, kind: str = Body(...), entityType: str = Body(...),
-                                entityId: str = Body(...), title: str = Body(...)):
+async def api_issue_certificate(request: Request):
     viewer = require_user(request)
-    if not db.query_one(
+    data = await payload(request)
+    kind = (data.get("kind") or "topic").strip() or "topic"
+    entity_type = (data.get("entityType") or "").strip()
+    entity_id = (data.get("entityId") or "").strip()
+    title = (data.get("title") or "").strip() or "EngineVerse completion"
+    back_to = _entity_url(entity_type, entity_id)
+    if not title or len(title) > 160:
+        return _reject(request, back_to, "That certificate title is not usable.")
+    if entity_type == "topic" and not db.query_one(
         "SELECT 1 FROM user_progress WHERE user_id = ? AND topic_id = ? AND status IN ('completed','mastered')",
-        viewer.id, entityId,
-    ) and entityType == "topic":
-        return fail("Complete the topic before claiming a certificate.", 403)
-    cert_id = progress.issue_certificate(viewer.id, kind, entityType, entityId, title)
-    row = progress.verify_certificate(cert_id)
-    return ok(certificate=row)
+        viewer.id, entity_id,
+    ):
+        return _reject(request, back_to, "Complete the topic before claiming a certificate.")
+    cert_id = progress.issue_certificate(viewer.id, kind, entity_type, entity_id, title)
+    # verify_certificate looks a certificate up by its public verify_id, not its id,
+    # and returns {"certificate", "holder", "branch", "meta"} rather than a bare row.
+    issued = db.query_one("SELECT verify_id FROM certificates WHERE id = ?", cert_id)
+    verify_id = issued["verify_id"] if issued else None
+    bundle = progress.verify_certificate(verify_id) if verify_id else None
+    if wants_html(request) and verify_id:
+        return RedirectResponse(f"/certificates/{verify_id}", status_code=303)
+    return ok(certificate=bundle, verifyId=verify_id)
 
 
 # ---------------------------------------------------------------------------
@@ -487,9 +526,28 @@ async def api_formulas(request: Request, category: str | None = None, q: str | N
 
 
 @router.post("/feedback")
-async def api_feedback(request: Request, message: str = Body(..., embed=True), path: str = Body("", embed=True)):
+async def api_feedback(request: Request):
     """Public feedback channel. Stored for staff review; never executed."""
     viewer = current_user(request)
+    data = await payload(request)
+    message = (data.get("message") or "").strip()
+    path = (data.get("path") or "")[:200]
+    back_to = path if path.startswith("/") and not path.startswith("//") else "/about"
+    if len(message) < 5:
+        return _reject(request, back_to, "Tell us a little more than that.")
     record("app.feedback", actor_id=viewer.id if viewer else None,
-           meta={"message": message[:2000], "path": path[:200]})
+           meta={"message": message[:2000], "path": path})
+    if wants_html(request):
+        return _reject_ok(request, back_to, "Thanks — that reached the team.")
     return ok()
+
+
+def _reject_ok(request: Request, back_to: str, message: str):
+    """The success twin of _reject: flash and go back."""
+    if wants_html(request):
+        from .deps import flash
+
+        response = RedirectResponse(back_to, status_code=303)
+        flash(response, message)
+        return response
+    return ok(message=message)

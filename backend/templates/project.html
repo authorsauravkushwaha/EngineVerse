@@ -11,8 +11,17 @@
         <span class="chip">{{ project.est_hours }} hours</span>
         <span class="chip">{{ project.category }}</span>
         {% for tech in (project.tech | fromjson([])) %}<span class="chip">{{ tech }}</span>{% endfor %}</div>
-      {% if user %}<button class="btn btn-primary btn-sm mt" data-bookmark="project" data-type="project"
-        data-id="{{ project.id }}">☆ Save to portfolio</button>{% endif %}
+      {% if user %}
+      <div class="row mt" style="gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" data-bookmark="project" data-type="project"
+          data-id="{{ project.id }}">☆ Save to portfolio</button>
+        <form method="post" action="/api/projects/track" data-json-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="projectSlug" value="{{ project.slug }}">
+          <button class="btn btn-soft btn-sm" type="submit">I built this (+5 XP)</button>
+        </form>
+      </div>
+      {% endif %}
     </header>
 
     <section class="panel"><h2>Problem statement</h2><div class="prose">{{ project.problem_statement | md | safe }}</div>
@@ -46,6 +55,12 @@
   </article>
 
   <aside class="sidebar">
+    {% if user %}
+    <div class="panel tight"><h3>Build log</h3>
+      <p class="small muted">{{ project.build_count or 0 }} engineer{{ '' if (project.build_count or 0) == 1 else 's' }} have logged this build.
+        Mark yours so it counts toward your portfolio.</p>
+    </div>
+    {% endif %}
     <div class="panel tight"><h3>Prerequisites</h3>
       <div class="tags">{% for p in (project.prerequisites | fromjson([])) %}<span class="chip">{{ p }}</span>{% endfor %}</div></div>
     {% if resources %}<div class="panel tight"><h3>Resources</h3><div class="stack">

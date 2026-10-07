@@ -141,6 +141,15 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
         siblings=catalog.topic_siblings(topic["subject_id"], topic["order_index"]),
         recommendations=recommend.for_topic(topic, viewer.id if viewer else None),
         my_progress=progress.topic_progress(viewer.id, topic["id"]) if viewer else None,
+        my_notes=progress.personal_notes(viewer.id, "topic", topic["id"]) if viewer else [],
+        my_certificate=(
+            db.query_one(
+                "SELECT id, verify_id, issued_at FROM certificates "
+                "WHERE user_id = ? AND entity_type = 'topic' AND entity_id = ?",
+                viewer.id, topic["id"],
+            )
+            if viewer else None
+        ),
         quality=quality,
         available_depths=db.query(
             "SELECT quality_level FROM notes WHERE topic_id = ? ORDER BY quality_level", topic["id"]
@@ -500,10 +509,18 @@ async def settings_page(request: Request):
 
 @router.get("/certificates/{verify_id}")
 async def certificate_page(request: Request, verify_id: str):
-    record = progress.verify_certificate(verify_id)
-    if not record:
+    bundle = progress.verify_certificate(verify_id)
+    if not bundle:
         raise HTTPException(status_code=404, detail="No certificate with that id")
-    return render(request, "certificate.html", certificate=record)
+    # verify_certificate returns {"certificate", "holder", "branch", "meta"};
+    # the template reads one flat record, so merge them here.
+    holder = bundle.get("holder") or {}
+    branch = bundle.get("branch") or {}
+    record = dict(bundle["certificate"])
+    record["full_name"] = holder.get("full_name")
+    record["username"] = holder.get("username")
+    record["branch"] = branch.get("name")
+    return render(request, "certificate.html", certificate=record, meta=bundle.get("meta") or {})
 
 
 # ---------------------------------------------------------------------------

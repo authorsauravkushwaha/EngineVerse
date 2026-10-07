@@ -145,6 +145,53 @@
     </div>
     {% endif %}
 
+    {% if user %}
+    <div class="panel tight">
+      <h3>My notes</h3>
+      <form class="stack" method="post" action="/api/notes/personal" data-json-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="entityType" value="topic">
+        <input type="hidden" name="entityId" value="{{ topic.id }}">
+        <label class="field">
+          <span class="label">Jot down what clicked — or what didn't</span>
+          <textarea name="content" rows="4" required minlength="2"
+                    placeholder="e.g. Bernoulli is just energy conservation per unit volume. I keep forgetting the pressure term is per area."></textarea>
+        </label>
+        <button class="btn btn-soft btn-sm" type="submit">Save note</button>
+      </form>
+      {% if my_notes %}
+        <div class="stack mt">
+          {% for note in my_notes[:5] %}
+            <article class="note">
+              <p class="small">{{ note.content }}</p>
+              <p class="tiny muted">{{ note.created_at | ago }}</p>
+            </article>
+          {% endfor %}
+        </div>
+      {% endif %}
+    </div>
+
+    <div class="panel tight">
+      <h3>Certificate</h3>
+      {% if my_certificate %}
+        <p class="small">Issued. Verify it with this ID:</p>
+        <p class="small mono"><a href="/certificates/{{ my_certificate.verify_id }}">{{ my_certificate.verify_id }}</a></p>
+      {% elif my_progress and my_progress.status in ('completed', 'mastered') %}
+        <p class="small muted">You finished this topic — claim a verifiable certificate.</p>
+        <form method="post" action="/api/certificates/issue" data-json-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="kind" value="topic">
+          <input type="hidden" name="entityType" value="topic">
+          <input type="hidden" name="entityId" value="{{ topic.id }}">
+          <input type="hidden" name="title" value="{{ topic.title }}">
+          <button class="btn btn-primary btn-sm" type="submit">Claim certificate</button>
+        </form>
+      {% else %}
+        <p class="small muted">Mark this topic complete to unlock a certificate.</p>
+      {% endif %}
+    </div>
+    {% endif %}
+
     {% if related %}
     <div class="panel tight">
       <h3>Related topics</h3>
