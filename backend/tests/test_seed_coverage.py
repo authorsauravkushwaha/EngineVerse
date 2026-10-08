@@ -14,6 +14,8 @@ and nothing may be silently dropped on the way in.
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from engineverse import db, library
@@ -285,6 +287,53 @@ def test_diagram_section_present_for_every_topic(seeded):
         "  WHERE n.topic_id = t.id AND s.kind = 'diagram')"
     )
     assert [r["slug"] for r in missing] == []
+
+
+def _usable_hotspots(raw: str | None) -> bool:
+    """Whether a diagram's hotspot payload describes something clickable."""
+    try:
+        data = json.loads(raw) if raw else None
+    except ValueError:
+        return False
+    return isinstance(data, list) and bool(data)
+
+
+def _visual_coverage_problems() -> list[str]:
+    """Everything wrong with the per-topic visuals, as a list of complaints."""
+    problems = [
+        f"diagram {row['topic_id']} has no usable hotspots"
+        for row in db.query("SELECT topic_id, hotspots FROM diagrams")
+        if not _usable_hotspots(row["hotspots"])
+    ]
+    topics = db.scalar("SELECT COUNT(*) FROM topics")
+    for table in ("diagrams", "models_3d"):
+        covered = db.scalar(f"SELECT COUNT(DISTINCT topic_id) FROM {table}")
+        if covered != topics:
+            problems.append(f"{table} covers {covered} of {topics} topics")
+    return problems
+
+
+def test_every_topic_has_a_diagram_with_hotspots(seeded):
+    """The docs claim every topic's SVG diagram is interactive.
+
+    An empty ``hotspots`` column still renders a perfectly good picture, so
+    nothing else would notice the interactivity going missing - and the claim
+    had already rotted once, in the other direction, when a stale count of 6 was
+    left standing in the README after all 48 had been filled in.
+    """
+    assert _visual_coverage_problems() == []
+
+
+@pytest.mark.parametrize(
+    "raw", [None, "", "[]", "{{{", "null", '"a string"', '{"a": 1}', "[{}]"]
+)
+def test_the_hotspot_predicate_rejects_payloads_that_render_but_are_not_clickable(raw):
+    """Pinned directly, because the fixture above reseeds and would swallow any
+    attempt to break the data underneath it."""
+    if raw == "[{}]":
+        assert _usable_hotspots(raw), "one empty hotspot object is still a hotspot"
+    else:
+        assert not _usable_hotspots(raw), f"{raw!r} should not count as interactive"
 
 
 @pytest.mark.parametrize("table,column", [("videos", "category"), ("resources", "kind"), ("books", "level")])

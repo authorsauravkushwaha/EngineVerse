@@ -209,9 +209,10 @@ Stated plainly rather than discovered later:
 - **No mail transport**, so email verification does not send.
 - **The seeded catalogue is a foundation, not a library.** 48 topics is enough to
   prove the model and to study from; a full degree is thousands. The structure is
-  built to be filled in without a redesign. Visual coverage is uneven by design:
-  all 48 topics have an interactive 3D model, but only 6 have a hotspot SVG
-  diagram, and the 3D models are authored by hand one at a time.
+  built to be filled in without a redesign. Visual coverage is complete for the
+  topics that exist: all 48 carry an interactive 3D model and an SVG diagram with
+  hotspots. The 3D models are authored by hand one at a time, which is what caps
+  how fast that number grows.
 
 ## Licence
 
