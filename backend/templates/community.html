@@ -19,13 +19,14 @@
         <div class="votebox">
           {% if user %}<button data-vote="1" data-type="discussion" data-id="{{ thread.id }}" title="Upvote">▲</button>
           {% else %}<span>▲</span>{% endif %}
-          <span class="n">{{ thread.score or 0 }}</span></div>
+          <span class="n">{{ thread.upvotes or 0 }}</span></div>
         <div style="flex:1;min-width:0">
           <a href="/community/{{ thread.id }}"><strong>{{ thread.title }}</strong></a>
           <p class="small muted" style="margin:4px 0">{{ thread.body | excerpt(170) }}</p>
           <div class="tags"><span class="chip">{{ thread.kind }}</span>
             {% for t in (thread.tags | fromjson([]))[:4] %}<span class="chip">#{{ t }}</span>{% endfor %}
-            <span class="chip">{{ thread.comment_count or 0 }} replies</span>
+            {% set n = thread.reply_count or 0 %}<span class="chip">{{ n }} {{ "reply" if n == 1 else "replies" }}</span>
+            {% if thread.is_resolved %}<span class="chip">solved</span>{% endif %}
             <span class="tiny muted">{{ thread.created_at | ago }} · {{ thread.username }}</span></div>
         </div>
       </div>

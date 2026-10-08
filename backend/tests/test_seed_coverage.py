@@ -15,10 +15,18 @@ and nothing may be silently dropped on the way in.
 from __future__ import annotations
 
 import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 
-from engineverse import db, library
+from engineverse import community, db, library, progress
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 from seed_data import library_data
 from seed_data.catalog import SUBJECTS
 
@@ -420,3 +428,174 @@ def test_the_checker_accepts_a_good_url():
     errors, warnings = check_links.check_structure("https://openstax.org/details/books/calculus-volume-1")
     assert errors == []
     assert warnings == []
+
+
+@pytest.fixture(scope="module")
+def fresh_seed(tmp_path_factory):
+    """A database the seeder produced on its own, with no other test near it.
+
+    The session database is shared and mutable: other suites post discussions
+    that have no replies and delete submissions outright, so an absolute count
+    read from it measures the suite's history rather than the seeder's output.
+    Both directions broke - nine reply-less threads appeared, and 194 seeded
+    submissions fell to 82. Seeding a throwaway database in a subprocess is the
+    only way to assert on what the seeder actually writes.
+    """
+    path = tmp_path_factory.mktemp("fresh-seed") / "fresh.sqlite3"
+    env = {
+        **os.environ,
+        "ENGINEVERSE_DB_PATH": str(path),
+        "ENGINEVERSE_SECRET": "test-secret-key-for-pytest-only-0123456789",
+        "ENGINEVERSE_ENV": "test",
+    }
+    result = subprocess.run(
+        [sys.executable, "scripts/seed.py", "--fresh"],
+        cwd=REPO_ROOT, env=env, capture_output=True, text=True,
+    )
+    assert result.returncode == 0, result.stdout[-1500:] + result.stderr[-1500:]
+    conn = sqlite3.connect(path)
+    try:
+        yield conn
+    finally:
+        conn.close()
+
+
+def _scalar(conn, sql: str) -> int:
+    return int(conn.execute(sql).fetchone()[0])
+
+
+def test_the_community_is_seeded(fresh_seed):
+    """The forum shipped rendering "No discussions yet" on a fresh install.
+
+    Nothing seeded ``discussions``, ``comments`` or ``votes``, so a visitor
+    reached an empty page for a headline feature and had no way to judge whether
+    it worked.
+    """
+    assert _scalar(fresh_seed, "SELECT COUNT(*) FROM discussions") >= 10
+    assert _scalar(fresh_seed, "SELECT COUNT(*) FROM comments") >= 20
+    assert _scalar(fresh_seed, "SELECT COUNT(*) FROM votes") >= 50
+    # A thread with no replies is a noticeboard, not a forum.
+    assert _scalar(fresh_seed, "SELECT COUNT(*) FROM discussions WHERE reply_count = 0") == 0
+    # Both filter states must be populated, or the resolved/unresolved toggle is
+    # a control that can never change the page.
+    assert _scalar(fresh_seed, "SELECT COUNT(*) FROM discussions WHERE is_resolved = 1") >= 5
+    assert _scalar(fresh_seed, "SELECT COUNT(*) FROM discussions WHERE is_resolved = 0") >= 3
+
+
+def test_reply_counts_match_the_comments_that_exist(seeded):
+    """``discussions.reply_count`` is denormalised, so nothing else keeps it true."""
+    wrong = db.query(
+        "SELECT d.id, d.title, d.reply_count, COUNT(c.id) AS actual FROM discussions d "
+        "LEFT JOIN comments c ON c.discussion_id = d.id AND c.is_deleted = 0 "
+        "GROUP BY d.id HAVING d.reply_count <> COUNT(c.id)"
+    )
+    assert [dict(r) for r in wrong] == []
+
+
+# The table is plural and the vote's entity_type is singular; passing one where
+# the other belongs joins nothing and every row looks mismatched.
+@pytest.mark.parametrize("table,entity_type", [("discussions", "discussion"), ("comments", "comment")])
+def test_vote_tallies_match_the_votes_cast(seeded, table, entity_type):
+    """The displayed score must equal the votes actually stored against it."""
+    wrong = db.query(
+        f"SELECT t.id, t.upvotes, COALESCE(SUM(v.value), 0) AS actual FROM {table} t "
+        "LEFT JOIN votes v ON v.entity_type = ? AND v.entity_id = t.id "
+        "GROUP BY t.id HAVING t.upvotes <> COALESCE(SUM(v.value), 0)",
+        entity_type,
+    )
+    assert [dict(r) for r in wrong] == [], f"{table}.upvotes disagrees with the votes table"
+
+
+def test_every_thread_is_anchored_to_content_that_exists(seeded):
+    dangling = db.query(
+        "SELECT d.id, d.title, d.entity_id FROM discussions d "
+        "WHERE d.entity_id IS NOT NULL AND NOT EXISTS "
+        "(SELECT 1 FROM topics t WHERE t.id = d.entity_id)"
+    )
+    assert [dict(r) for r in dangling] == []
+    # list_threads INNER JOINs profiles, so a thread whose author has no profile
+    # row would vanish from the page rather than error - the quiet kind of bug.
+    assert db.scalar(
+        "SELECT COUNT(*) FROM discussions d LEFT JOIN profiles p ON p.user_id = d.user_id "
+        "WHERE p.user_id IS NULL"
+    ) == 0
+
+
+def test_certificates_are_seeded_and_verify(seeded):
+    """A certificate nobody has been issued leaves /certificates/{verify_id} untestable."""
+    rows = db.query("SELECT verify_id FROM certificates")
+    assert len(rows) >= 3
+    for row in rows:
+        assert progress.verify_certificate(row["verify_id"]), f"{row['verify_id']} does not verify"
+
+
+def test_badges_can_actually_be_earned(seeded):
+    """Twelve badges existed and the seeded history satisfied exactly one criterion.
+
+    The criteria are real queries over submissions, coding_submissions,
+    bookmarks and user_progress, so the history has to be real for the badge
+    catalogue to mean anything. Not all of them should be earned either: a
+    badge nobody has yet is believable, and awarding every badge would suggest
+    the criteria were never evaluated.
+    """
+    earned = db.scalar("SELECT COUNT(DISTINCT badge_id) FROM user_badges")
+    assert earned >= 5
+    assert earned < db.scalar("SELECT COUNT(*) FROM badges")
+
+
+def test_the_seeded_history_is_not_perfect(fresh_seed):
+    """A learner with 100% accuracy over 190 answers is not a learner.
+
+    Accuracy is shown on the profile and drives the gold certificate tier, so a
+    flawless seeded record would both look synthetic and quietly promote every
+    demo student.
+    """
+    total = _scalar(fresh_seed, "SELECT COUNT(*) FROM submissions")
+    correct = _scalar(fresh_seed, "SELECT COUNT(*) FROM submissions WHERE is_correct = 1")
+    assert total >= 100
+    assert 0.6 < correct / total < 0.95, f"{correct}/{total} correct is not a believable record"
+    # And no individual student should be spotless either.
+    for (username,) in fresh_seed.execute(
+        "SELECT u.username FROM users u JOIN submissions s ON s.user_id = u.id "
+        "GROUP BY u.username HAVING COUNT(*) >= 20"
+    ).fetchall():
+        wrong = int(fresh_seed.execute(
+            "SELECT COUNT(*) FROM submissions s JOIN users u ON u.id = s.user_id "
+            "WHERE u.username = ? AND s.is_correct = 0", (username,)
+        ).fetchone()[0])
+        assert wrong >= 3, f"{username} has no wrong answers in the seeded history"
+
+
+def test_the_community_page_shows_the_counts_it_was_given(seeded, client):
+    """Every thread rendered "0 replies" and a score of 0.
+
+    ``list_threads`` returns rows keyed ``upvotes`` and ``reply_count``; the
+    template asked for ``thread.score`` and ``thread.comment_count``. Jinja runs
+    with ``DebugUndefined``, which turns a missing key into a falsy value
+    instead of raising, so ``or 0`` swallowed it and every thread looked brand
+    new and unloved whatever the database held.
+
+    Compared as multisets against the database rather than by status code: a 200
+    says nothing about whether the numbers on the page are the numbers that were
+    queried, and that is the whole failure mode here.
+    """
+    page = client.get("/community").text
+    # -? because a downvoted thread has a negative score, and \d+ would silently
+    # drop it from the list instead of failing the comparison.
+    shown_scores = [int(n) for n in re.findall(r'<span class="n">(-?\d+)</span>', page)]
+    shown_replies = [
+        int(n) for n in re.findall(r'<span class="chip">(\d+) repl(?:y|ies)</span>', page)
+    ]
+    # Compared against the call the view itself makes, not against the whole
+    # table: other suites post and hide threads in the shared session database,
+    # so "everything in discussions" is not the same set as "everything the page
+    # was asked to render". The point of the test is that the template draws the
+    # numbers it was handed.
+    rows, _total = community.list_threads(limit=40)
+    assert sorted(shown_scores) == sorted(int(r["upvotes"]) for r in rows), (
+        "the vote scores on the page are not the ones the view queried")
+    assert sorted(shown_replies) == sorted(int(r["reply_count"]) for r in rows), (
+        "the reply counts on the page are not the ones the view queried")
+    # Guard the guard: if the seed produced nothing, the comparison above would
+    # pass on two empty lists.
+    assert sum(shown_replies) > 0, "the seed produced no replies to display"

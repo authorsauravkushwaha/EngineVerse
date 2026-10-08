@@ -9,7 +9,7 @@
         <div class="votebox">
           {% if user %}<button data-vote="1" data-type="discussion" data-id="{{ thread.id }}"
             class="{{ 'on' if my_votes.get('discussion:' + thread.id) == 1 }}">▲</button>{% endif %}
-          <span class="n">{{ thread.score or 0 }}</span>
+          <span class="n">{{ thread.upvotes or 0 }}</span>
           {% if user %}<button data-vote="-1" data-type="discussion" data-id="{{ thread.id }}"
             class="{{ 'on' if my_votes.get('discussion:' + thread.id) == -1 }}">▼</button>{% endif %}</div>
         <div style="flex:1"><h1 style="font-size:1.5rem">{{ thread.title }}</h1>
@@ -37,7 +37,7 @@
     {% for comment in comments %}
       <div class="comment" style="margin-left:{{ (comment.depth or 0) * 18 }}px">
         <div class="between"><span class="who"><strong>{{ comment.username }}</strong> · {{ comment.created_at | ago }}</span>
-          <span class="small">{{ comment.score or 0 }} ▲</span></div>
+          <span class="small">{{ comment.upvotes or 0 }} ▲</span></div>
         <div class="prose small">{{ comment.body | md | safe }}</div>
         {% if user %}<div class="row">
           <button class="btn btn-ghost btn-sm" data-vote="1" data-type="comment" data-id="{{ comment.id }}">▲</button>

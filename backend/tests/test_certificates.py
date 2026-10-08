@@ -146,6 +146,11 @@ def test_completing_the_last_topic_issues_automatically(seeded, subject):
     user = db.query_one("SELECT id FROM users WHERE username = 'ravi'")
     db.execute("DELETE FROM certificates WHERE user_id = ?", user["id"])
     db.execute("DELETE FROM user_progress WHERE user_id = ?", user["id"])
+    # This test is about the automatic hook, not about tiering, so pin the one
+    # input that decides the tier. It used to pass on whatever streak the seed
+    # happened to leave behind - and broke the moment the seeded history got
+    # deep enough to earn silver on its own.
+    _set_streak(user["id"], 0)
     topic_ids = [r["id"] for r in db.query("SELECT id FROM topics WHERE subject_id = ?", subject["id"])]
     for topic_id in topic_ids[:-1]:
         progress.complete_topic(user["id"], topic_id)
