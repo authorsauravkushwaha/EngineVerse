@@ -976,11 +976,14 @@ def main() -> int:
     parser.add_argument("--stats", action="store_true", help="print row counts and exit")
     args = parser.parse_args()
 
+    # --stats used to return here, before run(). That made `seed.py --fresh
+    # --stats` migrate an empty schema, print a table of zeros and exit 0 - so
+    # CI's "Seed a throwaway database" step looked like it had seeded and had
+    # not, and --fresh was silently dropped on the floor.
+    if args.fresh or not args.stats:
+        run(args.fresh)
     if args.stats:
-        db.migrate()
         print_stats()
-        return 0
-    run(args.fresh)
     return 0
 
 

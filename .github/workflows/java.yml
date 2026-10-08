@@ -35,8 +35,21 @@ jobs:
       # The sandbox has no runtime dependencies, so this also proves the
       # artifact is self-contained.
       - name: Build
+        # -q suppressed the compiler diagnostics, so a red build reported an exit
+        # code and nothing else. Failures are echoed as annotations because raw
+        # job logs are not reachable from the REST API.
         working-directory: sandbox-java
-        run: mvn -B -q -DskipTests package
+        shell: bash
+        run: |
+          set -o pipefail
+          mvn -B -DskipTests package 2>&1 | tee /tmp/mvn.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -E "\[ERROR\]" /tmp/mvn.txt | head -40 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit "$status"
+          fi
 
       - name: Test
         working-directory: sandbox-java

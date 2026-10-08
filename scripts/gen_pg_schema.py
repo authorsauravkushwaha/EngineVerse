@@ -376,19 +376,90 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_bytes, digests
 """
 
 
+def _dependencies(table: Table) -> set[str]:
+    """Tables this one references, read from its column and constraint DDL."""
+    text = " ".join([c.rest for c in table.columns] + table.constraints)
+    found = set(re.findall(r"REFERENCES\s+\"?(\w+)\"?", text, re.I))
+    found.discard(table.name)  # a self-reference is satisfied by its own CREATE
+    return found
+
+
+def topological_order(tables: list[Table]) -> tuple[list[Table], list[Table]]:
+    """Orders tables so every foreign key points backwards.
+
+    SQLite checks foreign keys at DML time, so db/schema.sql can list tables in
+    any order. Postgres resolves REFERENCES during CREATE TABLE, so a forward
+    reference is a hard error - and the source schema has five of them. Emitted
+    in source order the generated file would not apply at all.
+
+    Returns (ordered, cyclic). Tables in a dependency cycle cannot be ordered;
+    the caller emits them without the offending constraint and adds it with
+    ALTER TABLE afterwards.
+    """
+    by_name = {t.name: t for t in tables}
+    deps = {t.name: {d for d in _dependencies(t) if d in by_name} for t in tables}
+
+    # Break cycles by dropping the back edge, so a genuine cycle does not hang
+    # the sort. The dropped constraint is re-added by ALTER TABLE.
+    cyclic: list[Table] = []
+    ordered: list[Table] = []
+    placed: set[str] = set()
+    remaining = list(tables)
+    while remaining:
+        ready = [t for t in remaining if deps[t.name] <= placed]
+        if not ready:
+            # Everything left depends on something left: pick the first in
+            # source order, record it, and ignore its unresolved deps.
+            ready = [remaining[0]]
+            cyclic.append(remaining[0])
+            deps[remaining[0].name] = deps[remaining[0].name] & placed
+        for table in ready:
+            ordered.append(table)
+            placed.add(table.name)
+        remaining = [t for t in remaining if t.name not in placed]
+    return ordered, cyclic
+
+
+def deferred_constraints(cyclic: list[Table], placed_order: list[str]) -> list[str]:
+    """ALTER TABLE statements for the foreign keys a cycle forced us to drop."""
+    out = []
+    for table in cyclic:
+        position = {name: i for i, name in enumerate(placed_order)}
+        here = position.get(table.name, 0)
+        text = " ".join([c.rest for c in table.columns] + table.constraints)
+        for match in re.finditer(r"REFERENCES\s+\"?(\w+)\"?\s*\(([^)]*)\)", text, re.I):
+            target = match.group(1)
+            if position.get(target, 0) < here or target == table.name:
+                continue  # already satisfied by the ordering
+            out.append(
+                f"DO $$ BEGIN ALTER TABLE {table.name} ADD CONSTRAINT "
+                f"fk_{table.name}_{target} FOREIGN KEY REFERENCES {target} ({match.group(2)}) "
+                f"ON DELETE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+            )
+    return out
+
+
 def generate() -> str:
     sql = strip_comments(SOURCE.read_text())
-    tables = parse_tables(sql)
+    tables = [t for t in parse_tables(sql) if t.name != "search_index"]
     indexes = parse_indexes(sql)
+    ordered, cyclic = topological_order(tables)
 
     out = [HEADER]
-    for table in tables:
-        if table.name == "search_index":
-            continue  # replaced by FTS_DDL below
+    for table in ordered:
         out.append("")
         out.append(emit_table(table))
     out.append("")
     out.append(FTS_DDL.rstrip())
+
+    deferred = deferred_constraints(cyclic, [t.name for t in ordered])
+    if deferred:
+        out.append("")
+        out.append("-- ---------------------------------------------------------------------------")
+        out.append("-- Foreign keys that a dependency cycle forced past their table's CREATE.")
+        out.append("-- ---------------------------------------------------------------------------")
+        out.extend(deferred)
+
     out.append("")
     out.append(HELPER_FUNCTIONS.rstrip())
     out.extend(emit_partitions())

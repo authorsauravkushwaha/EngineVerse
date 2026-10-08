@@ -43,11 +43,31 @@ jobs:
           ENGINEVERSE_DB_PATH: data/ci.sqlite3
 
       - name: Run the test suite
-        run: python -m pytest backend/tests -q
+        # pipefail matters: without it the pipeline's status is tee's, and a red
+        # suite would report success.
+        shell: bash
+        run: |
+          set -o pipefail
+          python -m pytest backend/tests -q --tb=short 2>&1 | tee /tmp/pytest.txt
         env:
           ENGINEVERSE_SECRET: ci-only-secret-not-used-in-production-0123456789
           ENGINEVERSE_DB_PATH: data/ci.sqlite3
           ENGINEVERSE_ENV: test
+
+      - name: Surface test failures as annotations
+        # Raw job logs are only reachable from a browser session. Workflow
+        # annotations are readable over the REST API, so echoing the failure
+        # lines here is what makes a red run diagnosable from a script or a
+        # sandbox that cannot open the Actions UI.
+        if: failure()
+        run: |
+          { grep -E "^(FAILED|ERROR) " /tmp/pytest.txt | head -40; \
+            grep -E "^E  " /tmp/pytest.txt | head -40; } | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+          tail -5 /tmp/pytest.txt | while IFS= read -r line; do
+            echo "::notice::${line}"
+          done
 
       - name: Every resource URL is well-formed
         # Offline: no network needed, so it runs on every push. Catches
@@ -86,9 +106,18 @@ jobs:
       - name: Apply the production schema
         env:
           PGPASSWORD: engineverse
+        shell: bash
         run: |
+          set -o pipefail
           psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
-            -f db/postgres/schema.pg.sql
+            -f db/postgres/schema.pg.sql 2>&1 | tee /tmp/psql.txt
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            grep -iE "error|fatal" /tmp/psql.txt | head -30 | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit "$status"
+          fi
 
       - name: Verify partitions and row limits were created
         env:

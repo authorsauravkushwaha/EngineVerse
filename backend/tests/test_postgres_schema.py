@@ -283,3 +283,60 @@ class TestGeneratedDdlParses:
         body = re.sub(r"CREATE VIRTUAL TABLE.*?\);", "", SOURCE.read_text(), flags=re.S | re.I)
         statements = [s for s in sqlglot.parse(body, read="sqlite") if s is not None]
         assert len(statements) > 100, f"only {len(statements)} statements parsed"
+
+
+class TestForeignKeyOrdering:
+    """Postgres resolves REFERENCES during CREATE TABLE.
+
+    SQLite checks foreign keys at DML time, so db/schema.sql can list tables in
+    any order at all. Five of them point at a table defined later, which SQLite
+    accepts and Postgres rejects outright - so a file generated in source order
+    parses cleanly, passes sqlglot, and still will not apply.
+    """
+
+    def _order(self):
+        import re
+
+        src = TARGET.read_text()
+        return [(m.group(1), set(re.findall(r"REFERENCES (\w+)\s*\(", m.group(2))))
+                for m in re.finditer(r"CREATE TABLE IF NOT EXISTS (\w+)\s*\((.*?)\n\)", src, re.S)]
+
+    def test_no_table_references_one_created_later(self):
+        forward = []
+        seen = set()
+        for name, deps in self._order():
+            for dep in deps:
+                if dep not in seen and dep != name:
+                    forward.append((name, dep))
+            seen.add(name)
+        assert forward == [], f"forward references Postgres will reject: {forward}"
+
+    def test_the_source_schema_really_does_need_reordering(self):
+        """Guards the test above against becoming vacuous.
+
+        If db/schema.sql were ever reordered so every reference pointed
+        backwards, the sort would be doing nothing and the test above would pass
+        whether or not it worked. This asserts the source order is genuinely
+        unusable on Postgres as it stands.
+        """
+        sql = gen_pg_schema.strip_comments(SOURCE.read_text())
+        tables = [t for t in gen_pg_schema.parse_tables(sql) if t.name != "search_index"]
+        by_name = {t.name for t in tables}
+
+        forward = []
+        seen: set[str] = set()
+        for table in tables:  # source order, deliberately not the sorted one
+            for dep in gen_pg_schema._dependencies(table):
+                if dep in by_name and dep not in seen:
+                    forward.append((table.name, dep))
+            seen.add(table.name)
+        assert forward, (
+            "db/schema.sql is already in dependency order, so the topological "
+            "sort in the generator is dead code and the test above proves nothing"
+        )
+
+    def test_every_table_is_emitted_exactly_once(self):
+        import re
+
+        names = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", TARGET.read_text())
+        assert len(names) == len(set(names)), "a table was emitted twice"
