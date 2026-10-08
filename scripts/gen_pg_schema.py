@@ -238,8 +238,8 @@ def _column_ddl(column: Column, *, moved_pk: bool) -> str:
     return " ".join(parts).rstrip() + ","
 
 
-def emit_table(table: Table) -> str:
-    partition = PARTITIONED.get(table.name)
+def emit_table(table: Table, partitions: dict[str, tuple[str, int]] = PARTITIONED) -> str:
+    partition = partitions.get(table.name)
     key = partition[0] if partition else None
     inline_pk_cols = [c.name for c in table.columns if c.inline_pk]
 
@@ -318,7 +318,7 @@ ANALYZE;
 """
 
 
-def emit_partitions() -> list[str]:
+def emit_partitions(partitions: dict[str, tuple[str, int]] = PARTITIONED) -> list[str]:
     out = ["",
            "-- ---------------------------------------------------------------------------",
            "-- Partitions. Fan-out chosen so the largest single partition of each table",
@@ -326,7 +326,7 @@ def emit_partitions() -> list[str]:
            "-- for VACUUM, reindexing and a restore to stay tractable.",
            "-- ---------------------------------------------------------------------------",
            ""]
-    for table, (_key, modulus) in PARTITIONED.items():
+    for table, (_key, modulus) in partitions.items():
         out.append(f"SELECT engineverse_create_partitions('{table}', {modulus});")
     return out
 
@@ -384,6 +384,32 @@ def _dependencies(table: Table) -> set[str]:
     return found
 
 
+def unpartitionable(tables: list[Table]) -> dict[str, list[str]]:
+    """Tables that other tables reference by a partial key.
+
+    Postgres requires a foreign key to reference a *complete* unique key. A
+    partitioned table's primary key has to include the partition column, so
+    partitioning `discussions` by user_id makes its key (id, user_id) - and
+    `comments.discussion_id REFERENCES discussions(id)` then references only
+    part of it, which CREATE TABLE rejects. Partitioning such a table has to be
+    given up rather than the referencing schema rewritten.
+
+    Returns {table: [tables that reference it]}.
+    """
+    targets: dict[str, list[str]] = {}
+    for table in tables:
+        text = " ".join([c.rest for c in table.columns] + table.constraints)
+        for match in re.finditer(r"REFERENCES\s+\"?(\w+)\"?\s*\(([^)]*)\)", text, re.I):
+            target, cols = match.group(1), [c.strip() for c in match.group(2).split(",")]
+            # Self-references count: comments.parent_id -> comments(id) breaks
+            # the same rule as a reference from another table, so excluding them
+            # left `comments` partitioned against an FK on part of its own key.
+            if len(cols) > 1:
+                continue  # already references a composite key
+            targets.setdefault(target, []).append(table.name)
+    return targets
+
+
 def topological_order(tables: list[Table]) -> tuple[list[Table], list[Table]]:
     """Orders tables so every foreign key points backwards.
 
@@ -439,16 +465,40 @@ def deferred_constraints(cyclic: list[Table], placed_order: list[str]) -> list[s
     return out
 
 
+def effective_partitions(tables: list[Table]) -> tuple[dict[str, tuple[str, int]], list[str]]:
+    """Declared partitions minus those a partial foreign key rules out.
+
+    Returns (partitions, skipped). PARTITIONED is the declared intent and is
+    never mutated; a test parametrised over it must not change meaning depending
+    on whether generate() has happened to run first.
+    """
+    skipped = sorted(set(PARTITIONED) & set(unpartitionable(tables)))
+    return {name: spec for name, spec in PARTITIONED.items() if name not in skipped}, skipped
+
+
 def generate() -> str:
     sql = strip_comments(SOURCE.read_text())
     tables = [t for t in parse_tables(sql) if t.name != "search_index"]
     indexes = parse_indexes(sql)
+
+    # Drop partitioning from any table something else references by id alone.
+    # Doing it here rather than in the PARTITIONED literal means adding a table
+    # or a foreign key cannot silently produce a schema that will not apply.
+    partitions, skipped = effective_partitions(tables)
+    referenced = unpartitionable(tables)
     ordered, cyclic = topological_order(tables)
 
     out = [HEADER]
+    if skipped:
+        out.append("")
+        out.append("-- Not partitioned, despite being high volume: " + ", ".join(skipped) + ".")
+        out.append("-- Each is referenced by a foreign key on its id alone, and Postgres")
+        out.append("-- requires a foreign key to cover a partitioned table's whole key.")
+        out.append("-- Referenced by: " + "; ".join(
+            f"{n} <- {', '.join(sorted(set(referenced[n])))}" for n in skipped))
     for table in ordered:
         out.append("")
-        out.append(emit_table(table))
+        out.append(emit_table(table, partitions))
     out.append("")
     out.append(FTS_DDL.rstrip())
 
@@ -462,7 +512,7 @@ def generate() -> str:
 
     out.append("")
     out.append(HELPER_FUNCTIONS.rstrip())
-    out.extend(emit_partitions())
+    out.extend(emit_partitions(partitions))
     out.append("")
     out.append("-- ---------------------------------------------------------------------------")
     out.append("-- Indexes (translated from db/schema.sql).")
@@ -495,8 +545,11 @@ def main() -> int:
 
     TARGET.write_text(generated)
     tables = len(parse_tables(strip_comments(SOURCE.read_text())))
+    partitioned = generated.count("PARTITION BY HASH")
+    skipped = len(PARTITIONED) - partitioned
+    note = f" ({skipped} declared but given up: referenced by a partial foreign key)" if skipped else ""
     print(f"Wrote {TARGET.relative_to(REPO_ROOT)}: {tables} tables, "
-          f"{len(PARTITIONED)} partitioned")
+          f"{partitioned} partitioned{note}")
     return 0
 
 

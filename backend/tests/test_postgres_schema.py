@@ -131,6 +131,14 @@ class TestColumnParity:
 # Partitioning legality
 # ---------------------------------------------------------------------------
 
+def _effective_partitions() -> dict[str, tuple[str, int]]:
+    """The partitions the generator actually emits, not the ones it declares."""
+    sql = gen_pg_schema.strip_comments(SOURCE.read_text())
+    tables = [t for t in gen_pg_schema.parse_tables(sql) if t.name != "search_index"]
+    partitions, _skipped = gen_pg_schema.effective_partitions(tables)
+    return partitions
+
+
 def _pg_constraints() -> dict[str, dict[str, list[list[str]]]]:
     """Extracts the primary key and unique column lists per Postgres table."""
     sql = gen_pg_schema.strip_comments(TARGET.read_text())
@@ -157,7 +165,7 @@ class TestPartitioning:
     def test_partition_key_is_in_the_primary_key(self):
         """Postgres rejects the CREATE TABLE otherwise."""
         constraints = _pg_constraints()
-        for table, (key, _modulus) in gen_pg_schema.PARTITIONED.items():
+        for table, (key, _modulus) in _effective_partitions().items():
             pk = constraints[table]["pk"]
             assert pk, f"{table} is partitioned but declares no primary key"
             for pk_cols in pk:
@@ -169,7 +177,7 @@ class TestPartitioning:
     def test_partition_key_is_in_every_unique_constraint(self):
         """This is what made the old file's `sessions` partitioning invalid."""
         constraints = _pg_constraints()
-        for table, (key, _modulus) in gen_pg_schema.PARTITIONED.items():
+        for table, (key, _modulus) in _effective_partitions().items():
             for unique_cols in constraints[table]["unique"]:
                 assert key in unique_cols, (
                     f"{table} is partitioned by {key} but has a unique constraint "
@@ -340,3 +348,55 @@ class TestForeignKeyOrdering:
 
         names = re.findall(r"CREATE TABLE IF NOT EXISTS (\w+)", TARGET.read_text())
         assert len(names) == len(set(names)), "a table was emitted twice"
+
+
+class TestForeignKeyTargetsPartitionedTables:
+    """A foreign key must cover a partitioned table's *whole* key.
+
+    Partitioning forces the partition column into the primary key, so a table
+    partitioned by user_id has key (id, user_id). ``REFERENCES that_table(id)``
+    then covers only part of the key and CREATE TABLE rejects it. This is what
+    made the generated schema unappliable after the ordering was fixed.
+    """
+
+    def _keys_and_partitioned(self):
+        gen_pg_schema.generate()  # applies the same eligibility filtering
+        sql = gen_pg_schema.strip_comments(TARGET.read_text())
+        tables = gen_pg_schema.parse_tables(sql)
+        keys = {}
+        for table in tables:
+            pk = [c.name for c in table.columns if c.inline_pk]
+            for constraint in table.constraints:
+                match = re.match(r"PRIMARY KEY\s*\(([^)]*)\)", constraint, re.I)
+                if match:
+                    pk = [c.strip() for c in match.group(1).split(",")]
+            keys[table.name] = set(pk)
+        return tables, keys, set(gen_pg_schema.PARTITIONED)
+
+    def test_no_foreign_key_points_at_part_of_a_partitioned_key(self):
+        tables, keys, partitioned = self._keys_and_partitioned()
+        bad = []
+        for table in tables:
+            text = " ".join([c.rest for c in table.columns] + table.constraints)
+            for match in re.finditer(r"REFERENCES\s+(\w+)\s*\(([^)]*)\)", text, re.I):
+                target = match.group(1)
+                cols = {c.strip() for c in match.group(2).split(",")}
+                if target in partitioned and cols != keys.get(target, set()):
+                    bad.append((table.name, target, sorted(cols), sorted(keys[target])))
+        assert bad == [], (
+            "foreign keys referencing part of a partitioned table's key - "
+            "Postgres will reject these:\n  " + "\n  ".join(map(str, bad))
+        )
+
+    def test_the_generator_derives_rather_than_hardcodes_eligibility(self):
+        """Adding a foreign key must not silently produce a schema that won't apply."""
+        from scripts.gen_pg_schema import unpartitionable
+
+        sql = gen_pg_schema.strip_comments(SOURCE.read_text())
+        tables = [t for t in gen_pg_schema.parse_tables(sql) if t.name != "search_index"]
+        referenced = unpartitionable(tables)
+        # comments self-references and references discussions; both are high volume
+        # and both must therefore be given up.
+        assert "discussions" in referenced, referenced
+        assert "comments" in referenced, referenced
+        assert referenced["comments"] == ["comments"], "self-references must count"

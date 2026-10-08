@@ -41,6 +41,11 @@ CREATE EXTENSION IF NOT EXISTS citext;   -- case-insensitive email/username
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_bytes, digests
 
 
+-- Not partitioned, despite being high volume: comments, discussions.
+-- Each is referenced by a foreign key on its id alone, and Postgres
+-- requires a foreign key to cover a partitioned table's whole key.
+-- Referenced by: comments <- comments; discussions <- comments
+
 CREATE TABLE IF NOT EXISTS users (
   id                   TEXT NOT NULL,
   email                CITEXT NOT NULL UNIQUE,
@@ -407,8 +412,8 @@ CREATE TABLE IF NOT EXISTS discussions (
   is_hidden            BIGINT NOT NULL DEFAULT 0,
   created_at           BIGINT NOT NULL,
   last_activity_at     BIGINT NOT NULL,
-  PRIMARY KEY (id, user_id)
-) PARTITION BY HASH (user_id);
+  PRIMARY KEY (id)
+);
 
 CREATE TABLE IF NOT EXISTS votes (
   user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -619,8 +624,8 @@ CREATE TABLE IF NOT EXISTS comments (
   is_ai                BIGINT NOT NULL DEFAULT 0,
   is_deleted           BIGINT NOT NULL DEFAULT 0,
   created_at           BIGINT NOT NULL,
-  PRIMARY KEY (id, user_id)
-) PARTITION BY HASH (user_id);
+  PRIMARY KEY (id)
+);
 
 CREATE TABLE IF NOT EXISTS payments (
   id                   TEXT NOT NULL,
@@ -946,8 +951,6 @@ SELECT engineverse_create_partitions('submissions', 256);
 SELECT engineverse_create_partitions('xp_events', 128);
 SELECT engineverse_create_partitions('notifications', 128);
 SELECT engineverse_create_partitions('personal_notes', 64);
-SELECT engineverse_create_partitions('comments', 128);
-SELECT engineverse_create_partitions('discussions', 128);
 SELECT engineverse_create_partitions('coding_submissions', 128);
 SELECT engineverse_create_partitions('contest_submissions', 32);
 SELECT engineverse_create_partitions('mistakes', 64);

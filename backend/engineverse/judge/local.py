@@ -290,21 +290,31 @@ class LocalSandboxProvider:
     name = "local-sandbox"
 
     def __init__(self) -> None:
-        self._have_namespace = shutil.which("unshare") is not None and shutil.which("timeout") is not None
-        self._have_mount_ns = self._have_namespace and self._probe_mount_ns()
+        # Presence of the binaries is not the same as permission to use them.
+        # GitHub-hosted runners have `unshare` installed and still refuse
+        # `--map-root-user` with EPERM, because unprivileged user namespaces are
+        # blocked. Checking only `shutil.which` made the provider report itself
+        # available there, and every submission failed at runtime instead of
+        # being refused up front.
+        self._have_namespace = (
+            shutil.which("unshare") is not None
+            and shutil.which("timeout") is not None
+            and self._probe("--map-root-user")
+        )
+        self._have_mount_ns = self._have_namespace and self._probe("--map-root-user", "--mount")
 
     @staticmethod
-    def _probe_mount_ns() -> bool:
-        """Checks once whether a mount namespace can actually be created.
+    def _probe(*flags: str) -> bool:
+        """Checks once whether `unshare` can really create these namespaces.
 
-        ``unshare --map-root-user --mount`` needs an unprivileged user namespace,
-        which kernels and container runtimes disable far more often than the
-        network namespace. Probing avoids advertising a guarantee the host will
-        not honour, and avoids failing every submission when it cannot.
+        ``--map-root-user`` needs an unprivileged user namespace, which kernels,
+        container runtimes and CI hosts disable far more often than they disable
+        the binary. Probing avoids advertising a guarantee the host will not
+        honour.
         """
         try:
             probe = subprocess.run(
-                ["unshare", "--map-root-user", "--mount", "--", "true"],
+                ["unshare", *flags, "--", "true"],
                 capture_output=True, timeout=5,
             )
             return probe.returncode == 0

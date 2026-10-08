@@ -645,6 +645,33 @@ class TestSandboxRefusesWithoutIsolation:
         assert self._provider(False).available is False
         assert self._provider(True).available is True
 
+    def test_present_but_forbidden_binaries_are_detected(self):
+        """The exact GitHub-hosted-runner case.
+
+        `unshare` is installed there, so a `shutil.which` check passes, but the
+        call fails with EPERM because unprivileged user namespaces are blocked.
+        That combination made the provider report itself available and then fail
+        every submission at runtime - which is why CI was red for 100 runs while
+        nothing about the judge had regressed.
+        """
+        import subprocess
+        from unittest.mock import patch
+
+        from engineverse.judge.local import LocalSandboxProvider
+
+        def forbidden(*args, **kwargs):
+            return subprocess.CompletedProcess(
+                args[0], 1, b"",
+                b"unshare: write failed /proc/self/uid_map: Operation not permitted",
+            )
+
+        with patch("shutil.which", return_value="/usr/bin/unshare"), \
+                patch("subprocess.run", forbidden):
+            provider = LocalSandboxProvider()
+            assert provider._have_namespace is False, "a forbidden unshare was treated as usable"
+            assert provider.available is False
+            assert provider.run("python", "print('x')", "").status == "sandbox_unavailable"
+
     def test_other_languages_refuse_too(self):
         provider = self._provider(False)
         for language in ("javascript", "c", "cpp", "bash"):
