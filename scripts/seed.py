@@ -25,6 +25,7 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
         sys.path.insert(0, path)
 
 from engineverse import auth, brand, db, progress, search  # noqa: E402
+from engineverse.judge import local as judge_local  # noqa: E402
 from engineverse.security.ids import ulid  # noqa: E402
 from engineverse.security.sanitize import slugify  # noqa: E402
 
@@ -462,10 +463,17 @@ def seed_languages() -> dict[str, str]:
     with db.transaction():
         for index, (slug, name, icon, color, blurb, judge) in enumerate(library_data.LANGUAGES):
             ids[slug] = slug
+            # runnable is derived, not asserted. It used to be hard-coded to 1,
+            # which offered SQL in the code editor's language picker with no
+            # warning and then returned "unsupported_language" on Run - the data
+            # already says judge_slug is None for SQL, so the honest value was
+            # sitting right there and being thrown away.
+            runnable = 1 if judge in judge_local.RUNNERS else 0
             db.execute(
                 "INSERT INTO programming_languages (id,slug,name,icon,color,blurb,judge_slug,runnable,order_index) "
-                "VALUES (?,?,?,?,?,?,?,1,?) ON CONFLICT(id) DO UPDATE SET blurb=excluded.blurb",
-                slug, slug, name, icon, color, blurb, judge, index,
+                "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET blurb=excluded.blurb, "
+                "judge_slug=excluded.judge_slug, runnable=excluded.runnable",
+                slug, slug, name, icon, color, blurb, judge, runnable, index,
             )
         for language_slug, modules in library_data.LANGUAGE_MODULES.items():
             language_id = ids.get(language_slug)

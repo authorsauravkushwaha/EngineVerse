@@ -893,6 +893,42 @@ class TestNoteIndexing:
         )
 
 
+class TestLanguagePickerMatchesTheJudge:
+    """Every language the editor offers must be one the judge can actually run.
+
+    seed.py hard-coded runnable = 1 for every row, so SQL appeared in the code
+    editor's language picker looking exactly like Python or C, and pressing Run
+    returned "unsupported_language". The seed data already carried judge_slug =
+    None for SQL - the honest signal was there and being discarded.
+    """
+
+    def test_the_runnable_flag_matches_the_judges_runners(self, seeded):
+        from engineverse import db
+        from engineverse.judge import local as judge_local
+
+        for row in db.query("SELECT slug, judge_slug, runnable FROM programming_languages"):
+            can_run = row["judge_slug"] in judge_local.RUNNERS
+            assert bool(row["runnable"]) == can_run, (
+                f"{row['slug']}: advertised runnable={row['runnable']} but the judge "
+                f"{'can' if can_run else 'cannot'} run judge_slug={row['judge_slug']!r}"
+            )
+
+    def test_the_editor_labels_a_language_it_cannot_run(self, seeded):
+        from engineverse import coding, db
+
+        languages = coding.list_languages()
+        unrunnable = [l for l in languages if not l["runnable"]]
+        assert unrunnable, "expected at least one non-runnable language in the seed"
+        for language in unrunnable:
+            row = db.query_one(
+                "SELECT judge_slug FROM programming_languages WHERE slug = ?", language["slug"]
+            )
+            assert not row["judge_slug"], (
+                f"{language['slug']} is marked non-runnable but has judge_slug="
+                f"{row['judge_slug']!r}"
+            )
+
+
 class TestDeployTopologyIsCoherent:
     """The compose file must describe a topology that can actually run.
 
