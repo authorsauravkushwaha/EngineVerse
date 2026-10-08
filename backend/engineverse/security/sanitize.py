@@ -99,7 +99,7 @@ title desc linearGradient radialGradient stop clipPath
 """.split())
 
 SVG_ATTRIBUTES = frozenset("""
-viewbox xmlns role aria-label aria-hidden id class
+viewbox xmlns role aria-label aria-hidden id class preserveaspectratio
 d x y x1 y1 x2 y2 cx cy r rx ry width height points
 fill fill-opacity fill-rule stroke stroke-width stroke-opacity stroke-dasharray
 stroke-linecap stroke-linejoin font-size font-family font-weight text-anchor
@@ -110,6 +110,25 @@ opacity dominant-baseline letter-spacing
 #: Attribute values that can execute script. `href` and `xlink:href` are left
 #: out of the allowlist above for the same reason.
 _DANGEROUS_VALUE = re.compile(r"\s*(javascript|data|vbscript)\s*:", re.I)
+
+
+#: ``HTMLParser`` lowercases attribute names, but SVG is XML and case-sensitive:
+#: a browser reads ``viewBox`` and ignores ``viewbox``, so an SVG sanitised
+#: without restoring the case renders with no coordinate system at all. The
+#: allowlist is matched case-insensitively and the output is written in the
+#: canonical case from this map.
+SVG_ATTRIBUTE_CASE = {
+    "viewbox": "viewBox",
+    "refx": "refX",
+    "refy": "refY",
+    "markerwidth": "markerWidth",
+    "markerheight": "markerHeight",
+    "patternunits": "patternUnits",
+    "gradientunits": "gradientUnits",
+    "spreadmethod": "spreadMethod",
+    "clippathunits": "clipPathUnits",
+    "preserveaspectratio": "preserveAspectRatio",
+}
 
 
 class _SvgSanitiser(HTMLParser):
@@ -125,16 +144,25 @@ class _SvgSanitiser(HTMLParser):
         if tag not in SVG_ELEMENTS:
             self.skipping += 1
             return
-        kept = []
+        kept: list[str] = []
+        seen: set[str] = set()
         for name, value in attrs:
-            name = name.lower()
-            if name not in SVG_ATTRIBUTES:
+            lowered = name.lower()
+            if lowered not in SVG_ATTRIBUTES:
                 continue
-            if name.startswith("on"):
+            if lowered.startswith("on"):
                 continue
             if value and _DANGEROUS_VALUE.match(value):
                 continue
-            kept.append(f' {name}="{html_escape(value or "", quote=True)}"')
+            # Emit in the case SVG actually expects, not the case the parser
+            # handed us. Normalising can also collide - `viewBox` and `VIEWBOX`
+            # in the same tag both become `viewBox` - and a duplicated
+            # attribute is invalid XML, so the first one wins.
+            emitted = SVG_ATTRIBUTE_CASE.get(lowered, lowered)
+            if emitted in seen:
+                continue
+            seen.add(emitted)
+            kept.append(f' {emitted}="{html_escape(value or "", quote=True)}"')
         self.out.append(f"<{tag}{''.join(kept)}>")
 
     def handle_startendtag(self, tag, attrs):

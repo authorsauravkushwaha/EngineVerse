@@ -760,3 +760,43 @@ class TestPersonalPagesAreNotCacheable:
         assert writes > 0 and guards >= writes, (
             f"{writes} cache writes but only {guards} storable() checks"
         )
+
+
+def test_sanitize_svg_preserves_case_sensitive_attributes():
+    """SVG is XML, so viewBox must survive with its capital B.
+
+    HTMLParser lowercases attribute names, and a sanitiser that emitted them
+    that way produced `viewbox`, which every browser ignores. The diagrams
+    stored correct markup and rendered with no coordinate system at all.
+    """
+    from engineverse.security.sanitize import sanitize_svg
+
+    source = (
+        '<svg viewBox="0 0 640 270" xmlns="http://www.w3.org/2000/svg" role="img" '
+        'preserveAspectRatio="xMidYMid meet">'
+        '<marker refX="8" refY="3" markerWidth="10" markerHeight="10"/>'
+        "</svg>"
+    )
+    out = sanitize_svg(source)
+    for name in ("viewBox", "preserveAspectRatio", "refX", "refY",
+                 "markerWidth", "markerHeight"):
+        assert f'{name}="' in out, f"{name} was not preserved"
+    for lowered in ("viewbox=", "preserveaspectratio=", "refx=", "markerwidth="):
+        assert lowered not in out, f"{lowered} was emitted in the wrong case"
+
+
+def test_sanitize_svg_still_strips_event_handlers_and_scripts():
+    """The case fix must not reopen the hole the sanitiser exists to close."""
+    from engineverse.security.sanitize import sanitize_svg
+
+    out = sanitize_svg(
+        '<svg viewBox="0 0 10 10" onload="alert(1)" VIEWBOX="0 0 10 10">'
+        '<script>alert(1)</script><rect x="0" y="0" width="5" height="5" '
+        'onclick="alert(1)" ONMOUSEOVER="alert(1)"/></svg>'
+    )
+    assert "<script" not in out.lower()
+    assert "onload" not in out.lower()
+    assert "onclick" not in out.lower()
+    assert "onmouseover" not in out.lower()
+    assert "alert" not in out.lower()
+    assert out.count("viewBox") == 1, "a duplicated attribute should collapse to one"
