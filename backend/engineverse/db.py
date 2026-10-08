@@ -337,12 +337,33 @@ def ensure_column(table: str, column: str, ddl: str) -> bool:
     return True
 
 
-def table_count(name: str) -> int:
+def table_exists(name: str) -> bool:
+    """Whether a table is present in the schema.
+
+    Replaces ``table_count``, which returned the *row* count on Postgres and a
+    0/1 ``sqlite_master`` match on SQLite - so one function meant "how many users
+    are there" on one backend and "does this table exist" on the other. Both of
+    its callers only ever wanted existence, and on Postgres the old version
+    would have raised for a table that did not exist instead of returning 0.
+    """
     settings = get_settings()
     if settings.uses_postgres:  # pragma: no cover
-        return int(scalar("SELECT count(*) AS c FROM " + name))
-    row = query_one("SELECT count(*) AS c FROM sqlite_master WHERE type='table' AND name = ?", name)
-    return int(row["c"]) if row else 0
+        # to_regclass yields NULL for a missing table rather than raising.
+        return scalar("SELECT to_regclass(?) AS t", name, default=None) is not None
+    return bool(scalar(
+        "SELECT count(*) AS c FROM sqlite_master WHERE type='table' AND name = ?", name, default=0
+    ))
+
+
+def schema_table_count() -> int:
+    """How many tables the schema defines. What /health always meant to report."""
+    settings = get_settings()
+    if settings.uses_postgres:  # pragma: no cover
+        return int(scalar(
+            "SELECT count(*) AS c FROM information_schema.tables WHERE table_schema = 'public'",
+            default=0,
+        ))
+    return int(scalar("SELECT count(*) AS c FROM sqlite_master WHERE type='table'", default=0))
 
 
 def row_count(name: str) -> int:

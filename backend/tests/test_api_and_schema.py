@@ -5,6 +5,8 @@ import re
 
 import pytest
 
+from engineverse import db
+
 
 def _csrf(html: str) -> str:
     marker = 'name="csrf_token" value="'
@@ -1819,3 +1821,37 @@ class TestDeployTopologyIsCoherent:
         assert any(mount.startswith("/tmp") for mount in web.get("tmpfs", [])), (
             "read_only root with no writable /tmp would break the judge"
         )
+
+
+def test_table_exists_answers_one_question_on_every_backend():
+    """``table_count`` meant two different things depending on the backend.
+
+    On Postgres it returned the row count; on SQLite it returned a 0/1
+    ``sqlite_master`` match. So ``table_count("users")`` was "how many users are
+    there" on one backend and "does the users table exist" on the other, and on
+    Postgres it raised for a table that did not exist instead of returning 0.
+    Both of its callers only ever wanted existence.
+    """
+    assert db.table_exists("users") is True
+    assert db.table_exists("submissions") is True
+    assert db.table_exists("definitely_not_a_table") is False
+
+
+def test_schema_table_count_counts_tables_not_rows():
+    assert db.schema_table_count() > 50
+
+
+def test_health_reports_what_its_keys_say(client):
+    """/health returned ``{"tables": 1}``.
+
+    The key said "tables" and the value was ``table_count("users")``, which on
+    SQLite is a 0/1 existence flag. A reader of that endpoint - or a monitoring
+    check built on it - would conclude the database had one table. Asserting
+    against the functions behind the keys is what catches the mismatch; the
+    status code was 200 the whole time.
+    """
+    body = client.get("/health").json()
+    assert body["ok"] is True
+    assert body["tables"] == db.schema_table_count()
+    assert body["tables"] > 50, "the schema has far more tables than this"
+    assert body["users"] == db.row_count("users")
