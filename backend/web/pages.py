@@ -628,7 +628,7 @@ async def admin_page(request: Request):
         config=brand.all_config(),
         searches=db.query(
             "SELECT query, count(*) AS c FROM search_log GROUP BY query ORDER BY c DESC LIMIT 20"
-        ) if db.table_count("search_log") else [],
+        ) if db.table_exists("search_log") else [],
     )
 
 

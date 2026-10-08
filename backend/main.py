@@ -282,7 +282,8 @@ def create_app() -> FastAPI:
         return {
             "ok": True,
             "uptime_s": round(time.time() - app.state.started_at, 1),
-            "tables": db.table_count("users"),
+            "tables": db.schema_table_count(),
+            "users": db.row_count("users"),
             "brand": brand.get("site_name", "EngineVerse"),
         }
 
