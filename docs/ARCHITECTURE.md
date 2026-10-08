@@ -53,7 +53,8 @@ rest of the codebase sees.
 | `engineverse/db.py` | Connection handling, transactions, migration, SQLite/Postgres |
 | `engineverse/auth.py` | Registration, login, sessions, profiles, roles |
 | `engineverse/security/` | Passwords, ids, sanitising, RBAC, audit, sessions, CSRF, rate limits, validation |
-| `engineverse/catalog.py` | Branches → subjects → topics → notes → diagrams → formulas |
+| `engineverse/catalog.py` | Branches → subjects → topics → notes → diagrams → 3D models → formulas |
+| `engineverse/models3d.py` | The 3D scene vocabulary and its validator |
 | `engineverse/practice.py` | Questions, DPP sets, grading, the mistake notebook |
 | `engineverse/coding.py` | Coding problems, stubs, run/submit, XP awards |
 | `engineverse/drivers.py` | The stdin/stdout harness appended to each submission |
@@ -68,6 +69,7 @@ rest of the codebase sees.
 | `engineverse/markdown.py` | Markdown + LaTeX rendering with **no dependency** |
 | `engineverse/brand.py` | Site-wide branding read from `site_config` |
 | `web/deps.py` | Request-scoped viewer, template context, filters |
+| `static/js/engine3d.js` | The WebGL renderer: linear algebra, 14 mesh builders, Phong shading, orbit controls |
 | `seed_data/`, `scripts/seed.py` | The seeded catalogue and demo accounts |
 
 ## Request lifecycle
@@ -163,11 +165,48 @@ and only the last one read survived. Prose is capped at `MAX_BODY_CHARS`, sized
 from measurement: merged topic notes run to a median of 5.4k characters and a
 maximum of 11.3k, and the previous 4000-character cap truncated 47 of 48 topics.
 
+## 3D models are data, not markup
+
+Every topic carries an interactive 3D model. The split is deliberate:
+
+- **The renderer is code** (`static/js/engine3d.js`). ~900 lines of vanilla
+  WebGL with no three.js and no CDN: `mat4`/`vec3` algebra, 14 mesh builders
+  (box, sphere, cylinder, truncated cone, torus, plane, grid, axes, polyline,
+  point cloud, swept tube, helix, arrow, parametric surface), Blinn–Phong
+  shading with a key and fill light, and orbit/zoom/keyboard controls.
+- **The models are data** (`models_3d.scene`, one JSON document per row).
+  A scene is a camera, a list of objects and a list of labels — nothing else.
+
+A scene cannot carry script the way an SVG can, because `validate_scene()` does
+not sanitise it; it *rebuilds* it. Unknown keys are discarded, mesh names must
+be on the allowlist, every number is clamped to a range, colours pass through
+`safe_css_color()`, and label text loses anything that looks like markup or a
+quote. What comes out contains only finite numbers, hex colours and allowlisted
+strings, so there is no escaping step to get wrong — and a hand-edited row
+cannot make a phone build a ten-million-vertex mesh.
+
+The bounds are enforced on both sides, because a bound on one side is not a
+bound. `test_models3d.py` reads the mesh names straight out of the JavaScript
+and fails if the two vocabularies drift; `scripts/check_scenes.js` builds all 48
+shipped scenes with the browser's own code.
+
+One lesson is encoded as a permanent test. `validate_scene()` drops objects it
+cannot understand rather than failing, which is right for untrusted input and
+dangerous for your own content: a stray `*` in front of a helper returning a
+dict unpacked the dict's *keys*, eight objects became junk strings, the
+validator dropped them, and the Venturi model shipped without its streamlines.
+Nothing errored. `test_validation_drops_nothing_from_a_seeded_scene` now asserts
+that the object count going in equals the object count coming out.
+
+Progressive enhancement still holds: without JavaScript or WebGL the page shows
+the title, the caption and the written notes. The caption carries the lesson;
+the canvas carries the intuition.
+
 ## Data layer
 
-`db/schema.sql` is the development schema (SQLite, 64 tables; a migrated
-database holds 71, because `db.migrate()` adds `schema_meta`, `search_index`
-and that table's five FTS shadow tables) and
+`db/schema.sql` is the development schema (SQLite, 65 tables; a migrated
+database holds 73, because `db.migrate()` adds `schema_meta`, `search_log`,
+`search_index` and that table's five FTS shadow tables) and
 `db/postgres/schema.pg.sql` mirrors it for production. They share the model
 exactly and differ only where scale demands it: hash partitioning on the hot
 tables, `citext` for case-insensitive emails, `jsonb` for indexed payloads,
@@ -178,6 +217,9 @@ would overflow. See `db/postgres/README.md`.
 
 - **No ORM.** The SQL is the interface.
 - **No client build step.** No npm, no bundler, no CDN.
+- **No 3D library.** The WebGL renderer is written here rather than vendoring
+  three.js, for the same reason LaTeX is: one less supply chain, and the whole
+  of it is readable.
 - **No third-party auth.** Credentials, sessions and CSRF are implemented here.
 - **No hosted services.** Videos link out to NPTEL, MIT OCW and freeCodeCamp;
   books link to the publisher or the open-access source. Nothing copyrighted is

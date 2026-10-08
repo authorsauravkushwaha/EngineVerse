@@ -2,11 +2,12 @@
  * Cache-first for the app shell, network-first with cache fallback for pages,
  * never caches authenticated or mutating requests.
  */
-const VERSION = "engineverse-v1";
+const VERSION = "engineverse-v2";
 const SHELL = [
   "/",
   "/static/css/app.css",
   "/static/js/app.js",
+  "/static/js/engine3d.js",
   "/static/icons/favicon.svg",
   "/manifest.webmanifest",
   "/offline",

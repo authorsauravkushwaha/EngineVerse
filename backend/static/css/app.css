@@ -584,3 +584,81 @@ sup, sub { font-size: .74em; }
   body { background: #fff; color: #000; }
   .panel { box-shadow: none; border-color: #ccc; }
 }
+
+/* ---------------------------------------------------------------- 3D views --
+   The renderer is backend/static/js/engine3d.js. Everything here is chrome:
+   the canvas fills the frame, the labels float over it, and the "needs WebGL"
+   note is visible only until the renderer says the model is live. */
+
+.ev3d {
+  position: relative;
+  display: block;
+  height: clamp(280px, 46vh, 520px);
+  margin: 0 0 .6rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: #0b1224;
+}
+
+.ev3d canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: pan-y;
+  cursor: grab;
+  outline: none;
+}
+
+.ev3d canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent, #4f7cff);
+}
+
+.ev3d canvas.ev3d-dragging {
+  cursor: grabbing;
+}
+
+.ev3d-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.ev3d-label {
+  position: absolute;
+  transform: translate(-50%, -140%);
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(11, 18, 36, .78);
+  border: 1px solid rgba(230, 236, 255, .18);
+  color: #e6ecff;
+  font-size: .72rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+.ev3d-hint,
+.ev3d-fallback {
+  position: absolute;
+  inset: auto 0 0 0;
+  margin: 0;
+  padding: .7rem 1rem;
+  color: #c7d2ee;
+  font-size: .82rem;
+  text-align: center;
+  background: rgba(11, 18, 36, .9);
+}
+
+.ev3d.ev3d-live .ev3d-hint {
+  display: none;
+}
+
+.ev3d-controls {
+  margin: 0 0 .5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ev3d canvas {
+    cursor: grab;
+  }
+}

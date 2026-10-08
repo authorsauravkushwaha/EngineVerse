@@ -127,12 +127,29 @@ jobs:
         with:
           node-version: "20"
 
+      # The 3D scene check runs the shipped scenes through the shipped renderer,
+      # which needs the Python that defines them. No third-party packages.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - name: The client bundle parses as valid JavaScript
         # sw.js is checked too: it is the other script the browser runs, and a
         # syntax error there breaks offline caching silently rather than loudly.
         run: |
           node --check backend/static/js/app.js
+          node --check backend/static/js/engine3d.js
           node --check backend/static/sw.js
+
+      - name: The 3D renderer's maths is correct
+        # Runs the real mesh builders under a DOM stub and asserts finite
+        # geometry, clamping, the arrow orientation maths and the projection.
+        run: node scripts/check_engine3d.js
+
+      - name: Every stored 3D scene can actually be drawn
+        # A scene that validates as JSON can still name a mesh the renderer
+        # does not have; this builds all 48 with the browser's own code.
+        run: python scripts/dump_scenes.py | node scripts/check_scenes.js
 
       - name: No CDN or third-party origins are referenced
         run: |

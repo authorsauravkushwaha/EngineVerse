@@ -25,6 +25,7 @@ credentials printed by the seeder on every run.
 | Area | What it does |
 |---|---|
 | **Notes** | 48 topics across mechanical, civil, electrical, electronics, computer science and the shared first-year core. Every note follows one [13-section template](docs/NOTE_TEMPLATE.md) at four depths, with LaTeX rendered by a dependency-free renderer. |
+| **Diagrams & 3D** | 6 hotspot SVG diagrams plus **48 interactive 3D models — one per topic** — drawn by a dependency-free WebGL renderer (`engine3d.js`, no three.js, no CDN). Drag to orbit, scroll to zoom, labels projected from 3D. Each model is JSON geometry stored in the database, so adding one is an INSERT, not a deploy. |
 | **Practice** | 38 questions (MCQ, numerical, conceptual, debug, diagram, case, design, interview) plus 14 Daily Practice Problem sets with a dated archive. |
 | **Coding** | 13 problems with an in-browser editor, real execution in an isolated sandbox, per-test verdicts, and stubs in Python, Java, JavaScript and C++. |
 | **Projects** | 6 end-to-end builds with steps, skills and resources — not "make a todo app". |
@@ -126,9 +127,19 @@ password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/S
 ## Testing
 
 ```bash
-python -m pytest backend/tests -q          # 383 tests
+python -m pytest backend/tests -q          # 431 tests
 python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
+
+node scripts/check_engine3d.js             # the WebGL renderer's maths
+python scripts/dump_scenes.py | node scripts/check_scenes.js   # every scene is drawable
 ```
+
+The last two matter because the 3D layer has no browser in CI. The first runs
+the shipped mesh builders under a DOM stub and asserts finite geometry,
+parameter clamping, the arrow-orientation algebra and the projection maths.
+The second feeds all 48 stored scenes to that same renderer and fails if any
+object cannot be built — which is how a model that validated as JSON but named
+a mesh the renderer does not have gets caught before it ships.
 
 | Suite | Tests | Covers |
 |---|---|---|
@@ -136,6 +147,7 @@ python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 | `test_judge.py` | 53 | All 13 reference solutions through the real sandbox; rlimits read back from inside a submission; fork bomb containment; the checkout is invisible to submitted code |
 | `test_tutor.py` | 13 | Grounded answers cite only listed sources; uncovered subjects are refused, not invented; stored markup never reaches the client; the rate limit engages |
 | `test_routes.py` | 97 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
+| `test_models3d.py` | 48 | Python and JavaScript agree on the mesh vocabulary; the validator refuses junk, clamps absurd numbers and emits attribute-safe JSON; **validation drops no object from any seeded scene**; a corrupted row is dropped, not rendered |
 | `test_api_and_schema.py` | 120 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; theme wiring; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
 
 The tests are how the platform's worst defects were found: every `/api/*` request
@@ -153,18 +165,20 @@ backend/
   engineverse/        domain, services, security, judge, markdown renderer
   web/                pages.py (SSR), auth_pages.py, api.py (JSON)
   templates/          48 Jinja2 templates
-  static/             one CSS file, one JS file, PWA manifest, service worker, icons
-  tests/              383 tests
+  static/             one CSS file, two JS files (app.js, engine3d.js), PWA manifest, service worker, icons
+  tests/              431 tests
 db/
-  schema.sql          SQLite, 64 tables (development)
+  schema.sql          SQLite, 65 tables (development)
   postgres/           hash-partitioned Postgres schema (production)
 seed_data/            the catalogue as data
 scripts/seed.py       builds the database
 scripts/reindex.py    rebuilds the search index after you insert content rows
+scripts/check_engine3d.js · check_scenes.js
+                      headless verification of the 3D renderer and its scenes
 sandbox-java/         the JVM sandbox (Maven, zero runtime deps)
 deploy/               Dockerfiles and compose topology (web, Postgres)
 docs/                 ARCHITECTURE · SECURITY · NOTE_TEMPLATE · CONTENT
-.github/workflows/    Python tests, Postgres schema, Java build
+.github/workflows/    Python tests, Postgres schema, Java build, JS + 3D checks
 ```
 
 ## Documentation
@@ -193,7 +207,9 @@ Stated plainly rather than discovered later:
 - **No mail transport**, so email verification does not send.
 - **The seeded catalogue is a foundation, not a library.** 48 topics is enough to
   prove the model and to study from; a full degree is thousands. The structure is
-  built to be filled in without a redesign.
+  built to be filled in without a redesign. Visual coverage is uneven by design:
+  all 48 topics have an interactive 3D model, but only 6 have a hotspot SVG
+  diagram, and the 3D models are authored by hand one at a time.
 
 ## Licence
 

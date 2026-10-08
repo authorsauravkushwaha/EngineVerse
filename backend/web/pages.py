@@ -134,6 +134,7 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
         note=note,
         sections=catalog.sections_for_note(note["id"]) if note else [],
         diagrams=catalog.diagrams_for_topic(topic["id"]),
+        models_3d=catalog.models_for_topic(topic["id"]),
         formulas=catalog.formulas_for_topic(topic["id"]),
         questions=practice.questions_for_topic(topic["id"], 8),
         flashcards=library.flashcards_for_topic(topic["id"]),

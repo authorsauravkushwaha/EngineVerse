@@ -305,6 +305,22 @@ CREATE TABLE IF NOT EXISTS diagrams (
 );
 CREATE INDEX IF NOT EXISTS idx_diagrams_topic ON diagrams(topic_id, order_index);
 
+-- Interactive 3D models. `scene` is JSON describing geometry, validated by
+-- engineverse.models3d.validate_scene() on write and on read. It is JSONB here
+-- so a model can be queried and indexed by the server without parsing it in
+-- application code first.
+CREATE TABLE IF NOT EXISTS models_3d (
+  id          TEXT PRIMARY KEY,
+  topic_id    TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  title       TEXT NOT NULL,
+  caption     TEXT,
+  scene       JSONB NOT NULL,
+  source_ref  TEXT,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  created_at  BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_models_3d_topic ON models_3d(topic_id, order_index);
+
 CREATE TABLE IF NOT EXISTS formulas (
   id         TEXT PRIMARY KEY,
   topic_id   TEXT REFERENCES topics(id) ON DELETE CASCADE,

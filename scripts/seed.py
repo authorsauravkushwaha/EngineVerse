@@ -24,7 +24,7 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from engineverse import auth, brand, db, progress, search  # noqa: E402
+from engineverse import auth, brand, db, models3d, progress, search  # noqa: E402
 from engineverse.judge import local as judge_local  # noqa: E402
 from engineverse.security.ids import ulid  # noqa: E402
 from engineverse.security.sanitize import slugify  # noqa: E402
@@ -32,6 +32,7 @@ from engineverse.security.sanitize import slugify  # noqa: E402
 from seed_data import branches as branch_data  # noqa: E402
 from seed_data import catalog as catalog_data  # noqa: E402
 from seed_data import library_data  # noqa: E402
+from seed_data import models_3d as model_content  # noqa: E402
 from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
@@ -366,6 +367,33 @@ def seed_diagrams(topic_ids: dict[str, str]) -> int:
                 "VALUES (?,?,?,?,?,?,?,'EngineVerse',?) ON CONFLICT(id) DO UPDATE SET spec=excluded.spec",
                 f"{slug}::{key}", topic_id, diagram["title"], diagram["kind"], diagram["spec"], diagram["caption"],
                 jdump(diagram.get("hotspots", [])), now_ms(),
+            )
+            count += 1
+    return count
+
+
+def seed_models_3d(topic_ids: dict[str, str]) -> int:
+    """Write the 3D models, validating each one on the way in.
+
+    A scene that does not survive ``validate_scene()`` is skipped with a
+    warning rather than stored, so a bad edit to seed_data/models_3d.py shows
+    up here instead of as a broken page later.
+    """
+    count = 0
+    with db.transaction():
+        for slug, topic_id in sorted(topic_ids.items()):
+            entry = model_content.MODELS_3D.get(slug)
+            if not entry:
+                continue
+            encoded = models3d.scene_json(entry["scene"])
+            if not encoded:
+                print(f"  ! skipped 3D model for {slug}: the scene did not validate")
+                continue
+            db.execute(
+                "INSERT INTO models_3d (id,topic_id,title,caption,scene,source_ref,order_index,created_at) "
+                "VALUES (?,?,?,?,?, 'EngineVerse', 0, ?) "
+                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, caption=excluded.caption, scene=excluded.scene",
+                f"{slug}::3d", topic_id, entry["title"], entry["caption"], encoded, now_ms(),
             )
             count += 1
     return count
@@ -748,7 +776,8 @@ def seed_demo_activity(user_ids: dict[str, str], topic_ids: dict[str, str]) -> N
 
 TABLES = [
     "universities", "colleges", "branches", "semesters", "curricula", "curriculum_subjects", "subjects",
-    "modules", "topics", "notes", "note_sections", "diagrams", "formulas", "questions", "question_options",
+    "modules", "topics", "notes", "note_sections", "diagrams", "models_3d", "formulas", "questions",
+    "question_options",
     "dpp_sets", "dpp_questions", "programming_languages", "language_modules", "coding_problems",
     "coding_problem_stubs", "coding_testcases", "projects", "project_steps", "project_resources", "videos",
     "books", "resources", "roadmaps", "roadmap_nodes", "flashcards", "plans", "site_config", "badges",
@@ -794,8 +823,9 @@ def run(fresh: bool) -> None:
     topic_ids = seed_topics(subject_ids)
     notes = seed_notes(topic_ids)
     diagrams = seed_diagrams(topic_ids)
+    models = seed_models_3d(topic_ids)
     seed_formulas(subject_ids, topic_ids)
-    print(f"  {len(topic_ids)} topics, {notes} notes, {diagrams} diagrams")
+    print(f"  {len(topic_ids)} topics, {notes} notes, {diagrams} diagrams, {models} 3D models")
 
     print("Seeding practice questions and DPP sets ...")
     question_ids = seed_questions(subject_ids)

@@ -197,6 +197,7 @@
 <script nonce="{{ request.state.csp_nonce }}">
   window.EngineVerse = { csrf: "{{ csrf_token }}", user: {{ 'true' if user else 'false' }} };
 </script>
+<script src="/static/js/engine3d.js" defer></script>
 <script src="/static/js/app.js" defer></script>
 {% block scripts %}{% endblock %}
 </body>

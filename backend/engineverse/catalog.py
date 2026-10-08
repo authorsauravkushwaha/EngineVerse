@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from . import db
+from . import db, models3d
 from .security.sanitize import sanitize_svg
 
 NOTE_ORDER = ("beginner", "standard", "advanced", "industry")
@@ -295,6 +295,33 @@ def diagrams_for_topic(topic_id: str) -> list[dict]:
         if not row["spec"]:
             continue
         row["hotspots_data"] = _json(row.get("hotspots"), [])
+        kept.append(row)
+    return kept
+
+
+def models_for_topic(topic_id: str) -> list[dict]:
+    """3D models for a topic, each validated before it reaches a template.
+
+    A scene is JSON geometry rather than markup, so there is nothing to escape —
+    but it is still untrusted once it lives in a database row, so it goes
+    through ``validate_scene()`` on the way out as well as on the way in. That
+    rebuilds the scene from finite numbers and allowlisted mesh names only,
+    which also bounds it: a hand-edited row cannot make a phone build a
+    ten-million-vertex mesh. A row that does not survive validation is dropped
+    rather than rendered.
+
+    ``scene_json`` is the attribute-ready string; the template emits it into
+    ``data-scene`` and never touches the parsed form.
+    """
+    rows = db.query(
+        "SELECT * FROM models_3d WHERE topic_id = ? ORDER BY order_index, rowid", topic_id
+    )
+    kept: list[dict] = []
+    for row in rows:
+        encoded = models3d.scene_json(row.get("scene"))
+        if not encoded:
+            continue
+        row["scene_json"] = encoded
         kept.append(row)
     return kept
 

@@ -46,6 +46,26 @@
       <div class="empty"><span class="em">📝</span>Notes for this topic are being written.</div>
     {% endif %}
 
+    {% for model in models_3d %}
+      <section class="note-section" id="model-3d">
+        <h2>3D model</h2>
+        {# The scene is validated JSON geometry, emitted into an attribute and
+           drawn by static/js/engine3d.js. Autoescaping is on, and the scene
+           itself contains only finite numbers, hex colours and allowlisted
+           mesh names, so there is no markup to escape. #}
+        <figure class="ev3d" data-model3d data-scene="{{ model.scene_json }}">
+          <canvas tabindex="0" role="img"
+                  aria-label="Interactive 3D model: {{ model.title }}"></canvas>
+          <div class="ev3d-labels" aria-hidden="true"></div>
+          <p class="ev3d-hint">This model is drawn live in your browser — it needs JavaScript and WebGL.</p>
+        </figure>
+        <div class="row ev3d-controls">
+          <span class="tiny muted">Drag to rotate · double-click to reset · click the model, then scroll or use the arrow keys to zoom and tilt.</span>
+        </div>
+        <p class="small"><strong>{{ model.title }}.</strong> {{ model.caption }}</p>
+      </section>
+    {% endfor %}
+
     {% for section in sections %}
       <section class="note-section" id="{{ section.kind }}">
         <h2>{{ section.title }}</h2>
