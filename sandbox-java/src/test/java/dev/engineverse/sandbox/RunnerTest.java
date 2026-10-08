@@ -91,6 +91,13 @@ class RunnerTest {
     }
 
     @Test
+    void reportsWhetherTheSecurityPolicyCanBeEnforced() {
+        // True on JDK 21, false on JDK 24+. The matrix covers both, so this
+        // pins the boundary rather than merely asserting it is a boolean.
+        assertEquals(Runtime.version().feature() < 24, Runner.policySupported());
+    }
+
+    @Test
     void findsTheDeclaredClassName() {
         assertEquals("Solution", Runner.detectClassName("class Solution { }", "Main"));
         assertEquals("Greeter", Runner.detectClassName("public class Greeter {}", "Main"));

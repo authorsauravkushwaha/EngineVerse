@@ -195,11 +195,13 @@ docs/                 ARCHITECTURE · SECURITY · NOTE_TEMPLATE · CONTENT
 
 Stated plainly rather than discovered later:
 
-- **The Java sandbox is not compiled in this workspace.** No JDK is installable
+- **The Java sandbox cannot be built in this workspace.** No JDK is installable
   here, so `javac` is absent and `LocalSandboxProvider.supports("java")` returns
   `False`; Java problems report `unsupported_language` instead of failing
-  silently. `.github/workflows/java.yml` compiles it and runs its tests on every
-  push.
+  silently. It is not unverified: `.github/workflows/java.yml` compiles it, runs
+  its tests and smoke-tests the jar on JDK 21 and JDK 25. Note that its optional
+  security policy is inert on JDK 24+ (JEP 486 killed the Security Manager) — see
+  `docs/SECURITY.md`.
 - **The Postgres schema has not been applied to a live server here.** It is
   parsed with `sqlglot` locally and applied to a real PostgreSQL 16 service in CI.
 - **No enforced MFA.** The schema carries `totp_secret`; enrolment is not built.

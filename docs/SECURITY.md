@@ -314,5 +314,19 @@ holds no real value.
   under-count across replicas. A multi-instance deployment needs a shared store.
 - **Email verification is not wired to a mail transport.** `email_verified`
   exists and the flow is present, but no mail is sent.
-- **The Java sandbox is not compiled in this workspace** — no JDK is installed
-  here. `.github/workflows/java.yml` compiles it and runs its tests on every push.
+- **The Java sandbox cannot be built in this workspace** — no JDK is installed
+  here, and none can be fetched. It is not unverified, though:
+  `.github/workflows/java.yml` compiles it, runs its unit tests, and smoke-tests
+  the built jar on JDK 21 and JDK 25 on every change to `sandbox-java/`.
+- **The Java sandbox's policy file does nothing on JDK 24 or later.** JEP 486
+  permanently disabled the Security Manager, so `-Djava.security.policy` is
+  inert and the file is never read. The policy is opt-in
+  (`ENGINEVERSE_SANDBOX_POLICY=1`) and off by default, and `Runner` now prints a
+  warning and omits the flags rather than implying the control is active. What
+  actually contains a submission is the separate child JVM, the heap and stack
+  ceilings and the hard deadline — those hold on every JDK. Consequence: on a
+  modern JDK a Java submission is not blocked from opening a socket, so the
+  network egress control must come from the container or host, not from the
+  sandbox. Whether the JVM warns or errors on `-Djava.security.manager=allow`
+  under JDK 25 is unverified here (no JVM to run), which is exactly why the
+  flags are no longer passed at all.

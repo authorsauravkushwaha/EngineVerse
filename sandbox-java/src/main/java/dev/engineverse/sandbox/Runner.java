@@ -126,13 +126,23 @@ public final class Runner {
         command.add("-XX:MaxMetaspaceSize=64m");
         command.add("-Dfile.encoding=UTF-8");
         if (usePolicy) {
-            Path policy = workDir.resolve("sandbox.policy");
-            try {
-                Files.writeString(policy, policyFor(workDir), StandardCharsets.UTF_8);
-                command.add("-Djava.security.manager=allow");
-                command.add("-Djava.security.policy=" + policy.toUri());
-            } catch (IOException ignored) {
-                // Without the policy we still have process, memory and time limits.
+            if (!policySupported()) {
+                // Passing the flags here would not just be useless - it would
+                // advertise a control that does not exist. Say so instead.
+                System.err.println(
+                        "[engineverse-sandbox] ENGINEVERSE_SANDBOX_POLICY is set but ignored: the "
+                        + "Security Manager was permanently disabled in JDK 24 (JEP 486), so a "
+                        + "policy file cannot be enforced on java " + System.getProperty("java.version")
+                        + ". Process isolation, the heap ceiling and the deadline still apply.");
+            } else {
+                Path policy = workDir.resolve("sandbox.policy");
+                try {
+                    Files.writeString(policy, policyFor(workDir), StandardCharsets.UTF_8);
+                    command.add("-Djava.security.manager=allow");
+                    command.add("-Djava.security.policy=" + policy.toUri());
+                } catch (IOException ignored) {
+                    // Without the policy we still have process, memory and time limits.
+                }
             }
         }
         command.add("-cp");
@@ -227,6 +237,19 @@ public final class Runner {
             return matcher.group(1);
         }
         return fallback;
+    }
+
+    /**
+     * Whether this JVM can enforce a security policy at all.
+     *
+     * <p>JEP 486 permanently disabled the Security Manager in JDK 24: there is
+     * no way to install one, so {@code -Djava.security.policy} is inert and the
+     * policy file is never read. Reporting the truth matters here because the
+     * policy denies network access, which is the one guarantee a learner's
+     * submission cannot otherwise be trusted to respect.
+     */
+    static boolean policySupported() {
+        return Runtime.version().feature() < 24;
     }
 
     static long elapsed(long startedNanos) {
