@@ -153,10 +153,34 @@ jobs:
           END $do$;
 
           -- Inserts must land in a partition rather than failing.
+          --
+          -- Two things this used to get wrong, both of which let it pass while
+          -- checking nothing: it selected the question from an empty `questions`
+          -- table (so the INSERT affected zero rows), and it passed the boolean
+          -- `true` for `is_correct`, which is BIGINT because the SQLite schema
+          -- declares it INTEGER. A zero-row insert satisfies any constraint.
           INSERT INTO users (id, email, username, password_hash, password_changed_at, created_at, updated_at)
           VALUES ('01TEST', 'schema-check@engineverse.test', 'schemacheck', 'scrypt$16384$8$1$AA$BB', 0, 0, 0);
+          INSERT INTO questions (id, slug, kind, stem, created_at)
+          VALUES ('01Q', 'schema-check-question', 'mcq', 'Partition routing check.', 0);
           INSERT INTO submissions (id, user_id, question_id, is_correct, created_at)
-          SELECT '01SUB', '01TEST', q.id, true, 0 FROM questions q LIMIT 1;
+          VALUES ('01SUB', '01TEST', '01Q', 1, 0);
+
+          -- Assert the row is physically in a child partition. `tableoid` on a
+          -- partitioned table resolves to the partition the row landed in, so a
+          -- value of the parent would mean hashing never happened.
+          DO $do$
+          DECLARE routed text;
+          BEGIN
+            SELECT tableoid::regclass::text INTO routed FROM submissions WHERE id = '01SUB';
+            IF routed IS NULL THEN
+              RAISE EXCEPTION 'the submission row is missing';
+            END IF;
+            IF routed = 'submissions' THEN
+              RAISE EXCEPTION 'the row landed in the parent table, not a partition';
+            END IF;
+            RAISE NOTICE 'submission routed into %', routed;
+          END $do$;
           SQL
 
       - name: Re-applying the schema must be a no-op

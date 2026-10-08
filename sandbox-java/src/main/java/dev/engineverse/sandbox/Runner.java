@@ -1,5 +1,6 @@
 package dev.engineverse.sandbox;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -91,7 +92,7 @@ public final class Runner {
 
         StringBuilder diagnostics = new StringBuilder();
         int status;
-        try (OutputStream sink = new java.io.ByteArrayOutputStream()) {
+        try (ByteArrayOutputStream sink = new ByteArrayOutputStream()) {
             status = compiler.run(null, sink, sink, buildArgs(options, source).toArray(String[]::new));
             diagnostics.append(sink.toString(StandardCharsets.UTF_8));
         } catch (IOException exc) {
@@ -173,7 +174,7 @@ public final class Runner {
             String stderr = new String(stderrBytes, StandardCharsets.UTF_8);
             int code = process.exitValue();
             if (code == 0) {
-                return Verdict.accepted(stdout, elapsed(started), memoryKb);
+                return Verdict.accepted(stdout, elapsed(started), (long) memoryKb);
             }
             return Verdict.exited(code, stdout, stderr.isEmpty() ? describeExit(code) : stderr, elapsed(started));
         } catch (IOException exc) {

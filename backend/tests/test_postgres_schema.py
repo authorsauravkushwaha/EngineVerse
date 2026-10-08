@@ -401,3 +401,143 @@ class TestForeignKeyTargetsPartitionedTables:
         assert "discussions" in referenced, referenced
         assert "comments" in referenced, referenced
         assert referenced["comments"] == ["comments"], "self-references must count"
+
+
+def _ci_psql_scripts() -> dict[str, str]:
+    """The SQL each CI postgres step pipes to psql, keyed by step name.
+
+    Scanned line by line rather than through a YAML library, and rather than
+    with one big regex: a step's ``run:`` block contains blank lines, and a
+    pattern that only accepts indented lines stops at the first of them. Each
+    heredoc is attributed to the most recent ``- name:`` above it.
+    """
+    lines = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text().split("\n")
+    found: dict[str, list[str]] = {}
+    step: str | None = None
+    capture: list[str] | None = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("- name:"):
+            step = stripped.split("- name:", 1)[1].strip()
+        if capture is not None:
+            if stripped in ("SQL", "PSQL"):
+                found.setdefault(step or "", []).append("\n".join(capture))
+                capture = None
+            else:
+                capture.append(line)
+        elif "<<'SQL'" in line or "<<'PSQL'" in line:
+            capture = []
+    return {name: "\n".join(chunks) for name, chunks in found.items()}
+
+
+def _ci_inserts() -> list[tuple[str, str, list[str], str]]:
+    """(step, table, columns, values-text) for every VALUES insert in CI."""
+    out: list[tuple[str, str, list[str], str]] = []
+    for step, sql in _ci_psql_scripts().items():
+        for m in re.finditer(
+            r"INSERT INTO (\w+)\s*\(([^)]*)\)\s*\n?\s*VALUES\s*\(([^;]*?)\);", sql, re.S
+        ):
+            cols = [c.strip() for c in m.group(2).split(",")]
+            out.append((step, m.group(1), cols, m.group(3)))
+    return out
+
+
+def _split_values(text: str) -> list[str]:
+    return [v.strip() for v in re.findall(r"'(?:[^']|'')*'|[^,]+", text)]
+
+
+class TestCiSqlMatchesTheGeneratedSchema:
+    """The Postgres CI job is the only place the generated schema is ever applied.
+
+    Its verification SQL was written against the hand-maintained schema and
+    drifted when the schema became generated: it inserted the boolean ``true``
+    into ``is_correct``, which the generator emits as BIGINT because the SQLite
+    schema declares it INTEGER, so the step failed on the one run that finally
+    got far enough to apply the file. Nothing else compares the two, so the
+    comparison lives here.
+    """
+
+    def test_the_postgres_job_actually_pipes_sql_to_psql(self):
+        scripts = _ci_psql_scripts()
+        assert scripts, "no psql heredoc found in ci.yml; the scan has drifted"
+        assert any("engineverse_create_partitions" not in s for s in scripts.values())
+
+    def test_every_inserted_column_exists(self):
+        inserts = _ci_inserts()
+        assert inserts, "the scan found no INSERT statements; it has drifted"
+        tables = {t.name: t for t in gen_pg_schema.parse_tables(
+            gen_pg_schema.strip_comments(TARGET.read_text()))}
+        for step, table, cols, _values in inserts:
+            assert table in tables, f"{step}: inserts into unknown table {table}"
+            known = {c.name for c in tables[table].columns}
+            for column in cols:
+                assert column in known, f"{step}: {table}.{column} does not exist"
+
+    def test_every_insert_supplies_each_not_null_column(self):
+        tables = {t.name: t for t in gen_pg_schema.parse_tables(
+            gen_pg_schema.strip_comments(TARGET.read_text()))}
+        for step, table, cols, values in _ci_inserts():
+            assert len(cols) == len(_split_values(values)), (
+                f"{step}: {table} gets {len(cols)} columns but {len(_split_values(values))} values")
+            for column in tables[table].columns:
+                required = (
+                    "NOT NULL" in column.rest.upper()
+                    and "DEFAULT" not in column.rest.upper()
+                    and not column.inline_pk
+                )
+                if required:
+                    assert column.name in cols, (
+                        f"{step}: {table}.{column.name} is NOT NULL with no default "
+                        "but the insert does not supply it")
+
+    def test_no_boolean_literal_is_inserted_into_an_integer_column(self):
+        """The exact drift that broke the job.
+
+        SQLite calls a flag INTEGER; Postgres has a real BOOLEAN. The generator
+        keeps INTEGER as BIGINT so the application's 0/1 values still work, which
+        means CI must not write ``true``.
+        """
+        tables = {t.name: t for t in gen_pg_schema.parse_tables(
+            gen_pg_schema.strip_comments(TARGET.read_text()))}
+        for step, table, cols, values in _ci_inserts():
+            for column, literal in zip(cols, _split_values(values)):
+                if literal in ("true", "false"):
+                    kind = gen_pg_schema._pg_type(
+                        next(c for c in tables[table].columns if c.name == column))
+                    assert kind.upper().startswith("BOOL"), (
+                        f"{step}: boolean literal {literal} for {table}.{column}, "
+                        f"which is {kind}")
+
+    def test_no_insert_depends_on_a_table_the_schema_job_leaves_empty(self):
+        """An ``INSERT ... SELECT FROM <created table>`` can insert zero rows.
+
+        The postgres job applies the schema and nothing else, so every table is
+        empty. ``SELECT ... FROM questions LIMIT 1`` then affected zero rows and
+        the "inserts must land in a partition" check passed without inserting.
+        """
+        tables = {t.name for t in gen_pg_schema.parse_tables(
+            gen_pg_schema.strip_comments(TARGET.read_text()))}
+        for step, sql in _ci_psql_scripts().items():
+            for m in re.finditer(
+                r"INSERT INTO \w+[^;]*?SELECT .*?FROM\s+(\w+)", sql, re.S | re.I
+            ):
+                assert m.group(1) not in tables, (
+                    f"{step}: selects from {m.group(1)}, which the schema job "
+                    "creates empty - the insert would affect zero rows and "
+                    "verify nothing")
+
+    def test_partition_routing_is_asserted_not_assumed(self):
+        """The routing check must fail loudly if hashing never happened.
+
+        Asserted on the statements rather than on the words they contain: a
+        substring check would keep passing after the query it describes was
+        deleted, and a lone ``IS NULL`` check would keep passing after the
+        comparison against the parent table was.
+        """
+        sql = "\n".join(_ci_psql_scripts().values())
+        assert re.search(r"SELECT\s+tableoid\b[^;]*?FROM\s+submissions\b", sql, re.S | re.I), (
+            "nothing reads tableoid from submissions, so routing is unverified")
+        assert re.search(r"IF\s+routed\s*=\s*'submissions'\s+THEN\s+RAISE EXCEPTION",
+                         sql, re.S | re.I), (
+            "the routed value is never compared against the parent table, so a "
+            "row sitting outside every partition would pass")
