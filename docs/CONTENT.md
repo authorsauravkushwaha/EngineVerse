@@ -43,6 +43,29 @@ and it is the only thing this platform does with third-party media.
 This is also why there is no upload pipeline for media: there is nothing to
 upload.
 
+## Checking the links
+
+Every external URL in the library is checked by `scripts/check_links.py`.
+
+```
+python scripts/check_links.py --offline   # structural, no network, runs on every push
+python scripts/check_links.py             # also fetches each URL, runs weekly in CI
+python scripts/check_links.py --json      # machine-readable report
+```
+
+Offline mode validates the scheme, rejects private and loopback hosts, embedded
+whitespace and placeholders, and warns on plain `http` and bare site roots. It
+runs on every push because it needs no network and cannot flake.
+
+The networked mode runs on a weekly schedule and on demand, not per pull request:
+fetching a few hundred publisher URLs is slow, and a rate-limited response would
+fail a change that touched nothing. HTTP 403, 429 and 451 are warnings rather
+than failures for the same reason — many publishers refuse automated clients, and
+failing on that would make the whole check noise. 404 and 410 are failures.
+
+Nothing verifies the *content* behind a link. A URL that resolves to a parked
+domain passes, so the checker is a floor rather than a guarantee.
+
 ## Certificates
 
 Certificates carry a `verify_id` and are verifiable at
@@ -63,9 +86,9 @@ note_sections 1248 · diagrams 48 · models_3d 48 · formulas 15 · questions 38
 question_options 152 · dpp_sets 14 · dpp_questions 68 · programming_languages 6
 language_modules 23 · coding_problems 13 · coding_problem_stubs 16
 coding_testcases 54 · projects 6 · project_steps 32 · project_resources 6
-videos 174 · books 102 · resources 451 · roadmaps 5 · roadmap_nodes 57
+videos 320 · books 315 · resources 451 · roadmaps 5 · roadmap_nodes 57
 flashcards 221 · plans 3 · site_config 12 · badges 12 · users 5
-user_progress 29 · xp_events 29 · search index 1029
+user_progress 29 · xp_events 29 · search index 1388
 ```
 
 Every one of the 48 topics carries a full standard note (all thirteen sections),

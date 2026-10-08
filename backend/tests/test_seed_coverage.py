@@ -300,3 +300,74 @@ def test_filter_facets_are_not_degenerate(seeded, table, column):
         f"{table}.{column} has only {len(facets)} distinct value(s): "
         f"{[row[column] for row in facets]}"
     )
+
+
+# ---------------------------------------------------------------------------
+# External URLs
+# ---------------------------------------------------------------------------
+
+def _check_links():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    return subprocess.run(
+        [sys.executable, str(root / "scripts" / "check_links.py"), "--offline"],
+        capture_output=True, text=True, cwd=root,
+    )
+
+
+def test_every_stored_url_is_well_formed(seeded):
+    """Run on every push; the networked variant runs weekly in CI.
+
+    Nothing checked these before, so every one of the several hundred resource
+    links shipped unverified.
+    """
+    result = _check_links()
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "0 error" in result.stdout
+
+
+def test_the_checker_actually_finds_urls(seeded):
+    """A checker that scans nothing exits 0 and proves nothing."""
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from scripts import check_links
+
+    urls = check_links.collect_urls()
+    assert len(urls) > 200, f"only {len(urls)} URLs collected - the checker is not looking"
+    assert all(url.startswith(("http://", "https://")) for url in urls)
+
+
+@pytest.mark.parametrize("url,reason", [
+    ("ftp://example.org/book.pdf", "wrong scheme"),
+    ("https://localhost/resources", "loopback host"),
+    ("https://192.168.1.5/x", "private address"),
+    ("https://example.com/x", "non-routable example host"),
+    ("https://nodot", "host without a dot"),
+    ("https://site.org/TODO", "unfinished placeholder"),
+])
+def test_the_checker_rejects_a_bad_url(url, reason):
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from scripts import check_links
+
+    errors, _ = check_links.check_structure(url)
+    assert errors, f"{url} ({reason}) was accepted"
+
+
+def test_the_checker_accepts_a_good_url():
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+    from scripts import check_links
+
+    errors, warnings = check_links.check_structure("https://openstax.org/details/books/calculus-volume-1")
+    assert errors == []
+    assert warnings == []
