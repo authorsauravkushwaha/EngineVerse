@@ -22,8 +22,13 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
+          # Everything the suite needs is pinned in requirements.txt. This step
+          # used to follow it with a bare `pip install pytest pytest-asyncio
+          # sqlglot`, which resolves to whatever is newest and silently overrode
+          # those pins - so CI tested a different toolchain than the one the pins
+          # describe, and a new pytest release could turn a green suite red for a
+          # reason nothing in the repository changed.
           pip install -r requirements.txt
-          pip install pytest pytest-asyncio sqlglot
 
       - name: Seed a throwaway database
         run: |
@@ -78,12 +83,24 @@ jobs:
           PGPASSWORD: engineverse
         run: |
           psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 <<'SQL'
-          -- Every partitioned table must have its full fan-out.
-          SELECT c.relname AS parent, count(i.inhrelid) AS partitions
-            FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhparent
-           WHERE c.relname IN ('submissions','activity','audit_logs','coding_submissions')
-           GROUP BY c.relname
-          HAVING count(i.inhrelid) >= 128;
+          -- Every partitioned table must have its full fan-out. This raises
+          -- rather than selecting: a bare SELECT with a HAVING clause returns
+          -- zero rows and exits 0 when the partitions are missing, so the old
+          -- version of this check passed whether or not it had verified anything.
+          DO $do$
+          DECLARE found integer;
+          BEGIN
+            SELECT count(*) INTO found FROM (
+              SELECT c.relname
+                FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhparent
+               WHERE c.relname IN ('submissions','activity','audit_logs','coding_submissions')
+               GROUP BY c.relname
+              HAVING count(i.inhrelid) >= 128
+            ) satisfied;
+            IF found <> 4 THEN
+              RAISE EXCEPTION 'expected 4 hash-partitioned tables with >=128 partitions, found %', found;
+            END IF;
+          END $do$;
 
           -- Inserts must land in a partition rather than failing.
           INSERT INTO users (id, email, username, password_hash, password_changed_at, created_at, updated_at)
@@ -111,7 +128,11 @@ jobs:
           node-version: "20"
 
       - name: The client bundle parses as valid JavaScript
-        run: node --check backend/static/js/app.js
+        # sw.js is checked too: it is the other script the browser runs, and a
+        # syntax error there breaks offline caching silently rather than loudly.
+        run: |
+          node --check backend/static/js/app.js
+          node --check backend/static/sw.js
 
       - name: No CDN or third-party origins are referenced
         run: |
