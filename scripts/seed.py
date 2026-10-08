@@ -24,7 +24,7 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from engineverse import auth, brand, db, diagrams, models3d, progress, search  # noqa: E402
+from engineverse import auth, brand, community, db, diagrams, models3d, progress, search  # noqa: E402
 from engineverse.judge import local as judge_local  # noqa: E402
 from engineverse.security.ids import ulid  # noqa: E402
 from engineverse.security.sanitize import slugify  # noqa: E402
@@ -40,6 +40,7 @@ from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
+from seed_data import community_data  # noqa: E402
 
 
 def now_ms() -> int:
@@ -838,7 +839,7 @@ def seed_demo_activity(user_ids: dict[str, str], topic_ids: dict[str, str]) -> N
     topic_slugs = list(topic_ids)
     ts = now_ms()
     with db.transaction():
-        for username, count in (("asha", 14), ("ravi", 9), ("priya", 6)):
+        for username, count in (("asha", 30), ("ravi", 16), ("priya", 9)):
             user_id = user_ids.get(username)
             if not user_id:
                 continue
@@ -872,6 +873,182 @@ def seed_demo_activity(user_ids: dict[str, str], topic_ids: dict[str, str]) -> N
             )
 
 
+MS_PER_DAY = 86_400_000
+
+
+def _known(mapping: dict[str, str], key: str, what: str) -> str:
+    """Resolve a seed reference, or name the bad key instead of dropping the row.
+
+    Every seeder in this file used ``dict.get()`` and skipped on a miss, which is
+    how twenty-one roadmap steps ended up pointing at topics that did not exist
+    while the seed reported success. A community thread anchored to a typo'd
+    topic slug should fail the seed, not silently lose its link.
+    """
+    if key not in mapping:
+        raise KeyError(f"{what}: {key!r} is not a known key - fix seed_data/community_data.py")
+    return mapping[key]
+
+
+def seed_community(user_ids: dict[str, str], topic_ids: dict[str, str]) -> tuple[int, int]:
+    """Populate the forum, which shipped rendering "No discussions yet".
+
+    Goes through ``community.create_thread`` / ``add_comment`` / ``vote`` rather
+    than raw INSERTs so reply counters, XP awards and notifications match what a
+    real post would produce. Timestamps are backdated afterwards: those functions
+    stamp ``now_ms()``, which would make every thread read "just now" on a fresh
+    install and leave the ordering meaningless.
+
+    Votes are one row per (voter, entity), so a comment can score at most one
+    point per other participant. The ``upvotes`` figure in the content module is
+    therefore a ceiling, not a promise - the counter is never inflated past the
+    number of votes that actually exist.
+    """
+    ts = now_ms()
+    everyone = list(user_ids.values())
+    threads = 0
+    replies = 0
+    # No wrapping transaction here: create_thread, add_comment and vote each
+    # open their own (vote via db.transaction, the others via award_xp), and
+    # SQLite will not nest them.
+    for entry in community_data.THREADS:
+        author = _known(user_ids, entry["author"], "thread author")
+        topic_id = _known(topic_ids, entry["topic"], f"topic for thread {entry['title']!r}")
+        created = ts - entry["days_ago"] * MS_PER_DAY
+        thread_id = community.create_thread(
+            author, title=entry["title"], body=entry["body"], kind=entry["kind"],
+            tags=entry["tags"], entity_type="topic", entity_id=topic_id,
+        )
+        last_activity = created
+        for voter in [u for u in everyone if u != author][:4]:
+            community.vote(voter, "discussion", thread_id, 1)
+
+        for reply in entry["replies"]:
+            commenter = _known(user_ids, reply["author"], f"reply on {entry['title']!r}")
+            comment_id = community.add_comment(commenter, thread_id, reply["body"])
+            replied_at = ts - reply["days_ago"] * MS_PER_DAY
+            db.execute("UPDATE comments SET created_at = ? WHERE id = ?", replied_at, comment_id)
+            voters = [u for u in everyone if u != commenter]
+            for voter in voters[:min(reply["upvotes"], len(voters))]:
+                community.vote(voter, "comment", comment_id, 1)
+            last_activity = max(last_activity, replied_at)
+            replies += 1
+
+        db.execute(
+            "UPDATE discussions SET created_at = ?, last_activity_at = ?, is_resolved = ? WHERE id = ?",
+            created, last_activity, 1 if entry["resolved"] else 0, thread_id,
+        )
+        threads += 1
+    return threads, replies
+
+
+#: username, practice answers to record, coding problems solved.
+DEMO_PRACTICE = (("asha", 112, 7), ("ravi", 58, 3), ("priya", 24, 1))
+
+
+def seed_demo_practice(user_ids: dict[str, str]) -> tuple[int, int]:
+    """Give the demo students answer, coding and bookmark history.
+
+    Without this the badge catalogue is decoration: eleven badges exist and the
+    seeded data satisfied exactly one criterion (a seven-day streak), because
+    nothing wrote to ``submissions``, ``coding_submissions`` or ``bookmarks``.
+    The checks are real queries against those tables, so the history has to be
+    real too - fabricating the badge rows instead would leave the counts on the
+    profile page disagreeing with the activity that supposedly earned them.
+
+    The spread is deliberately uneven. Gold badges that need 25 distinct
+    accepted problems or interview-kind questions stay unearned, because the
+    seeded corpus does not support them and a badge nobody has yet is more
+    believable than one everybody has.
+    """
+    ts = now_ms()
+    questions = db.query("SELECT id, answer_index FROM questions ORDER BY created_at")
+    if not questions:
+        raise RuntimeError("cannot seed practice history: no questions were seeded")
+    # Newest DPP set, answered in full and correctly, so the Flawless badge has
+    # a real set behind it rather than a synthetic one.
+    perfect_set = db.query(
+        "SELECT q.question_id FROM dpp_questions q JOIN dpp_sets s ON s.id = q.set_id "
+        "ORDER BY s.date DESC LIMIT 5"
+    )
+    perfect_ids = {row["question_id"] for row in perfect_set}
+    set_of = {row["question_id"]: row["set_id"] for row in db.query(
+        "SELECT set_id, question_id FROM dpp_questions")}
+    problems = [row["id"] for row in db.query("SELECT id FROM coding_problems ORDER BY created_at")]
+    project_id = db.scalar("SELECT id FROM projects ORDER BY created_at LIMIT 1", default=None)
+
+    answers = 0
+    runs = 0
+    with db.transaction():
+        for username, wanted, solved in DEMO_PRACTICE:
+            user_id = user_ids.get(username)
+            if not user_id:
+                raise KeyError(f"demo student {username!r} is missing from the seeded users")
+
+            for index in range(wanted):
+                question = questions[index % len(questions)]
+                # The flawless set is answered correctly; elsewhere ~4 in 5, so
+                # accuracy stats on the profile are not a flat 100%.
+                correct = 1 if question["id"] in perfect_ids else (1 if index % 5 else 0)
+                age_days = index // 8
+                db.execute(
+                    "INSERT INTO submissions (id,user_id,question_id,dpp_set_id,answer_index,answer_text,"
+                    "is_correct,time_ms,created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                    ulid(), user_id, question["id"], set_of.get(question["id"]),
+                    question["answer_index"], None, correct, 45_000 + index * 977,
+                    ts - age_days * MS_PER_DAY,
+                )
+                answers += 1
+
+            for index in range(min(solved, len(problems))):
+                db.execute(
+                    "INSERT INTO coding_submissions (id,user_id,problem_id,language,code,status,passed,total,"
+                    "runtime_ms,memory_kb,stderr,is_accepted,created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    ulid(), user_id, problems[index], "python",
+                    "# seeded reference solution", "accepted", 5, 5, 42 + index * 13, 18_432, None, 1,
+                    ts - (index + 1) * MS_PER_DAY,
+                )
+                runs += 1
+
+            if project_id and username in ("asha", "ravi"):
+                db.execute(
+                    "INSERT OR IGNORE INTO bookmarks (user_id,entity_type,entity_id,note,created_at) "
+                    "VALUES (?,?,?,?,?)",
+                    user_id, "project", project_id, "Want to build this over the break.",
+                    ts - 2 * MS_PER_DAY,
+                )
+    return answers, runs
+
+
+def seed_certificates(user_ids: dict[str, str]) -> int:
+    """Give the demo students something on the certificates page.
+
+    A certificate is normally issued when a subject is completed, so a fresh
+    install has none and ``/certificates/{verify_id}`` has nothing to resolve.
+    Issued through ``progress.issue_certificate`` so the verify id format, the
+    notification and the dedupe rule are the real ones.
+    """
+    issued = 0
+    for username, wanted in (("asha", 2), ("ravi", 1), ("priya", 1)):
+        user_id = user_ids.get(username)
+        if not user_id:
+            raise KeyError(f"demo student {username!r} is missing from the seeded users")
+        rows = db.query(
+            "SELECT s.id AS subject_id, s.name AS subject_name, count(*) AS done FROM user_progress up "
+            "JOIN topics t ON t.id = up.topic_id JOIN subjects s ON s.id = t.subject_id "
+            "WHERE up.user_id = ? AND up.status = 'completed' "
+            "GROUP BY s.id, s.name ORDER BY done DESC LIMIT ?",
+            user_id, wanted,
+        )
+        for row in rows:
+            progress.issue_certificate(
+                user_id, "subject", "subject", row["subject_id"],
+                f"Completed {row['subject_name']}",
+                {"topics_completed": int(row["done"]), "seeded": True},
+            )
+            issued += 1
+    return issued
+
+
 # ---------------------------------------------------------------------------
 # Orchestration
 # ---------------------------------------------------------------------------
@@ -883,7 +1060,9 @@ TABLES = [
     "dpp_sets", "dpp_questions", "programming_languages", "language_modules", "coding_problems",
     "coding_problem_stubs", "coding_testcases", "projects", "project_steps", "project_resources", "videos",
     "books", "resources", "roadmaps", "roadmap_nodes", "flashcards", "plans", "site_config", "badges",
-    "users", "user_progress", "xp_events",
+    "users", "user_progress", "xp_events", "submissions", "coding_submissions", "bookmarks",
+    "discussions", "comments", "votes",
+    "certificates", "user_badges", "notifications",
 ]
 
 
@@ -958,8 +1137,20 @@ def run(fresh: bool) -> None:
     user_ids = seed_users()
     seed_demo_activity(user_ids, topic_ids)
 
-    print("Issuing badges and building the search index ...")
+    print("Seeding community, certificates and badges ...")
+    answers, runs = seed_demo_practice(user_ids)
+    threads, replies = seed_community(user_ids, topic_ids)
+    certificates = seed_certificates(user_ids)
     progress.ensure_badges()
+    # Badges are evaluated against real progress, so this has to run after the
+    # demo activity is in - and the seeder writes progress with raw SQL, which
+    # never reaches the code path that awards them.
+    badges = {u: progress.evaluate_badges(uid) for u, uid in user_ids.items()}
+    print(f"  {answers} practice answers, {runs} coding runs, {threads} threads, "
+          f"{replies} replies, {certificates} certificates, "
+          f"{sum(len(v) for v in badges.values())} badges awarded")
+
+    print("Building the search index ...")
     indexed = search.reindex_all()
 
     print_stats()
