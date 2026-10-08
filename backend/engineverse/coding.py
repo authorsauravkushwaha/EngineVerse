@@ -24,7 +24,7 @@ def _json(value: Any, fallback: Any) -> Any:
 
 def list_languages() -> list[dict]:
     return db.query(
-        "SELECT id, slug, name, icon, color, blurb, runnable, "
+        "SELECT id, slug, name, icon, color, blurb, judge_slug, runnable, "
         "(SELECT count(*) FROM language_modules lm WHERE lm.language_id = programming_languages.id) AS module_count "
         "FROM programming_languages ORDER BY order_index, name"
     )

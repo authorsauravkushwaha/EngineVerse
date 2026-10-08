@@ -36,8 +36,10 @@
       <label for="lang-select" style="margin:0">Language</label>
       <select id="lang-select">
         {% for lang in languages %}
-          <option value="{{ lang.slug }}" {{ 'selected' if lang.slug == 'python' }}>{{ lang.name }}
-            {{ '' if lang.runnable else '(no runtime here)' }}</option>
+          {% set can_run = lang.runnable and lang.judge_slug in runnable_now %}
+          <option value="{{ lang.slug }}" {{ 'selected' if lang.slug == 'python' }}
+            {{ '' if can_run else 'disabled' }}>{{ lang.name }}
+            {{ '' if can_run else '(no runtime here)' }}</option>
         {% endfor %}
       </select>
       <button class="btn btn-soft btn-sm" id="btn-reset" type="button">Reset</button>

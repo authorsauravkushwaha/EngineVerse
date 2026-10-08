@@ -15,6 +15,7 @@ from engineverse import (
     coding,
     community,
     db,
+    judge,
     library,
     practice,
     progress,
@@ -265,6 +266,11 @@ async def problem_page(request: Request, slug: str):
                   for row in coding.stubs_for(problem["id"])},
         samples=coding.testcases_for(problem["id"], samples_only=True),
         languages=coding.list_languages(),
+        # What this host can execute right now, not just what the catalogue
+        # claims. The database flag is a property of the content; a missing JVM
+        # is a property of the machine. Offering Java on a host with no javac
+        # produced the same dead button as SQL did.
+        runnable_now=set(judge.runnable_languages()),
         submissions=coding.submissions_for(viewer.id, problem["id"], 10) if viewer else [],
         saved=coding.saved_code(viewer.id, problem["id"], "python") if viewer else None,
     )

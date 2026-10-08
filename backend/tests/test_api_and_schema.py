@@ -929,6 +929,67 @@ class TestLanguagePickerMatchesTheJudge:
             )
 
 
+class TestEditorOffersOnlyWhatTheHostCanRun:
+    """The picker must reflect this machine, not just what the catalogue claims.
+
+    The database `runnable` flag is a property of the content; a missing JVM is a
+    property of the host. `judge.runnable_languages()` already probed the real
+    toolchain and `/api/coding/languages` already returned it, but the editor page
+    passed only the static flag - so Java was offered and selectable on a machine
+    with no javac, and Run returned "unsupported_language". Same dead button as
+    SQL, different cause.
+    """
+
+    def test_the_page_marks_a_language_the_host_cannot_run(self, seeded, client):
+        import re
+
+        from engineverse import judge
+
+        runnable = set(judge.runnable_languages())
+        response = client.get("/practice/problems/binary-search")
+        assert response.status_code == 200
+        options = re.findall(
+            r'<option value="([a-z+]+)"([^>]*)>(.*?)</option>', response.text, re.S
+        )
+        assert options, "the editor rendered no language options"
+        for slug, attrs, label in options:
+            label = " ".join(label.split())
+            if slug in runnable:
+                assert "disabled" not in attrs, f"{slug} can run but is disabled"
+                assert "(no runtime here)" not in label, f"{slug} can run but says it cannot"
+            else:
+                assert "disabled" in attrs, (
+                    f"{slug} cannot run on this host but is selectable"
+                )
+                assert "(no runtime here)" in label, (
+                    f"{slug} cannot run on this host but is not labelled"
+                )
+
+    def test_the_picker_and_the_api_agree(self, seeded, client):
+        import re
+
+        from engineverse import judge
+
+        runnable = set(judge.runnable_languages())
+        html = client.get("/practice/problems/binary-search").text
+        selectable = {
+            slug
+            for slug, attrs, _ in re.findall(
+                r'<option value="([a-z+]+)"([^>]*)>(.*?)</option>', html, re.S
+            )
+            if "disabled" not in attrs
+        }
+        offered = {
+            slug for slug, _, _ in re.findall(
+                r'<option value="([a-z+]+)"([^>]*)>(.*?)</option>', html, re.S
+            )
+        }
+        assert selectable == runnable & offered, (
+            f"the page lets you pick {sorted(selectable)} but the judge can run "
+            f"{sorted(runnable & offered)}"
+        )
+
+
 class TestDeployTopologyIsCoherent:
     """The compose file must describe a topology that can actually run.
 
