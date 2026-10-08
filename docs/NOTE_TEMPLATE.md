@@ -53,8 +53,9 @@ exam.
 naming every symbol and its unit. A formula without a symbol table is not
 usable.
 
-**6. Derivation.** Where the formula comes from. Optional for topics that have no
-derivation; never padded.
+**6. Derivation.** Where the formula comes from — the steps, not a restatement
+of the result. Every topic now carries one; a section that merely reprints the
+formula is worse than none, because it reads as though the reasoning were there.
 
 **7. Worked example.** A problem solved end to end, with the reasoning shown, not
 just the answer.

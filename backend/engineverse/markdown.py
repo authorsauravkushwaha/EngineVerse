@@ -143,7 +143,11 @@ class _TeX:
                 number += self.take()
             return f'<span class="mnum">{_esc(number)}</span>'
         if ch.isalpha():
-            run = ""
+            # ``take()`` above already consumed ``ch``; starting the run empty
+            # dropped the first letter of every alphabetic run, so ``\sum_k I_k``
+            # rendered as an empty subscript and lost the ``I`` entirely. The
+            # digit branch below gets this right by seeding with ``ch``.
+            run = ch
             while self.pos < len(self.src) and self.src[self.pos].isalpha():
                 run += self.take()
             if run in FUNCTIONS:

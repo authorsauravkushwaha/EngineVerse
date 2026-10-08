@@ -59,14 +59,20 @@ the verification URL.
 ```
 universities 10 · colleges 13 · branches 45 · semesters 9 · curricula 180
 curriculum_subjects 2756 · subjects 73 · modules 24 · topics 48 · notes 192
-note_sections 957 · diagrams 6 · models_3d 48 · formulas 15 · questions 38
+note_sections 1248 · diagrams 48 · models_3d 48 · formulas 15 · questions 38
 question_options 152 · dpp_sets 14 · dpp_questions 68 · programming_languages 6
 language_modules 23 · coding_problems 13 · coding_problem_stubs 16
 coding_testcases 54 · projects 6 · project_steps 32 · project_resources 6
-videos 18 · books 12 · resources 15 · roadmaps 5 · roadmap_nodes 57
-flashcards 34 · plans 3 · site_config 14 · badges 12 · users 5
-user_progress 29 · xp_events 29 · search index 347
+videos 174 · books 102 · resources 451 · roadmaps 5 · roadmap_nodes 57
+flashcards 221 · plans 3 · site_config 12 · badges 12 · users 5
+user_progress 29 · xp_events 29 · search index 1029
 ```
+
+Every one of the 48 topics carries a full standard note (all thirteen sections),
+an authored interactive diagram and a 3D model. Section bodies that are not part
+of the original topic entry live in `seed_data/notes_extra.py`, keyed by topic
+slug; `seed.py` raises at startup if that file names a topic that no longer
+exists, so a renamed topic cannot silently drop content.
 
 ```bash
 python scripts/seed.py --fresh    # drop and rebuild

@@ -186,3 +186,92 @@ def test_no_two_flashcards_share_an_id(seeded):
 
     stored = db.query_one("SELECT count(*) AS n FROM flashcards")["n"]
     assert stored == len(corpus), f"{len(corpus)} cards authored but {stored} stored"
+
+
+# ---------------------------------------------------------------------------
+# Note completeness
+# ---------------------------------------------------------------------------
+
+#: The thirteen sections every standard note is specified to carry.
+REQUIRED_SECTIONS = [
+    "simple", "definition", "intuition", "points", "formula", "derivation",
+    "example", "applications", "mistakes", "exam", "interview", "diagram", "industry",
+]
+
+
+def test_every_standard_note_carries_all_thirteen_sections(seeded):
+    """The template promises thirteen sections; 42 topics were missing several."""
+    incomplete = db.query(
+        "SELECT n.id, count(*) AS have FROM notes n "
+        "JOIN note_sections s ON s.note_id = n.id "
+        "WHERE n.quality_level = 'standard' GROUP BY n.id HAVING have < 13"
+    )
+    assert [(r["id"], r["have"]) for r in incomplete] == [], "standard notes with fewer than 13 sections"
+
+
+def test_every_topic_has_the_four_previously_missing_fields(seeded):
+    """Derivation, industry, formula and example must exist for every topic."""
+    for kind in ("derivation", "industry", "formula", "example"):
+        missing = db.query(
+            "SELECT t.slug FROM topics t WHERE NOT EXISTS ("
+            "  SELECT 1 FROM notes n JOIN note_sections s ON s.note_id = n.id "
+            "  WHERE n.topic_id = t.id AND s.kind = ?) ORDER BY t.slug", kind,
+        )
+        assert [r["slug"] for r in missing] == [], f"topics with no {kind} section"
+
+
+def test_no_section_body_is_empty_or_a_placeholder(seeded):
+    """A section that renders nothing is worse than one that is absent."""
+    rows = db.query("SELECT id, kind, body FROM note_sections")
+    assert rows
+    for row in rows:
+        stripped = (row["body"] or "").strip()
+        assert len(stripped) >= 40, f"{row['id']} ({row['kind']}) body is {len(stripped)} chars"
+
+
+def test_latex_delimiters_are_balanced(seeded):
+    """An unbalanced $$ breaks KaTeX rendering for the whole section."""
+    for row in db.query("SELECT id, body FROM note_sections"):
+        body = row["body"] or ""
+        assert body.count("$$") % 2 == 0, f"{row['id']} has an odd number of $$ delimiters"
+
+
+def test_formula_sections_render_a_variable_table(seeded):
+    """formula_body() builds a table; a formula with no variables has nothing to show."""
+    rows = db.query("SELECT id, body FROM note_sections WHERE kind = 'formula'")
+    assert rows
+    for row in rows:
+        assert "| Symbol | Meaning | Unit |" in row["body"], f"{row['id']} has no variable table"
+
+
+def test_notes_extra_has_no_stale_topic_keys(seeded):
+    """Content keyed to a topic that no longer exists must fail the seed."""
+    from seed_data import notes_extra, topics_core, topics_cse
+    from engineverse.security.sanitize import slugify
+
+    known = {slugify(t["title"]) for t in list(topics_core.TOPICS) + list(topics_cse.TOPICS)}
+    assert notes_extra.unknown_keys(known) == {}
+
+
+def test_notes_extra_shapes_match_the_topic_table(seeded):
+    """The fallback must be interchangeable with topic["formula"] and ["example"]."""
+    from seed_data import notes_extra
+
+    for slug, formula in notes_extra.FORMULAS.items():
+        assert formula.get("name") and formula.get("latex"), f"{slug} formula incomplete"
+        for variable in formula.get("variables", []):
+            assert set(variable) == {"s", "n", "u"}, f"{slug} has a malformed variable: {variable}"
+    for slug, example in notes_extra.EXAMPLES.items():
+        assert example.get("problem") and example.get("solution") and example.get("answer"), (
+            f"{slug} example incomplete"
+        )
+
+
+def test_diagram_section_present_for_every_topic(seeded):
+    """6 of 48 notes had this section; the diagram itself now exists for all."""
+    missing = db.query(
+        "SELECT t.slug FROM topics t WHERE NOT EXISTS ("
+        "  SELECT 1 FROM notes n JOIN note_sections s ON s.note_id = n.id "
+        "  WHERE n.topic_id = t.id AND s.kind = 'diagram')"
+    )
+    assert [r["slug"] for r in missing] == []

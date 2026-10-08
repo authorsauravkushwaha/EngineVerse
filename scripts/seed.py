@@ -35,6 +35,7 @@ from seed_data import library_data  # noqa: E402
 from seed_data import models_3d as model_content  # noqa: E402
 from seed_data import flashcards_extra as flashcard_content  # noqa: E402
 from seed_data import diagrams_data  # noqa: E402
+from seed_data import notes_extra  # noqa: E402
 from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
@@ -120,7 +121,7 @@ def numbered_list(items: list[str]) -> str:
     return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
 
 
-def section_body(kind: str, topic: dict, diagram: dict | None) -> str:
+def section_body(kind: str, topic: dict, slug: str = "") -> str:
     if kind == "simple":
         return topic["simple"] or topic["summary"]
     if kind == "definition":
@@ -129,12 +130,17 @@ def section_body(kind: str, topic: dict, diagram: dict | None) -> str:
         return topic["intuition"]
     if kind == "points":
         return bullet_list(topic["points"])
+    # The four fields below were empty for most topics, so the gaps are filled
+    # from seed_data.notes_extra keyed by slug. The topic table still wins when
+    # it has content, so nothing here shadows hand-written material.
     if kind == "formula":
-        return formula_body(topic["formula"]) if topic["formula"] else ""
+        formula = topic["formula"] or notes_extra.formula(slug)
+        return formula_body(formula) if formula else ""
     if kind == "derivation":
-        return topic["derivation"]
+        return topic["derivation"] or notes_extra.derivation(slug)
     if kind == "example":
-        return example_body(topic["example"]) if topic["example"] else ""
+        example = topic["example"] or notes_extra.example(slug)
+        return example_body(example) if example else ""
     if kind == "applications":
         return bullet_list(topic["applications"])
     if kind == "mistakes":
@@ -144,11 +150,17 @@ def section_body(kind: str, topic: dict, diagram: dict | None) -> str:
     if kind == "interview":
         return numbered_list(topic["interview"])
     if kind == "industry":
-        return topic["industry"]
+        return topic["industry"] or notes_extra.industry(slug)
     if kind == "diagram":
-        if diagram:
-            return f"_See the interactive diagram: **{diagram['title']}** below._\n\n{diagram['caption']}"
-        return ""
+        # Reads from diagrams_data, which covers every topic. The old
+        # library_data.DIAGRAMS had six entries, so 42 notes rendered this
+        # section empty while the diagram itself appeared elsewhere on the page.
+        try:
+            scene = diagrams_data.build(slug)
+        except KeyError:
+            return ""
+        return (f"_See the interactive diagram: **{scene['title']}** below._\n\n"
+                f"{scene['caption']}")
     return ""
 
 
@@ -323,6 +335,11 @@ def seed_topics(subject_ids: dict[str, str]) -> dict[str, str]:
 
 def seed_notes(topic_ids: dict[str, str]) -> int:
     all_topics = {slugify(entry["title"]): entry for entry in list(topics_cse.TOPICS) + list(topics_core.TOPICS)}
+    # Content keyed to a topic that no longer exists would simply stop rendering,
+    # so fail on it rather than letting a rename silently orphan the material.
+    stale = notes_extra.unknown_keys(set(all_topics))
+    if stale:
+        raise KeyError(f"note content keyed to topics that do not exist: {stale}")
     ts = now_ms()
     notes = 0
     with db.transaction():
@@ -330,9 +347,8 @@ def seed_notes(topic_ids: dict[str, str]) -> int:
             entry = all_topics.get(slug)
             if not entry:
                 continue
-            diagram = library_data.DIAGRAMS.get(entry.get("diagram") or "")
             for depth, kinds in DEPTHS.items():
-                wanted = [k for k in kinds if section_body(k, entry, diagram)]
+                wanted = [k for k in kinds if section_body(k, entry, slug)]
                 if not wanted:
                     continue
                 note_id = f"{slug}::{depth}"
@@ -347,7 +363,7 @@ def seed_notes(topic_ids: dict[str, str]) -> int:
                     db.execute(
                         "INSERT INTO note_sections (id,note_id,kind,title,body,callout,order_index) VALUES (?,?,?,?,?,?,?) "
                         "ON CONFLICT(id) DO UPDATE SET body=excluded.body",
-                        f"{note_id}::{kind}", note_id, kind, title, section_body(kind, entry, diagram), callout, order,
+                        f"{note_id}::{kind}", note_id, kind, title, section_body(kind, entry, slug), callout, order,
                     )
                 notes += 1
     return notes
