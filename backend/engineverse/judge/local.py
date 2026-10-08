@@ -213,20 +213,36 @@ def _shell_quote(value: str) -> str:
     return "'" + value.replace("'", "'\\''") + "'"
 
 
-def _kill_tree(process: "subprocess.Popen") -> None:
-    """Signals the submission's whole process group, then reaps it.
+def _read_capped(path: Path) -> str:
+    """Reads at most MAX_OUTPUT_BYTES from a file the submission wrote to."""
+    try:
+        with path.open("rb") as handle:
+            return handle.read(MAX_OUTPUT_BYTES).decode("utf-8", "replace")
+    except OSError:
+        return ""
 
-    Safe to call more than once: a group that has already exited simply raises
-    ProcessLookupError, which is not an error worth propagating.
+
+def _kill_tree(process: "subprocess.Popen") -> None:
+    """Signals the submission's whole process group, then reaps the child.
+
+    The group is signalled unconditionally. Guarding on ``process.poll() is
+    None`` looks like an optimisation and is a hole: a fork bomb's direct child
+    dies almost immediately - NPROC refuses its next fork - while the dozens of
+    grandchildren it already spawned keep running. Polling first therefore skips
+    the kill in exactly the case that needs it. Reading output from files rather
+    than pipes is what exposed this; while the judge blocked on a pipe it waited
+    for the tree to die on its own and the bug stayed invisible.
+
+    ``start_new_session=True`` makes the child a group leader, so its pgid is
+    its pid and the group can be signalled without a live process to query.
     """
-    if process.poll() is None:
+    try:
+        os.killpg(process.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
         try:
-            os.killpg(os.getpgid(process.pid), signal.SIGKILL)
-        except (ProcessLookupError, PermissionError, OSError):
-            try:
-                process.kill()
-            except OSError:
-                pass
+            process.kill()
+        except OSError:
+            pass
     try:
         process.wait(timeout=5)
     except subprocess.TimeoutExpired:  # pragma: no cover - kernel should not stall
@@ -389,59 +405,73 @@ class LocalSandboxProvider:
             # leaves its descendants orphaned and still running after the run is
             # reported as finished. A private session makes the whole tree one
             # process group that can be signalled as a unit.
-            process = subprocess.Popen(
-                argv,
-                cwd=workdir,
-                env=env,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                preexec_fn=_preexec(max_processes, memory_kb, timeout_seconds),
-                start_new_session=True,
-            )
-            try:
-                raw_out, raw_err = process.communicate(
-                    (stdin or "")[:20_000].encode("utf-8", "replace"),
-                    timeout=(timeout_ms + 3000) / 1000,
-                )
-                completed = subprocess.CompletedProcess(argv, process.returncode, raw_out, raw_err)
-            except subprocess.TimeoutExpired:
-                _kill_tree(process)
-                process.communicate()
-                return RunResult(status="timeout", stderr="Time limit exceeded.", runtime_ms=_ms(started))
-            finally:
-                # Whatever the outcome, nothing from the submission's process
-                # tree should outlive the verdict.
-                _kill_tree(process)
+            #
+            # Output goes to files, not pipes. A pipe does not reach EOF until
+            # every process holding its write end has exited, and a fork bomb's
+            # grandchildren inherit stdout - so reading from a pipe blocks on
+            # the whole tree even after the direct child is dead. Measured: the
+            # same bomb took 5s over pipes and 1.2s to a file, and the gap widens
+            # with how many children were spawned. With files, wait() returns as
+            # soon as the direct child exits and the deadline actually holds.
+            out_path = workdir / "stdout.bin"
+            err_path = workdir / "stderr.bin"
+            input_path = workdir / "input.txt"
+            input_path.write_bytes((stdin or "")[:20_000].encode("utf-8", "replace"))
 
-            stdout = completed.stdout.decode("utf-8", "replace")[:MAX_OUTPUT_BYTES]
-            stderr = completed.stderr.decode("utf-8", "replace")[:MAX_OUTPUT_BYTES]
+            with input_path.open("rb") as in_fh, out_path.open("wb") as out_fh, \
+                    err_path.open("wb") as err_fh:
+                process = subprocess.Popen(
+                    argv,
+                    cwd=workdir,
+                    env=env,
+                    stdin=in_fh,
+                    stdout=out_fh,
+                    stderr=err_fh,
+                    preexec_fn=_preexec(max_processes, memory_kb, timeout_seconds),
+                    start_new_session=True,
+                )
+                try:
+                    process.wait(timeout=(timeout_ms + 3000) / 1000)
+                except subprocess.TimeoutExpired:
+                    _kill_tree(process)
+                    return RunResult(status="timeout", stderr="Time limit exceeded.", runtime_ms=_ms(started))
+                finally:
+                    # Whatever the outcome, nothing from the submission's process
+                    # tree should outlive the verdict.
+                    _kill_tree(process)
+
+            # Read after the process is gone. Truncated on read rather than
+            # streamed, so a submission that writes without limit cannot make
+            # the judge allocate what it printed.
+            stdout = _read_capped(out_path)
+            stderr = _read_capped(err_path)
+            returncode = process.returncode
             runtime_ms = _ms(started)
             combined = stdout + stderr
 
             if f"{MARKER}CHECK" in combined:
-                return RunResult(status="compile_error", stderr=_clean(stderr), exit_code=completed.returncode, runtime_ms=runtime_ms)
+                return RunResult(status="compile_error", stderr=_clean(stderr), exit_code=returncode, runtime_ms=runtime_ms)
             if f"{MARKER}COMPILE" in combined:
-                return RunResult(status="compile_error", stderr=_clean(stderr), exit_code=completed.returncode, runtime_ms=runtime_ms)
+                return RunResult(status="compile_error", stderr=_clean(stderr), exit_code=returncode, runtime_ms=runtime_ms)
 
             # `timeout -s KILL` surfaces as a negative return code (signal);
             # `ulimit -t` surfaces as SIGXCPU (152/153). Either way the wall
             # clock tells us the truth.
-            killed = completed.returncode is not None and (completed.returncode < 0 or completed.returncode in (124, 137, 152, 153))
+            killed = returncode is not None and (returncode < 0 or returncode in (124, 137, 152, 153))
             if killed or runtime_ms >= timeout_ms - 50:
                 return RunResult(
                     status="timeout",
                     stdout=stdout,
                     stderr=_clean(stderr) or "Time limit exceeded.",
-                    exit_code=completed.returncode,
+                    exit_code=returncode,
                     runtime_ms=runtime_ms,
                 )
-            if completed.returncode != 0:
+            if returncode != 0:
                 return RunResult(
                     status="runtime_error",
                     stdout=stdout,
-                    stderr=_clean(stderr) or f"Process exited with code {completed.returncode}",
-                    exit_code=completed.returncode,
+                    stderr=_clean(stderr) or f"Process exited with code {returncode}",
+                    exit_code=returncode,
                     runtime_ms=runtime_ms,
                 )
             return RunResult(status="accepted", stdout=stdout, stderr=_clean(stderr), exit_code=0, runtime_ms=runtime_ms)

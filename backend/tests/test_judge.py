@@ -425,9 +425,24 @@ class TestSandboxLimits:
         elapsed = time.monotonic() - started
 
         assert result.status in ("timeout", "runtime_error"), result.status
+        # The verdict has to come back on the deadline. Reading output from
+        # pipes rather than files let the grandchildren of a fork bomb hold the
+        # pipe open and push this past 50s; see _read_capped in judge/local.py.
         assert elapsed < 30, f"the fork bomb ran for {elapsed:.1f}s"
+
+        # SIGKILL to a process group is delivered asynchronously and the killed
+        # processes linger as zombies until reaped, so a single sample taken the
+        # instant run() returns counts corpses rather than a leak. Poll instead:
+        # the assertion is that the tree is gone, not that it vanished in zero
+        # milliseconds. Five seconds is far longer than the ~0.2s measured.
+        deadline = time.monotonic() + 5
         after = _count_processes_for(os.getuid())
-        assert after <= before + 8, f"the fork bomb left {after - before} processes behind"
+        while after > before and time.monotonic() < deadline:
+            time.sleep(0.1)
+            after = _count_processes_for(os.getuid())
+        assert after <= before, (
+            f"the fork bomb left {after - before} processes behind after 5s"
+        )
 
     def test_a_memory_bomb_is_refused(self, provider):
         result = provider.run(
