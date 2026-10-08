@@ -1,0 +1,22 @@
+{#- Pagination control for the library shelves.
+    Expects `pager` from web.pages._pager(). Renders nothing on a single page. -#}
+{% if pager and pager.pages > 1 %}
+<nav class="pager" aria-label="Pagination">
+  <span class="pager-count">
+    {{ pager.first }}–{{ pager.last }} of {{ pager.total }}
+  </span>
+  <span class="pager-links">
+    {% if pager.has_prev %}
+      <a class="btn btn-soft btn-sm" href="{{ pager.prev_url }}" rel="prev">← Previous</a>
+    {% else %}
+      <span class="btn btn-soft btn-sm disabled" aria-disabled="true">← Previous</span>
+    {% endif %}
+    <span class="pager-page">Page {{ pager.page }} of {{ pager.pages }}</span>
+    {% if pager.has_next %}
+      <a class="btn btn-soft btn-sm" href="{{ pager.next_url }}" rel="next">Next →</a>
+    {% else %}
+      <span class="btn btn-soft btn-sm disabled" aria-disabled="true">Next →</span>
+    {% endif %}
+  </span>
+</nav>
+{% endif %}

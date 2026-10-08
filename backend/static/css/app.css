@@ -708,3 +708,16 @@ sup, sub { font-size: .74em; }
 .cert-row-silver   { --tier: #64748b; }
 .cert-row-gold     { --tier: #b8860b; }
 .cert-row-platinum { --tier: #7c3aed; }
+
+/* ---- pagination ------------------------------------------------------- */
+.pager{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  margin:28px 0 8px;padding-top:18px;border-top:1px solid var(--line)}
+.pager-count{font-size:13px;color:var(--muted)}
+.pager-links{display:flex;align-items:center;gap:10px}
+.pager-page{font-size:13px;color:var(--muted);min-width:96px;text-align:center}
+.btn.disabled{opacity:.4;pointer-events:none}
+@media (max-width:640px){
+  .pager{flex-direction:column;align-items:stretch}
+  .pager-count{text-align:center}
+  .pager-links{justify-content:center}
+}

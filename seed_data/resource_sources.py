@@ -413,14 +413,16 @@ VIDEO_SOURCES: dict[str, tuple[str, str, str, str, str]] = {
 }
 
 VIDEO_DISCIPLINE: dict[str, list[str]] = {
-    "core": ["khan", "mit-ocw"],
-    "cse": ["freecodecamp", "computerphile"],
-    "electronics": ["mit-ocw", "khan"],
-    "mechanical": ["efficient", "mit-ocw"],
-    "civil": ["practical", "efficient"],
-    "chemical": ["organic", "mit-ocw"],
-    "bio": ["organic", "khan"],
-    "other": ["khan", "mit-ocw"],
+    # Four per category. Three was the target and four leaves room for a subject
+    # that overrides one of them without dropping below the floor.
+    "core": ["khan", "mit-ocw", "ilecture", "nptel"],
+    "cse": ["freecodecamp", "computerphile", "ben-eater", "neso"],
+    "electronics": ["mit-ocw", "khan", "eevblog", "neso"],
+    "mechanical": ["efficient", "mit-ocw", "brunton", "real-engineering"],
+    "civil": ["practical", "efficient", "structure-free", "ilecture"],
+    "chemical": ["organic", "mit-ocw", "ilecture", "nptel"],
+    "bio": ["organic", "khan", "ilecture", "nptel"],
+    "other": ["khan", "mit-ocw", "ilecture", "nptel"],
 }
 
 VIDEO_SUBJECT: dict[str, list[str]] = {
@@ -447,6 +449,31 @@ VIDEO_SUBJECT: dict[str, list[str]] = {
 }
 
 
+# Every generated video used to be filed under "concept", which left the
+# category filter on /videos with a single option for all 320 rows. These are
+# derived from what the source actually is: a lecture series is not a teardown.
+VIDEO_CATEGORY: dict[str, str] = {
+    "khan": "tutorial",
+    "3b1b": "visualization",
+    "mit-ocw": "lecture",
+    "nptel": "lecture",
+    "brunton": "lecture",
+    "freecodecamp": "course",
+    "computerphile": "explainer",
+    "veritasium": "explainer",
+    "numberphile": "explainer",
+    "ben-eater": "build",
+    "eevblog": "teardown",
+    "neso": "tutorial",
+    "organic": "tutorial",
+    "ilecture": "worked-example",
+    "structure-free": "worked-example",
+    "efficient": "application",
+    "real-engineering": "application",
+    "practical": "application",
+}
+
+
 def build_videos(subjects: list[dict]) -> list[tuple]:
     """``VIDEOS``-shaped rows for every subject, from the video registry."""
     rows: list[tuple] = []
@@ -462,7 +489,8 @@ def build_videos(subjects: list[dict]) -> list[tuple]:
             if not entry:
                 raise KeyError(f"subject {slug!r} references unknown video source {key!r}")
             title, channel, url, level, why = entry
-            rows.append((f"{title} — {name}", channel, url, 0, level, "concept", slug,
+            category = VIDEO_CATEGORY.get(key, "concept")
+            rows.append((f"{title} — {name}", channel, url, 0, level, category, slug,
                          f"{why} Filed under {name}."))
     return rows
 
@@ -539,14 +567,14 @@ BOOK_SOURCES: dict[str, tuple] = {
 }
 
 BOOK_DISCIPLINE: dict[str, list[str]] = {
-    "core": ["libretexts-eng-book"],
-    "cse": ["libretexts-math-book"],
-    "electronics": ["openstax-physics1"],
-    "mechanical": ["libretexts-eng-book"],
-    "civil": ["libretexts-eng-book"],
-    "chemical": ["libretexts-chem-book"],
-    "bio": ["libretexts-chem-book"],
-    "other": ["libretexts-eng-book"],
+    "core": ["libretexts-eng-book", "openstax-calc1", "openstax-calc2", "hefferon-la"],
+    "cse": ["libretexts-math-book", "sicp", "crafting-interpreters", "automate"],
+    "electronics": ["openstax-physics1", "openstax-physics2", "allaboutcircuits", "openstax-physics3"],
+    "mechanical": ["libretexts-eng-book", "libretexts-engineering", "openstax-physics1", "openstax-calc3"],
+    "civil": ["libretexts-eng-book", "libretexts-engineering", "openstax-calc2", "openstax-physics1"],
+    "chemical": ["libretexts-chem-book", "openstax-chem", "libretexts-engineering", "openstax-physics1"],
+    "bio": ["libretexts-chem-book", "openstax-biology2", "openstax-chem", "openstax-stats"],
+    "other": ["libretexts-eng-book", "openstax-calc1", "openstax-stats", "immersive-la"],
 }
 
 BOOK_SUBJECT: dict[str, list[str]] = {
@@ -594,3 +622,132 @@ def all_urls() -> list[str]:
     urls += [entry[2] for entry in VIDEO_SOURCES.values()]
     urls += [entry[6] for entry in BOOK_SOURCES.values()]
     return urls
+
+
+# ---------------------------------------------------------------------------
+# Additional sources.
+#
+# Added because most subjects were reaching only one book and two videos: the
+# discipline maps below had one entry per category, so 67 of 73 subjects had
+# fewer than three books and 53 had fewer than three videos. Every subject now
+# gets at least three of each.
+#
+# Everything here is legally free to read or embed. Open-access textbooks
+# (OpenStax, LibreTexts, and author-hosted texts released for free) and public
+# lecture channels - no pirated copies of commercial books.
+# ---------------------------------------------------------------------------
+
+VIDEO_SOURCES.update({
+    "nptel": ("NPTEL lecture series", "NPTEL Human Resource Development",
+              "https://www.youtube.com/@nptelhrd", "intermediate",
+              "Full IIT and IISc lecture courses across every engineering branch. The closest thing to "
+              "attending an institute of technology for free, and aligned to the Indian syllabus."),
+    "brunton": ("Steve Brunton engineering lectures", "Eigensteve",
+                "https://www.youtube.com/@Eigensteve", "advanced",
+                "Fluid dynamics, control theory and machine learning taught from the governing equations "
+                "up. The bridge between a textbook and research."),
+    "real-engineering": ("Real Engineering", "Real Engineering",
+                         "https://www.youtube.com/@RealEngineering", "beginner",
+                         "How structures, aircraft and power systems are actually engineered, with the "
+                         "numbers shown rather than hand-waved."),
+    "eevblog": ("EEVblog", "EEVblog", "https://www.youtube.com/@EEVblog", "intermediate",
+                "Bench work, teardowns and measurement. The practical complement to a circuits course, "
+                "and where you learn what an instrument actually does."),
+    "ben-eater": ("Ben Eater", "Ben Eater", "https://www.youtube.com/@BenEater", "intermediate",
+                  "A computer and a VGA driver built from discrete gates on a breadboard, one signal at a "
+                  "time. Nothing about how a CPU works survives this series unexplained."),
+    "neso": ("Neso Academy", "Neso Academy", "https://www.youtube.com/@nesoacademy", "beginner",
+             "Short syllabus-aligned lectures for digital logic, signals and systems, networks and theory "
+             "of computation."),
+    "ilecture": ("Michel van Biezen worked problems", "ilectureonline",
+                 "https://www.youtube.com/@ilectureonline", "beginner",
+                 "Thousands of short worked problems across mathematics, physics, chemistry and "
+                 "engineering. Useful when the method is clear but the algebra is not."),
+    "structure-free": ("Structure Free", "Structure Free",
+                       "https://www.youtube.com/@structurefree", "intermediate",
+                       "Statics, mechanics of materials and structural analysis solved on paper step by "
+                       "step, at the pace of a tutorial rather than a lecture."),
+})
+
+BOOK_SOURCES.update({
+    "openstax-calc2": ("OpenStax Calculus, Volume 2", "Gilbert Strang & Edwin Jedrysik (OpenStax)", "undergraduate",
+                       "Integration techniques, sequences, series and multivariable calculus, peer-reviewed "
+                       "and openly licensed.",
+                       "The second half of the standard free calculus sequence, so nothing has to be "
+                       "bought to finish the course.", ["integrals", "series", "multivariable"],
+                       "https://openstax.org/details/books/calculus-volume-2", "open_access", "OpenStax"),
+    "openstax-calc3": ("OpenStax Calculus, Volume 3", "Gilbert Strang & Edwin Jedrysik (OpenStax)", "undergraduate",
+                       "Vectors, partial derivatives, multiple integrals and vector calculus.",
+                       "Covers the third-year mathematics every branch needs, including the gradient, "
+                       "divergence and curl theorems.", ["vectors", "partial-derivatives", "vector-calculus"],
+                       "https://openstax.org/details/books/calculus-volume-3", "open_access", "OpenStax"),
+    "openstax-physics2": ("OpenStax University Physics, Volume 2", "Samuel Ling & Jeff Sanny (OpenStax)", "undergraduate",
+                          "Electricity, magnetism and thermodynamics with full derivations.",
+                          "The electricity and magnetism half of first-year physics, which is where most "
+                          "of the electrical syllabus begins.", ["electrostatics", "circuits", "magnetism"],
+                          "https://openstax.org/details/books/university-physics-volume-2", "open_access", "OpenStax"),
+    "openstax-physics3": ("OpenStax University Physics, Volume 3", "Samuel Ling & Jeff Sanny (OpenStax)", "undergraduate",
+                          "Optics, relativity and quantum mechanics.",
+                          "Completes the physics sequence and gives electronics students the semiconductor "
+                          "background their devices assume.", ["optics", "quantum", "relativity"],
+                          "https://openstax.org/details/books/university-physics-volume-3", "open_access", "OpenStax"),
+    "openstax-stats": ("OpenStax Introductory Statistics", "Barbara Illowsky & Susan Dean (OpenStax)", "undergraduate",
+                       "Descriptive statistics, probability, distributions, inference and regression.",
+                       "Statistics is assumed by machine learning, quality control and every experimental "
+                       "report; this covers it without a licence fee.", ["probability", "distributions", "regression"],
+                       "https://openstax.org/details/books/introductory-statistics", "open_access", "OpenStax"),
+    "openstax-biology2": ("OpenStax Biology 2e", "Matthew Douglas & Jung Choi (OpenStax)", "undergraduate",
+                          "Cell biology, genetics, evolution and physiology at university level.",
+                          "The reference for biomedical and biochemical branches, and the background "
+                          "chemistry students need before metabolism.", ["cells", "genetics", "metabolism"],
+                          "https://openstax.org/details/books/biology-2e", "open_access", "OpenStax"),
+    "hefferon-la": ("Linear Algebra", "Jim Hefferon", "undergraduate",
+                    "A complete proof-based linear algebra text, freely hosted by the author.",
+                    "Goes further than a service course needs, which matters because eigenvalues and "
+                    "vector spaces carry into control, signals and machine learning.",
+                    ["vectors", "eigenvalues", "linear-transformations"],
+                    "https://joshua.smcvt.edu/linearalgebra/", "open_access", "Author-hosted"),
+    "immersive-la": ("Immersive Linear Algebra", "J. Ström, K. Åström & T. Akenine-Möller", "undergraduate",
+                     "An interactive textbook where every figure can be dragged and the algebra follows.",
+                     "The one linear algebra book where changing a vector immediately shows what the "
+                     "transformation does to it.", ["vectors", "transforms", "projections"],
+                     "http://immersivemath.com/ila/", "open_access", "Author-hosted"),
+    "think-python": ("Think Python, 2nd edition", "Allen B. Downey", "beginner",
+                     "Programming concepts taught through Python, released free by the author.",
+                     "The gentlest correct introduction to programming that still covers recursion, "
+                     "data structures and testing properly.", ["python", "recursion", "data-structures"],
+                     "https://greenteapress.com/wp/think-python-2e/", "open_access", "Green Tea Press"),
+    "automate": ("Automate the Boring Stuff with Python", "Al Sweigart", "beginner",
+                 "Practical Python for spreadsheets, files, scraping and automation, free online from the author.",
+                 "Gets to useful programs fast, which is what keeps a first-year student going through "
+                 "the theory.", ["python", "automation", "files"],
+                 "https://automatetheboringstuff.com/", "open_access", "Author-hosted"),
+    "crafting-interpreters": ("Crafting Interpreters", "Robert Nystrom", "advanced",
+                              "Two complete programming languages built from scratch, free online.",
+                              "The clearest available explanation of how a language actually runs, and "
+                              "directly relevant to compilers and language design.",
+                              ["parsing", "interpreters", "bytecode"],
+                              "https://craftinginterpreters.com/", "open_access", "Author-hosted"),
+    "beej-net": ("Beej's Guide to Network Programming", "Brian Hall", "intermediate",
+                 "Sockets programming in C, free and maintained by the author.",
+                 "Networking is taught as protocol layers everywhere else; this shows the actual calls "
+                 "that make two machines talk.", ["sockets", "tcp", "networking"],
+                 "https://beej.us/guide/bgnet/", "open_access", "Author-hosted"),
+    "allaboutcircuits": ("All About Circuits textbook", "Tony Kuphaldt and contributors", "beginner",
+                         "A full DC/AC circuits and semiconductors textbook, openly licensed.",
+                         "Explains circuits from charge carriers upward, which is what makes the later "
+                         "shorthand make sense.", ["dc-circuits", "ac-circuits", "semiconductors"],
+                         "https://www.allaboutcircuits.com/textbook/", "open_access", "All About Circuits"),
+    "libretexts-engineering": ("LibreTexts Engineering", "LibreTexts contributors", "undergraduate",
+                               "A collaborative open library spanning statics, dynamics, materials and "
+                               "process engineering.",
+                               "The broadest open collection for the mechanical, civil and chemical "
+                               "core, written by faculty rather than aggregated.",
+                               ["statics", "materials", "process-engineering"],
+                               "https://eng.libretexts.org/", "open_access", "LibreTexts"),
+    "sicp": ("Structure and Interpretation of Computer Programs", "Abelson, Sussman & Sussman", "advanced",
+             "The MIT text on abstraction, recursion and metalinguistic abstraction, free from MIT Press.",
+             "Hard, and worth it: it is the book that made 'abstraction' a word programmers use.",
+             ["abstraction", "recursion", "interpreters"],
+             "https://mitpress.mit.edu/sites/default/files/sicp/index.html", "open_access", "MIT Press"),
+})

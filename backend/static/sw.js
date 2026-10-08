@@ -2,7 +2,7 @@
  * Cache-first for the app shell, network-first with cache fallback for pages,
  * never caches authenticated or mutating requests.
  */
-const VERSION = "engineverse-v2";
+const VERSION = "engineverse-v3";
 const SHELL = [
   "/",
   "/static/css/app.css",

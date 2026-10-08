@@ -20,10 +20,14 @@ def _json(value: Any, fallback: Any) -> Any:
 
 # ---- videos ---------------------------------------------------------------
 
-def list_videos(
-    *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
-    q: str | None = None, limit: int = 60,
-) -> list[dict]:
+def _videos_where(
+    *, topic_id: str | None, subject_id: str | None, category: str | None, q: str | None,
+) -> tuple[str, list[Any]]:
+    """One filter builder shared by the list and the count.
+
+    Written once because a count that disagrees with the list it paginates is
+    the classic pagination bug: the pager shows a page that cannot exist.
+    """
     clauses = ["1=1"]
     args: list[Any] = []
     if topic_id:
@@ -38,13 +42,29 @@ def list_videos(
     if q:
         clauses.append("(v.title LIKE ? OR v.channel LIKE ?)")
         args += [f"%{q}%"] * 2
-    args.append(limit)
+    return " AND ".join(clauses), args
+
+
+def list_videos(
+    *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
+    q: str | None = None, limit: int = 60, offset: int = 0,
+) -> list[dict]:
+    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q)
+    args += [limit, max(0, offset)]
     return db.query(
         "SELECT v.*, s.name AS subject_name, s.slug AS subject_slug, t.title AS topic_title, t.slug AS topic_slug "
         f"FROM videos v LEFT JOIN subjects s ON s.id = v.subject_id LEFT JOIN topics t ON t.id = v.topic_id "
-        f"WHERE {' AND '.join(clauses)} ORDER BY v.rating DESC, v.title LIMIT ?",
+        f"WHERE {where} ORDER BY v.rating DESC, v.title LIMIT ? OFFSET ?",
         *args,
     )
+
+
+def count_videos(
+    *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
+    q: str | None = None,
+) -> int:
+    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q)
+    return db.scalar(f"SELECT count(*) FROM videos v WHERE {where}", *args)
 
 
 def video_categories() -> list[dict]:
@@ -53,7 +73,9 @@ def video_categories() -> list[dict]:
 
 # ---- books ----------------------------------------------------------------
 
-def list_books(*, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None, limit: int = 80) -> list[dict]:
+def _books_where(
+    *, subject_id: str | None, branch_id: str | None, q: str | None,
+) -> tuple[str, list[Any]]:
     clauses = ["1=1"]
     args: list[Any] = []
     if subject_id:
@@ -65,10 +87,18 @@ def list_books(*, subject_id: str | None = None, branch_id: str | None = None, q
     if q:
         clauses.append("(b.title LIKE ? OR b.author LIKE ?)")
         args += [f"%{q}%"] * 2
-    args.append(limit)
+    return " AND ".join(clauses), args
+
+
+def list_books(
+    *, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None,
+    limit: int = 80, offset: int = 0,
+) -> list[dict]:
+    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q)
+    args += [limit, max(0, offset)]
     rows = db.query(
         "SELECT b.*, s.name AS subject_name FROM books b LEFT JOIN subjects s ON s.id = b.subject_id "
-        f"WHERE {' AND '.join(clauses)} ORDER BY b.title LIMIT ?",
+        f"WHERE {where} ORDER BY b.title LIMIT ? OFFSET ?",
         *args,
     )
     for row in rows:
@@ -76,12 +106,19 @@ def list_books(*, subject_id: str | None = None, branch_id: str | None = None, q
     return rows
 
 
+def count_books(
+    *, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None,
+) -> int:
+    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q)
+    return db.scalar(f"SELECT count(*) FROM books b WHERE {where}", *args)
+
+
 # ---- resources ------------------------------------------------------------
 
-def list_resources(
-    *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
-    free_only: bool = False, q: str | None = None, limit: int = 80,
-) -> list[dict]:
+def _resources_where(
+    *, kind: str | None, branch_id: str | None, subject_id: str | None,
+    free_only: bool, q: str | None,
+) -> tuple[str, list[Any]]:
     clauses = ["1=1"]
     args: list[Any] = []
     if kind:
@@ -98,13 +135,33 @@ def list_resources(
     if q:
         clauses.append("(r.title LIKE ? OR r.description LIKE ?)")
         args += [f"%{q}%"] * 2
-    args.append(limit)
+    return " AND ".join(clauses), args
+
+
+def list_resources(
+    *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
+    free_only: bool = False, q: str | None = None, limit: int = 80, offset: int = 0,
+) -> list[dict]:
+    where, args = _resources_where(
+        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q,
+    )
+    args += [limit, max(0, offset)]
     return db.query(
         "SELECT r.*, s.name AS subject_name, b.name AS branch_name FROM resources r "
         "LEFT JOIN subjects s ON s.id = r.subject_id LEFT JOIN branches b ON b.id = r.branch_id "
-        f"WHERE {' AND '.join(clauses)} ORDER BY r.kind, r.title LIMIT ?",
+        f"WHERE {where} ORDER BY r.kind, r.title LIMIT ? OFFSET ?",
         *args,
     )
+
+
+def count_resources(
+    *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
+    free_only: bool = False, q: str | None = None,
+) -> int:
+    where, args = _resources_where(
+        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q,
+    )
+    return db.scalar(f"SELECT count(*) FROM resources r WHERE {where}", *args)
 
 
 def resource_kinds() -> list[dict]:

@@ -314,27 +314,80 @@ async def project_page(request: Request, slug: str):
 # Library and revision
 # ---------------------------------------------------------------------------
 
+#: Items per page on the library shelves. Large enough that a subject's whole
+#: shelf usually fits on one page, small enough that 451 resources do not.
+LIBRARY_PAGE_SIZE = 24
+
+
+def _pager(request: Request, total: int, *, size: int = LIBRARY_PAGE_SIZE) -> dict:
+    """Builds the pagination context for a library page.
+
+    The query string is carried across so paging keeps the active filter; a
+    pager that drops ``?kind=book`` sends the reader back to page one of
+    everything.
+    """
+    from urllib.parse import parse_qsl, urlencode
+
+    raw_page = request.query_params.get("page") or "1"
+    pages = max(1, -(-total // size)) if total else 1
+    try:
+        page = int(raw_page)
+    except ValueError:
+        page = 1
+    # Clamped rather than 404'd: a stale bookmarked ?page=99 should still show
+    # something rather than an error page.
+    page = min(max(1, page), pages)
+
+    base = {k: v for k, v in parse_qsl(request.url.query, keep_blank_values=True) if k != "page"}
+
+    def link(target: int) -> str:
+        params = dict(base, page=str(target))
+        return f"{request.url.path}?{urlencode(params)}"
+
+    return {
+        "page": page, "pages": pages, "total": total, "size": size,
+        "first": (page - 1) * size + 1 if total else 0,
+        "last": min(page * size, total),
+        "has_prev": page > 1, "has_next": page < pages,
+        "prev_url": link(page - 1), "next_url": link(page + 1),
+    }
+
+
 @router.get("/resources")
 async def resources_page(request: Request, kind: str | None = None):
+    total = library.count_resources(kind=kind)
+    pager = _pager(request, total)
     return render(
         request, "resources.html",
-        resources=library.list_resources(kind=kind, limit=120),
-        kinds=library.resource_kinds(), active_kind=kind,
+        resources=library.list_resources(
+            kind=kind, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+        ),
+        kinds=library.resource_kinds(), active_kind=kind, pager=pager,
     )
 
 
 @router.get("/videos")
 async def videos_page(request: Request, category: str | None = None):
+    total = library.count_videos(category=category)
+    pager = _pager(request, total)
     return render(
         request, "videos.html",
-        videos=library.list_videos(category=category, limit=120),
-        categories=library.video_categories(), active_category=category,
+        videos=library.list_videos(
+            category=category, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+        ),
+        categories=library.video_categories(), active_category=category, pager=pager,
     )
 
 
 @router.get("/books")
 async def books_page(request: Request, q: str | None = None):
-    return render(request, "books.html", books=library.list_books(q=q, limit=120), q=q)
+    total = library.count_books(q=q)
+    pager = _pager(request, total)
+    return render(
+        request, "books.html",
+        books=library.list_books(q=q, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"]),
+        q=q, pager=pager,
+    )
 
 
 @router.get("/formulas")

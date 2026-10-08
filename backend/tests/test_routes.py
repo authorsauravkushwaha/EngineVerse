@@ -369,3 +369,79 @@ class TestEveryPageUnderEveryRole:
                 )
         finally:
             templates.env.undefined = previous
+
+
+class TestLibraryPagination:
+    """A shelf that shows 120 of 451 items hides two-thirds of the library.
+
+    These crawl every page rather than checking that a pager renders, because a
+    pager can display correctly and still lose rows: a count that disagrees with
+    the query, or an offset that skips or repeats a page, is only visible by
+    collecting the whole set.
+    """
+
+    PAGES = (
+        ("/resources", "resources", "kind"),
+        ("/videos", "videos", "category"),
+        ("/books", "books", None),
+    )
+
+    def _titles(self, page):
+        import re
+        return set(re.findall(r'<span class="title">(.*?)</span>', page.text, re.S))
+
+    @pytest.mark.parametrize("path", [p[0] for p in PAGES])
+    def test_every_item_is_reachable_by_paging(self, client, seeded, path):
+        from engineverse import db, library
+
+        table = {"resources": "resources", "videos": "videos", "books": "books"}[path.strip("/")]
+        total = db.scalar(f"SELECT count(*) FROM {table}")
+        assert total > 24, "the corpus is too small for this test to mean anything"
+
+        seen = set()
+        page_no = 1
+        while True:
+            response = client.get(f"{path}?page={page_no}")
+            assert response.status_code == 200
+            found = self._titles(response)
+            assert found, f"{path}?page={page_no} rendered no items"
+            assert not (found & seen), f"{path} page {page_no} repeats items from an earlier page"
+            seen |= found
+            if f"page={page_no + 1}" not in response.text:
+                break
+            page_no += 1
+            assert page_no < 200, "pagination did not terminate"
+
+        assert len(seen) == total, (
+            f"{path}: paged through {len(seen)} items but the table holds {total}"
+        )
+
+    def test_the_filter_survives_paging(self, client, seeded):
+        """A pager that drops ?kind=... sends the reader back to unfiltered page 1."""
+        first = client.get("/resources?kind=course&page=2")
+        assert first.status_code == 200
+        assert "kind=course" in first.text, "the pager link lost the active filter"
+
+    def test_an_out_of_range_page_clamps_instead_of_erroring(self, client, seeded):
+        """A stale ?page=999 bookmark should still show something."""
+        response = client.get("/books?page=999")
+        assert response.status_code == 200
+        assert "No books match" not in response.text
+
+    def test_a_non_numeric_page_does_not_crash(self, client, seeded):
+        response = client.get("/books?page=abc")
+        assert response.status_code == 200
+
+    def test_counts_agree_with_the_filtered_lists(self, seeded):
+        """The count drives the pager; if it disagrees, the last page is a lie."""
+        from engineverse import library
+
+        for kind in [r["kind"] for r in library.resource_kinds()]:
+            assert library.count_resources(kind=kind) == len(
+                library.list_resources(kind=kind, limit=10000)
+            ), f"count_resources(kind={kind}) disagrees with the list"
+        for category in [r["category"] for r in library.video_categories()]:
+            assert library.count_videos(category=category) == len(
+                library.list_videos(category=category, limit=10000)
+            ), f"count_videos(category={category}) disagrees with the list"
+        assert library.count_books(q="physics") == len(library.list_books(q="physics", limit=10000))

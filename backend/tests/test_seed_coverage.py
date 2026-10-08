@@ -20,8 +20,14 @@ from engineverse import db, library
 from seed_data import library_data
 from seed_data.catalog import SUBJECTS
 
-#: Tables whose rows must exist for at least one entry per subject.
+#: Tables whose rows must exist for at least MIN_PER_SUBJECT entries per subject.
 PER_SUBJECT_TABLES = ("videos", "books", "resources", "flashcards")
+
+#: One entry per subject is technically "not empty" and still reads as abandoned.
+#: Three is the minimum at which a shelf looks curated. Enforced here because the
+#: registries in seed_data/resource_sources.py silently dropped to one book and
+#: two videos for most subjects, and nothing noticed.
+MIN_PER_SUBJECT = 3
 
 
 def _subject_slugs() -> set[str]:
@@ -29,17 +35,21 @@ def _subject_slugs() -> set[str]:
 
 
 @pytest.mark.parametrize("table", PER_SUBJECT_TABLES)
-def test_every_subject_has_at_least_one_entry(seeded, table):
-    """No subject may have an empty shelf.
+def test_every_subject_has_a_usable_shelf(seeded, table):
+    """No subject may have a shelf thin enough to look abandoned.
 
-    An empty subject page looks abandoned, and it is the failure mode the
-    generated corpus exists to prevent.
+    An empty subject page is the obvious failure; a one-item page is the
+    subtler one, and it was the actual state of 67 of 73 subjects' books.
     """
-    empty = db.query(
-        f"SELECT s.slug FROM subjects s WHERE NOT EXISTS "
-        f"(SELECT 1 FROM {table} t WHERE t.subject_id = s.id) ORDER BY s.slug"
+    thin = db.query(
+        f"SELECT s.slug, (SELECT count(*) FROM {table} t WHERE t.subject_id = s.id) AS n "
+        f"FROM subjects s ORDER BY s.slug"
     )
-    assert [row["slug"] for row in empty] == [], f"subjects with no {table}"
+    offenders = [(row["slug"], row["n"]) for row in thin if row["n"] < MIN_PER_SUBJECT]
+    assert offenders == [], (
+        f"subjects with fewer than {MIN_PER_SUBJECT} {table}: {offenders[:10]}"
+        + (f" (+{len(offenders) - 10} more)" if len(offenders) > 10 else "")
+    )
 
 
 SLUGGED_TABLES = ("videos", "books", "resources")
@@ -275,3 +285,18 @@ def test_diagram_section_present_for_every_topic(seeded):
         "  WHERE n.topic_id = t.id AND s.kind = 'diagram')"
     )
     assert [r["slug"] for r in missing] == []
+
+
+@pytest.mark.parametrize("table,column", [("videos", "category"), ("resources", "kind"), ("books", "level")])
+def test_filter_facets_are_not_degenerate(seeded, table, column):
+    """A filter with one option is decoration.
+
+    Every generated video was filed under "concept", which left /videos with a
+    single category for all 320 rows and a control that could never change the
+    page.
+    """
+    facets = db.query(f"SELECT {column}, count(*) AS n FROM {table} GROUP BY {column}")
+    assert len(facets) >= 3, (
+        f"{table}.{column} has only {len(facets)} distinct value(s): "
+        f"{[row[column] for row in facets]}"
+    )

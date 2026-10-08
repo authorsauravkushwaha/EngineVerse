@@ -18,4 +18,5 @@
         {{ 'Read free' if b.access_kind == 'open_access' else 'Publisher' }}</a></div>
   {% else %}<div class="empty"><span class="em">📚</span>No books match.</div>{% endfor %}
 </div>
+{% include "_pager.html" %}
 {% endblock %}
