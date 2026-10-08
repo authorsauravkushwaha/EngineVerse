@@ -990,6 +990,83 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestNoDeadLinks:
+    """Every internal URL a template or the client script points at must exist.
+
+    "No fake buttons" is a stated requirement, and a link to a route that was
+    renamed or never written is the quietest way to break it: the page renders,
+    the control looks live, and clicking it lands on a 404.
+    """
+
+    @staticmethod
+    def _registered_routes():
+        from main import create_app
+
+        routes = set()
+        for route in create_app().routes:
+            if type(route).__name__ == "_IncludedRouter":
+                prefix = route.include_context.prefix or ""
+                for sub in route.original_router.routes:
+                    routes.add(prefix + getattr(sub, "path", ""))
+            elif hasattr(route, "path"):
+                routes.add(route.path)
+        return routes
+
+    @staticmethod
+    def _matches(url, routes):
+        parts = url.strip("/").split("/")
+        for route in routes:
+            segments = route.strip("/").split("/")
+            if len(segments) != len(parts):
+                continue
+            if all(
+                a == b or a.startswith("{") or b == "*"
+                for a, b in zip(segments, parts)
+            ):
+                return True
+        return False
+
+    def test_every_referenced_internal_url_resolves(self):
+        import pathlib
+        import re
+
+        routes = self._registered_routes()
+        assert len(routes) > 50, f"route enumeration looks broken: {len(routes)}"
+
+        sources = list(pathlib.Path("backend/templates").rglob("*.html"))
+        sources.append(pathlib.Path("backend/static/js/app.js"))
+        referenced = {}
+        for source in sources:
+            for match in re.finditer(
+                r'(?:href|action|fetch)\s*[=(]\s*["\'`]([^"\'`]+)["\'`]', source.read_text()
+            ):
+                url = match.group(1)
+                if not url.startswith("/") or url.startswith("//"):
+                    continue
+                # A complete `{{ ... }}` becomes a wildcard segment. An
+                # unterminated one means the regex stopped at a quote inside the
+                # expression - `/register{{ '?next=' + next ... }}` - so cut
+                # there and treat the remainder as dynamic.
+                url = re.sub(r"\{\{.*?\}\}", "*", url)
+                url = url.split("{{")[0]
+                url = re.sub(r"\$\{[^}]*\}", "*", url)
+                url = url.split("?")[0].split("#")[0].rstrip("/") or "/"
+                referenced.setdefault(url, set()).add(source.name)
+
+        static = {u for u in referenced if u.startswith("/static/")}
+        dead = {
+            u: sorted(f) for u, f in referenced.items()
+            if u not in static and not self._matches(u, routes)
+        }
+        assert not dead, f"these internal URLs match no route: {dead}"
+
+    def test_static_assets_actually_serve(self, client):
+        for path in ("/static/css/app.css", "/static/js/app.js",
+                     "/static/icons/icon-192.png", "/static/icons/favicon.svg"):
+            response = client.get(path)
+            assert response.status_code == 200, f"{path} -> {response.status_code}"
+
+
 class TestDeployTopologyIsCoherent:
     """The compose file must describe a topology that can actually run.
 
