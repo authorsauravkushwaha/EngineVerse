@@ -34,9 +34,10 @@ FTS_SHADOW = re.compile(r"^search_index_(config|content|data|docsize|idx)$")
 #: db.migrate(), search_log by search.ensure_tables().
 RUNTIME_TABLES = {"schema_meta", "search_log"}
 
-#: Deliberate Postgres-only additions: a generated tsvector needs a column to
-#: put a GIN index on, which FTS5 keeps implicit.
-ALLOWED_EXTRA_COLUMNS = {"search_index": {"tsv"}}
+#: Deliberate Postgres-only additions, by table. Currently none: the tsvector a
+#: first version added had to go, because to_tsvector() is STABLE and a generated
+#: column requires an IMMUTABLE expression.
+ALLOWED_EXTRA_COLUMNS: dict[str, set[str]] = {}
 
 
 def _live_sqlite_schema() -> dict[str, list[str]]:

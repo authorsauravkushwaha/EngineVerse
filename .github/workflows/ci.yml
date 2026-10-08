@@ -113,7 +113,8 @@ jobs:
             -f db/postgres/schema.pg.sql 2>&1 | tee /tmp/psql.txt
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            grep -iE "error|fatal" /tmp/psql.txt | head -30 | while IFS= read -r line; do
+            echo "::error::psql exited ${status}; last 30 lines of output follow"
+            tail -30 /tmp/psql.txt | while IFS= read -r line; do
               echo "::error::${line}"
             done
             exit "$status"

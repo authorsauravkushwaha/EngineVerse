@@ -88,12 +88,15 @@ PARTITIONED: dict[str, tuple[str, int]] = {
 # list positionally. `tsv` is the one addition: FTS5 keeps its index implicit,
 # Postgres needs a column to put a GIN index on.
 FTS_DDL = """\
--- SQLite uses an FTS5 virtual table here. Postgres gets the same columns plus a
--- generated tsvector, which is what a GIN index can be built on.
+-- SQLite uses an FTS5 virtual table here. The columns mirror the fts5()
+-- declaration in db/schema.sql exactly, because search.index_entity() inserts
+-- that list positionally.
 --
--- NOTE: search.py currently issues FTS5-only SQL (MATCH, bm25()). A Postgres
--- deployment needs a tsquery branch in search(); the columns below are what
--- that branch will read.
+-- There is deliberately no tsvector column. A generated one would need an
+-- IMMUTABLE expression and to_tsvector() is STABLE, and an expression index
+-- has the same restriction. It would also be unused: search.py issues FTS5-only
+-- SQL (MATCH, bm25()), so a Postgres deployment needs a tsquery branch there
+-- first. Add the column together with that branch, not before it.
 CREATE TABLE IF NOT EXISTS search_index (
   entity_type  TEXT NOT NULL,
   entity_id    TEXT NOT NULL,
@@ -103,14 +106,10 @@ CREATE TABLE IF NOT EXISTS search_index (
   semester     TEXT NOT NULL DEFAULT '',
   difficulty   TEXT NOT NULL DEFAULT '',
   tags         TEXT NOT NULL DEFAULT '',
-  tsv          tsvector GENERATED ALWAYS AS (
-                 setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
-                 setweight(to_tsvector('simple', coalesce(body, '')), 'B')
-               ) STORED,
   PRIMARY KEY (entity_type, entity_id)
 );
-CREATE INDEX IF NOT EXISTS idx_search_tsv ON search_index USING GIN (tsv);
 CREATE INDEX IF NOT EXISTS idx_search_branch ON search_index(branch, entity_type);
+CREATE INDEX IF NOT EXISTS idx_search_title ON search_index(title);
 """
 
 

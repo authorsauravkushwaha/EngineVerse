@@ -78,6 +78,26 @@ class TestApiSurface:
         assert isinstance(body["results"], list)
 
 
+def _host_can_isolate() -> bool:
+    """Whether this host can run a submission at all.
+
+    GitHub-hosted runners block unprivileged user namespaces, so the sandbox
+    refuses to execute rather than running untrusted code on the app server.
+    These two tests assert on a verdict, which only exists where execution
+    happened; test_judge.py covers the refusal itself on every host.
+    """
+    from engineverse.judge import provider_info
+
+    return bool(provider_info().get("have_namespace"))
+
+
+requires_execution = pytest.mark.skipif(
+    not _host_can_isolate(),
+    reason="host cannot create a user namespace, so the sandbox refuses to run code",
+)
+
+
+@requires_execution
 class TestCodingApi:
     @pytest.mark.slow
     def test_running_a_solution_reports_a_verdict(self, signed_in):
