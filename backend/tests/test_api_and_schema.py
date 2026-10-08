@@ -990,6 +990,89 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestBogusIdsDoNotBecomeServerErrors:
+    """A bad id in the request must answer 4xx, not 500.
+
+    Three endpoints passed a caller-supplied identifier straight into an INSERT
+    whose column is a foreign key, so an id that did not exist raised
+    sqlite3.IntegrityError out of the handler. The 500 handler logged it, but the
+    request still failed as a server error for what was a client mistake - and
+    /api/revision/review also let srs.review's ValueError escape, there being no
+    handler registered for ValueError at all.
+    """
+
+    def _token(self, client):
+        return _csrf(client.get("/practice").text)
+
+    def test_marking_an_unknown_topic_is_a_404(self, signed_in, seeded):
+        response = signed_in.post(
+            "/api/me/progress/topic",
+            json={"topicId": "no-such-topic", "status": "completed"},
+            headers={"x-csrf-token": self._token(signed_in)},
+        )
+        assert response.status_code == 404, response.text
+
+    def test_an_unknown_progress_state_is_a_400(self, signed_in, seeded):
+        response = signed_in.post(
+            "/api/me/progress/topic",
+            json={"topicId": "arrays", "status": "banana"},
+            headers={"x-csrf-token": self._token(signed_in)},
+        )
+        assert response.status_code == 400, response.text
+
+    def test_reviewing_an_unknown_card_is_a_404(self, signed_in, seeded):
+        response = signed_in.post(
+            "/api/revision/review",
+            json={"cardId": "no-such-card", "rating": "good"},
+            headers={"x-csrf-token": self._token(signed_in)},
+        )
+        assert response.status_code == 404, response.text
+
+    def test_an_unknown_rating_is_a_400_not_a_500(self, signed_in, seeded):
+        from engineverse import db
+
+        card = db.query_one("SELECT id FROM flashcards LIMIT 1")
+        response = signed_in.post(
+            "/api/revision/review",
+            json={"cardId": card["id"], "rating": "banana"},
+            headers={"x-csrf-token": self._token(signed_in)},
+        )
+        assert response.status_code == 400, response.text
+
+    def test_bookmarking_an_unknown_type_or_item_is_refused(self, signed_in, seeded):
+        headers = {"x-csrf-token": self._token(signed_in)}
+        bad_type = signed_in.post(
+            "/api/bookmarks",
+            json={"entityType": "banana", "entityId": "arrays"},
+            headers=headers,
+        )
+        assert bad_type.status_code == 400, bad_type.text
+        bad_id = signed_in.post(
+            "/api/bookmarks",
+            json={"entityType": "topic", "entityId": "no-such-topic"},
+            headers=headers,
+        )
+        assert bad_id.status_code == 404, bad_id.text
+
+    def test_no_row_is_written_for_a_refused_bookmark(self, signed_in, seeded):
+        from engineverse import db
+
+        before = db.row_count("bookmarks")
+        signed_in.post(
+            "/api/bookmarks",
+            json={"entityType": "banana", "entityId": "arrays"},
+            headers={"x-csrf-token": self._token(signed_in)},
+        )
+        assert db.row_count("bookmarks") == before, "a refused bookmark still wrote a row"
+
+    def test_a_valid_bookmark_still_toggles(self, signed_in, seeded):
+        headers = {"x-csrf-token": self._token(signed_in)}
+        payload = {"entityType": "topic", "entityId": "arrays"}
+        first = signed_in.post("/api/bookmarks", json=payload, headers=headers).json()["bookmarked"]
+        second = signed_in.post("/api/bookmarks", json=payload, headers=headers).json()["bookmarked"]
+        assert first is True and second is False, f"toggle gave {first} then {second}"
+
+
 class TestVotingRejectsUnknownTargets:
     """/api/community/vote must refuse an entity_type it cannot score.
 

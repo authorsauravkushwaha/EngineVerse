@@ -110,7 +110,16 @@ async def me(request: Request):
 @router.post("/me/progress/topic")
 async def mark_topic(request: Request, topicId: str = Body(..., embed=True), status: str = Body("completed", embed=True)):
     viewer = require_user(request)
-    if status in ("completed", "mastered"):
+    wanted = status.strip()
+    # Both progress functions insert into user_progress, whose topic_id is a
+    # foreign key, so a topic that does not exist raised sqlite3.IntegrityError
+    # out of the handler and answered 500 - a server error for a bad id in the
+    # request. Check first and answer 404.
+    if not db.query_one("SELECT 1 FROM topics WHERE slug = ? OR id = ?", topicId, topicId):
+        return fail("No such topic.", 404)
+    if wanted not in ("completed", "mastered", "started", "in_progress", "viewed"):
+        return fail("That is not a progress state this accepts.", 400)
+    if wanted in ("completed", "mastered"):
         progress.complete_topic(viewer.id, topicId)
     else:
         progress.mark_topic_viewed(viewer.id, topicId)
@@ -283,7 +292,16 @@ async def api_due(request: Request, limit: int = 20):
 @router.post("/revision/review")
 async def api_review(request: Request, cardId: str = Body(...), rating: str = Body("good")):
     viewer = require_user(request)
-    state = srs.review(viewer.id, cardId, rating)
+    # srs.review raises ValueError on an unknown rating and there is no handler
+    # registered for ValueError, so it surfaced as a 500. A card that does not
+    # exist is worse: the insert into user_flashcards has a foreign key, so the
+    # database raised IntegrityError out of the handler. Validate both here.
+    wanted = rating.strip()
+    if wanted not in srs.RATINGS:
+        return fail(f"Rating must be one of {', '.join(srs.RATINGS)}.", 400)
+    if not db.query_one("SELECT 1 FROM flashcards WHERE id = ?", cardId):
+        return fail("No such flashcard.", 404)
+    state = srs.review(viewer.id, cardId, wanted)
     progress.award_xp(viewer.id, 2, "flashcard", "flashcard", cardId)
     progress.bump_activity(viewer.id, "revisions")
     return ok(state=state, stats=library.flashcard_stats(viewer.id))
@@ -324,11 +342,26 @@ async def api_tutor_ask(request: Request):
 # Bookmarks, notes, notifications
 # ---------------------------------------------------------------------------
 
+# What can be bookmarked, and the table each one lives in. The editor only ever
+# offers topic and project; anything else used to be stored and then rendered on
+# the profile as "banana · whatever", unreachable and meaningless.
+BOOKMARKABLE = {"topic": "topics", "project": "projects"}
+
+
 @router.post("/bookmarks")
 async def api_bookmark(request: Request, entityType: str = Body(...), entityId: str = Body(...),
                        note: str | None = Body(None)):
     viewer = require_user(request)
-    added = progress.toggle_bookmark(viewer.id, entityType, entityId, note)
+    entity_type = entityType.strip()
+    entity_id = entityId.strip()
+    table = BOOKMARKABLE.get(entity_type)
+    if not table:
+        return fail(f"That is not something you can bookmark. Try {', '.join(sorted(BOOKMARKABLE))}.", 400)
+    if not entity_id:
+        return fail("No such item to bookmark.", 404)
+    if not db.query_one(f"SELECT 1 FROM {table} WHERE id = ? OR slug = ?", entity_id, entity_id):
+        return fail("No such item to bookmark.", 404)
+    added = progress.toggle_bookmark(viewer.id, entity_type, entity_id, note)
     return ok(bookmarked=added)
 
 
