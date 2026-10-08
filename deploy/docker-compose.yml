@@ -2,10 +2,21 @@
 #
 #   docker compose -f deploy/docker-compose.yml up -d --build
 #
-# Three services: the web app, PostgreSQL, and the judge sandbox. The sandbox is
-# isolated at the OS level - no network, dropped capabilities, a read-only root
-# filesystem and hard resource ceilings - because process isolation inside the
-# JVM is not containment.
+# Two services: the web app and PostgreSQL.
+#
+# This file used to define a third - a `sandbox` container, hardened with
+# network_mode "none", cap_drop ALL and a read-only root filesystem. It could
+# never have worked. The judge bridge invokes the sandbox with subprocess.run,
+# which cannot cross a container boundary, and the service had no network and no
+# published port, so nothing could reach it either way. Its ENTRYPOINT reads one
+# JSON request from stdin, so with no stdin attached it would exit at once and
+# `restart: unless-stopped` would loop it forever. It was removed rather than
+# left as decoration implying a boundary that does not exist.
+#
+# Learner code therefore runs inside the web container, where the toolchains are.
+# deploy/Dockerfile.sandbox still builds a standalone sandbox image for anyone
+# who wants to run the judge as a separate host process, but wiring it up needs a
+# socket protocol in the bridge, not just a container.
 
 services:
   web:
@@ -60,31 +71,6 @@ services:
     expose:
       - "5432"
     networks: [internal]
-
-  # Runs learner code. Fully cut off from the network, read-only root, no
-  # capabilities, and bounded CPU, memory and pids.
-  sandbox:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile.sandbox
-    image: engineverse-sandbox
-    restart: unless-stopped
-    read_only: true
-    tmpfs:
-      # The only writable path: where a submission is compiled and run.
-      - /work:size=128M,mode=1777
-    security_opt:
-      - no-new-privileges:true
-    cap_drop: [ALL]
-    # Docker's built-in null network: no interface at all. A custom network with
-    # `internal: true` would still allow container-to-container traffic, which is
-    # not isolation for a judge.
-    network_mode: "none"
-    cpus: "1.0"
-    mem_limit: 512m
-    pids_limit: 128
-    # No published ports and no healthcheck probe: the bridge invokes it as a
-    # subprocess, so there is nothing to listen on.
 
 volumes:
   pg-data:

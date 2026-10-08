@@ -742,3 +742,69 @@ class TestSearchIndexSelfHeal:
         search.refresh_if_stale()
         types = {row["type"] for row in search.search("array", limit=10)["results"]}
         assert "note" in types, "a search for a covered concept returns no notes"
+
+
+class TestDeployTopologyIsCoherent:
+    """The compose file must describe a topology that can actually run.
+
+    It used to define a `sandbox` container hardened with network_mode "none"
+    that nothing could reach: the bridge invokes the sandbox with subprocess.run,
+    which cannot cross a container boundary, and the service had no network and
+    no published port. Its ENTRYPOINT read stdin, so with none attached it exited
+    at once and restart: unless-stopped looped it forever. The hardening flags
+    read as a security guarantee that was never in force.
+    """
+
+    def test_compose_defines_only_reachable_services(self):
+        import pathlib
+
+        import yaml
+
+        compose = yaml.safe_load(
+            pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8")
+        )
+        assert set(compose["services"]) == {"web", "db"}, (
+            f"unexpected services: {sorted(compose['services'])}"
+        )
+
+    def test_the_jar_path_the_app_is_given_actually_exists_in_the_image(self):
+        """JAVA_SANDBOX_JAR pointed at a file Dockerfile.web never created."""
+        import pathlib
+        import re
+
+        import yaml
+
+        compose = yaml.safe_load(
+            pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8")
+        )
+        jar = compose["services"]["web"]["environment"]["JAVA_SANDBOX_JAR"]
+        dockerfile = pathlib.Path("deploy/Dockerfile.web").read_text(encoding="utf-8")
+        assert re.search(rf"COPY\s+--from=\S+\s+\S+\s+{re.escape(jar)}\b", dockerfile), (
+            f"compose sets JAVA_SANDBOX_JAR={jar} but Dockerfile.web never copies a jar there"
+        )
+
+    def test_the_web_image_provides_the_toolchains_the_judge_invokes(self):
+        """The bridge calls java, gcc and python3 as subprocesses."""
+        import pathlib
+
+        dockerfile = pathlib.Path("deploy/Dockerfile.web").read_text(encoding="utf-8")
+        for toolchain in ("gcc", "g++", "jre"):
+            assert toolchain in dockerfile, (
+                f"the judge needs {toolchain} in the web image and it is not installed"
+            )
+
+    def test_the_judge_can_write_when_the_root_filesystem_is_read_only(self):
+        import pathlib
+
+        import yaml
+
+        compose = yaml.safe_load(
+            pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8")
+        )
+        web = compose["services"]["web"]
+        assert web.get("read_only") is True
+        # tempfile.mkdtemp() defaults to /tmp, so that is the path that must be
+        # writable or every submission fails to get a work directory.
+        assert any(mount.startswith("/tmp") for mount in web.get("tmpfs", [])), (
+            "read_only root with no writable /tmp would break the judge"
+        )

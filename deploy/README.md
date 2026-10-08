@@ -1,6 +1,6 @@
 # Deployment
 
-Three services: the web app, PostgreSQL, and the judge sandbox.
+Two services: the web app and PostgreSQL.
 
 ```bash
 cp deploy/.env.example deploy/.env      # then set real values
@@ -17,65 +17,49 @@ than duplicating.
 |---|---|---|---|
 | `web` | `deploy/Dockerfile.web` | `internal` | Serves SSR HTML + the JSON API. Non-root, read-only root FS. |
 | `db` | `postgres:16` | `internal` | `db/postgres/schema.pg.sql` is applied from `docker-entrypoint-initdb.d` on first boot. Not published to the host. |
-| `sandbox` | `deploy/Dockerfile.sandbox` | **none** | Runs learner code. |
 
-## Why the sandbox is cut off completely
+## Where learner code actually runs
 
-Process isolation inside the JVM is not containment — it stops a submission from
-crashing the sandbox, not from reading the host or dialling out. So the sandbox
-container adds the OS-level layer:
+In the web container. `deploy/Dockerfile.web` installs `gcc`, `g++` and a headless
+JRE and builds `engineverse-sandbox.jar` into `/app`, because the judge bridge
+invokes `java -jar`, `gcc` and `python3` with `subprocess.run` — a subprocess
+call cannot reach another container, so the toolchains have to sit next to the
+application process.
 
-- **`network_mode: "none"`** — no network interface at all. Note this is Docker's
-  built-in null network; a custom network with `internal: true` would still allow
-  container-to-container traffic, which is not isolation for a judge.
-- **`read_only: true`** with a single `tmpfs` at `/work`, sized and mode `1777`,
-  which is the only writable path.
-- **`cap_drop: [ALL]`** and **`no-new-privileges:true`**.
-- **`cpus: 1.0`, `mem_limit: 512m`, `pids_limit: 128`** — a fork bomb or an
-  allocation loop is contained.
-- Runs as **uid 10001**, non-root, with `/usr/sbin/nologin` and no home directory.
+This compose file used to define a third `sandbox` service, hardened with
+`network_mode: "none"`, `cap_drop: [ALL]`, a read-only root filesystem and CPU,
+memory and PID ceilings. It was removed because it could never have worked:
 
-The web and sandbox images do not share a filesystem, a process or a network
-namespace. The bridge invokes the sandbox as a subprocess and reads one JSON
-verdict from stdout; there is no listening port to expose.
+- The bridge calls the sandbox as a subprocess, which requires a shared process
+  and filesystem. A separate container shares neither.
+- The service had no network and no published port, so nothing could reach it by
+  any other route either.
+- Its `ENTRYPOINT` reads one JSON request from stdin. With no stdin attached the
+  container exits at once, and `restart: unless-stopped` would have looped it
+  forever.
 
-## Configuration
+Keeping it would have implied a boundary that does not exist, which is worse than
+not having one.
 
-`ENGINEVERSE_SECRET` is the root of trust — it keys the session token digests, the
-CSRF HMAC and the signed flash cookie. It must be at least 32 random bytes:
+### What does contain a submission
 
-```bash
-python -c "import secrets; print(secrets.token_urlsafe(48))"
-```
+Inside the web container: rlimits set in the child (process count, address space,
+CPU seconds, file size, open files), an empty tmpfs mounted over the application
+user's home directory, a network namespace with no outbound access, a private
+process group killed as a unit on timeout, and an unprivileged user. The
+container adds `read_only: true` with `/tmp` as the only writable path — which is
+where the judge creates its work directories — plus `cap_drop: [ALL]` and
+`no-new-privileges:true`.
 
-Rotating it invalidates every session and signs everyone out. `deploy/.env` is
-git-ignored.
+That is a real set of limits and the judge suite verifies each one. It is not
+separation: a submission runs as the application user. See
+`docs/SECURITY.md` for precisely what that does and does not stop.
 
-In production set `ENGINEVERSE_DB_URL` to the Postgres DSN (the compose file does
-this for you) and leave `ENGINEVERSE_DB_PATH` unused. `SITE_URL` should be the
-public HTTPS origin; HSTS is only sent when the request arrives over HTTPS.
+### Making it a separate process
 
-## Putting it behind TLS
-
-The app terminates plain HTTP and expects a reverse proxy in front. It sets HSTS
-when it sees HTTPS, and the session cookie is marked `Secure` when
-`ENGINEVERSE_ENV=production` or the request is HTTPS. A minimal Caddy or nginx
-front end is enough; the app does not need to terminate TLS itself.
-
-## Scaling beyond one box
-
-The compose file is a single-instance topology. To scale out:
-
-1. Move to managed or replicated PostgreSQL. The schema is already partitioned —
-   see `db/postgres/README.md`.
-2. Put the rate limiter behind a shared store. It is currently in-process, so it
-   under-counts across replicas.
-3. Run the sandbox as a pool. It is stateless and already fully isolated, so N
-   replicas need no coordination.
-4. Shard by `user_id`. The ULID keys and the partitioning key are already aligned.
-
-## Health
-
-`/health` returns 200 with a JSON body. The web image healthchecks it; the sandbox
-healthcheck runs a trivial submission and asserts an `accepted` verdict, which
-proves the JVM starts *and* the compiler is present.
+`deploy/Dockerfile.sandbox` still builds a standalone sandbox image — non-root
+uid 10001, JDK only, `/work` as the single writable path — for anyone who wants
+to run the judge on its own host. Wiring it into this topology needs a socket
+protocol in `judge/java_bridge.py` (a unix socket on a shared volume is the usual
+answer, since `network_mode: "none"` rules out TCP). Nothing implements that yet,
+so it is future work rather than a configuration option.

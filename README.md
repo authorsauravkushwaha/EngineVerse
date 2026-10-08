@@ -126,7 +126,7 @@ password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/S
 ## Testing
 
 ```bash
-python -m pytest backend/tests -q          # 334 tests
+python -m pytest backend/tests -q          # 338 tests
 python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 ```
 
@@ -136,7 +136,7 @@ python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 | `test_judge.py` | 53 | All 13 reference solutions through the real sandbox; rlimits read back from inside a submission; fork bomb containment; the checkout is invisible to submitted code |
 | `test_tutor.py` | 13 | Grounded answers cite only listed sources; uncovered subjects are refused, not invented; stored markup never reaches the client; the rate limit engages |
 | `test_routes.py` | 97 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
-| `test_api_and_schema.py` | 71 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; theme wiring; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
+| `test_api_and_schema.py` | 75 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; theme wiring; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
 
 The tests are how the platform's worst defects were found: every `/api/*` request
 500ing on a rate-limit unpacking error, every authenticated form POST 403ing
@@ -154,14 +154,14 @@ backend/
   web/                pages.py (SSR), auth_pages.py, api.py (JSON)
   templates/          48 Jinja2 templates
   static/             one CSS file, one JS file, PWA manifest, service worker, icons
-  tests/              334 tests
+  tests/              338 tests
 db/
   schema.sql          SQLite, 63 tables (development)
   postgres/           hash-partitioned Postgres schema (production)
 seed_data/            the catalogue as data
 scripts/seed.py       builds the database
 sandbox-java/         the JVM sandbox (Maven, zero runtime deps)
-deploy/               Dockerfiles and compose topology (web, Postgres, sandbox)
+deploy/               Dockerfiles and compose topology (web, Postgres)
 docs/                 ARCHITECTURE · SECURITY · NOTE_TEMPLATE · CONTENT
 .github/workflows/    Python tests, Postgres schema, Java build
 ```

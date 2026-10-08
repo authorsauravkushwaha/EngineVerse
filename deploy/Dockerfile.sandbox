@@ -1,14 +1,18 @@
 # EngineVerse judge sandbox.
 #
-# Runs the Java sandbox (and, via the same image, the local runner) with the
-# OS-level containment that process isolation alone cannot provide. The
-# application never shares a process, a filesystem or a network namespace with
-# learner code.
+# Builds a standalone image for the Java sandbox.
 #
 #   docker build -f deploy/Dockerfile.sandbox -t engineverse-sandbox .
 #
-# Run it with the hardening flags in deploy/docker-compose.yml - the image sets
-# the baseline, the runtime flags add the rest.
+# NOTE: nothing in deploy/docker-compose.yml runs this image, and that is
+# deliberate. The judge bridge invokes the sandbox with subprocess.run, which
+# cannot cross a container boundary, so in the shipped topology the jar runs
+# inside the web image instead. This Dockerfile is kept because the image is the
+# right shape for running the judge as a separate host process - non-root, JDK
+# only, /work as the sole writable path - but wiring it up needs a socket
+# protocol in judge/java_bridge.py that does not exist yet. See deploy/README.md.
+#
+# The containment flags it should be run with are listed in deploy/README.md.
 
 # --- build stage: compile the sandbox jar -----------------------------------
 FROM maven:3.9-eclipse-temurin-21 AS build

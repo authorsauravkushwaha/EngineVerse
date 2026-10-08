@@ -2,20 +2,39 @@
 #
 #   docker build -f deploy/Dockerfile.web -t engineverse-web .
 #
-# Serves server-rendered HTML and the JSON API. Learner code never runs here -
-# that is the sandbox image's job.
+# Serves server-rendered HTML and the JSON API.
+#
+# IMPORTANT, and previously misstated in this file: the judge runs learner code
+# IN THIS CONTAINER. The bridge invokes `java -jar`, `gcc` and `python3` as
+# subprocesses, so the toolchains have to be present wherever the application
+# process is - a separate container cannot serve a subprocess call. What contains
+# a submission here is rlimits, a mount namespace over the application tree, a
+# network namespace, a private process group and an unprivileged user, not
+# container separation. See docs/SECURITY.md for exactly what that does and does
+# not stop.
 
 FROM python:3.11-slim AS build
 WORKDIR /src
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
+# --- build stage: compile the Java sandbox jar -------------------------------
+# The bridge needs the jar next to the application, so it is built here rather
+# than shipped in a separate image nothing can reach.
+FROM maven:3.9-eclipse-temurin-21 AS javabuild
+WORKDIR /src
+COPY sandbox-java/pom.xml ./
+RUN mvn -B -q dependency:go-offline
+COPY sandbox-java/src ./src
+RUN mvn -B -q -DskipTests package && cp target/engineverse-sandbox.jar /engineverse-sandbox.jar
+
 FROM python:3.11-slim
 
-# A non-root user, and only the compilers the judge needs for C/C++ submissions.
-# Nothing else is installed: the smaller the image, the smaller the surface.
+# A non-root user, the compilers the judge needs for C/C++ submissions, and a
+# headless JRE for Java ones. Nothing else is installed: the smaller the image,
+# the smaller the surface.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc g++ libc6-dev \
+ && apt-get install -y --no-install-recommends gcc g++ libc6-dev openjdk-21-jre-headless \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 engineverse \
  && useradd  --system --uid 10001 --gid engineverse --no-create-home --shell /usr/sbin/nologin engineverse \
@@ -23,6 +42,7 @@ RUN apt-get update \
  && chown -R engineverse:engineverse /app
 
 COPY --from=build /install /usr/local
+COPY --from=javabuild /engineverse-sandbox.jar /app/engineverse-sandbox.jar
 WORKDIR /app
 
 COPY backend ./backend

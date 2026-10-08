@@ -246,10 +246,30 @@ outbound access, but this is still process isolation, not full OS containment:
   enabled. That is why support is **probed at startup** rather than assumed;
   `provider_info()` reports it, so an operator can see what they actually have.
 
-For a hard boundary, do not use the built-in provider: run the judge as a
-non-root user in a container with its own filesystem, which is what
-`deploy/docker-compose.yml` does for the Java sandbox (`network_mode: none`,
-`cap_drop: [ALL]`, `no-new-privileges`, CPU, memory and PID ceilings).
+### The container in `deploy/` is not a boundary either
+
+An earlier revision of this document said the hardening lived in
+`deploy/docker-compose.yml`, which ran a separate `sandbox` container with
+`network_mode: none`, `cap_drop: [ALL]` and a read-only root filesystem. That was
+wrong, and the service has been removed. The judge bridge invokes the sandbox
+with `subprocess.run`, which cannot cross a container boundary, and the service
+had no network and no published port, so nothing could reach it by any other
+route either. Its `ENTRYPOINT` reads one JSON request from stdin, so with no
+stdin attached it exited immediately and `restart: unless-stopped` looped it.
+
+So in the shipped topology **learner code runs inside the web container**, where
+the toolchains have to be for a subprocess call to work. What contains a
+submission there is the list above — rlimits, the tmpfs over the home directory,
+the network namespace, a private process group killed as a unit, and an
+unprivileged user — plus the container's own `read_only` root, `cap_drop: [ALL]`
+and `no-new-privileges`.
+
+That is a real set of limits and it is what the tests verify. It is not
+separation. Turning it into separation means giving the bridge a socket protocol
+and running the judge as its own process on its own filesystem, which
+`deploy/Dockerfile.sandbox` can build but nothing yet talks to. Until that
+exists, treat a determined attacker who can submit code as able to read what the
+application user can read.
 
 ## Audit
 
