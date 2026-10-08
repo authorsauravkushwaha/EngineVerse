@@ -122,6 +122,28 @@ def complete_topic(user_id: str, topic_id: str) -> None:
     award_xp(user_id, 20, "topic.completed", "topic", topic_id)
     bump_activity(user_id, "notes_studied", minutes=5, xp=20)
     evaluate_badges(user_id)
+    _refresh_certificates(user_id, topic_id)
+
+
+def _refresh_certificates(user_id: str, topic_id: str) -> None:
+    """Re-check the certificate for the subject this topic belongs to.
+
+    Completing the last topic in a subject is the moment bronze becomes
+    achievable, so that is where the check belongs. The import is local because
+    ``certificates`` imports this module; a top-level import would be circular.
+
+    A failure here must not lose the topic completion the learner just earned,
+    so it is contained.
+    """
+    try:
+        row = db.query_one("SELECT subject_id FROM topics WHERE id = ?", topic_id)
+        if not row or not row.get("subject_id"):
+            return
+        from . import certificates
+
+        certificates.issue_for_subject(user_id, row["subject_id"])
+    except Exception:
+        pass
 
 
 def update_topic_mastery(user_id: str, topic_id: str) -> None:
@@ -532,11 +554,16 @@ def leaderboard(*, branch: str | None = None, country: str | None = None, period
 
 
 def certificates(user_id: str) -> list[dict]:
-    return db.query(
-        "SELECT id, kind, title, verify_id, issued_at, entity_type, entity_id FROM certificates "
+    rows = db.query(
+        "SELECT id, kind, title, verify_id, issued_at, entity_type, entity_id, tier FROM certificates "
         "WHERE user_id = ? ORDER BY issued_at DESC",
         user_id,
     )
+    from .certificates import TIER_LABELS
+
+    for row in rows:
+        row["tier_label"] = TIER_LABELS.get(row.get("tier") or "bronze", "Bronze")
+    return rows
 
 
 def issue_certificate(user_id: str, kind: str, entity_type: str, entity_id: str, title: str, meta: dict | None = None) -> str:
@@ -553,7 +580,7 @@ def issue_certificate(user_id: str, kind: str, entity_type: str, entity_id: str,
         "VALUES (?,?,?,?,?,?,?,?,?)",
         cert_id, user_id, kind, entity_type, entity_id, title, verify_id, now_ms(), json.dumps(meta or {}),
     )
-    notify(user_id, "certificate", "Certificate earned", title, f"/verify/{verify_id}")
+    notify(user_id, "certificate", "Certificate earned", title, f"/certificates/{verify_id}")
     return cert_id
 
 

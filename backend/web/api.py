@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from engineverse import (
     auth,
     catalog,
+    certificates as certificates_mod,
     coding,
     community,
     db,
@@ -564,6 +565,24 @@ async def api_leaderboard(request: Request, branch: str | None = None, period: s
 async def api_certificates(request: Request):
     viewer = require_user(request)
     return ok(certificates=progress.certificates(viewer.id))
+
+
+@router.post("/certificates/refresh")
+async def api_refresh_certificates(request: Request):
+    """Re-evaluate every subject the learner has progress in.
+
+    Certificates are earned automatically when a topic is completed, but streak
+    length and practice accuracy change without any topic being finished, so a
+    learner can outgrow their tier without triggering that path. This lets the
+    dashboard settle the account rather than leaving a stale tier on screen.
+    """
+    viewer = require_user(request)
+    issued = certificates_mod.refresh_for_user(viewer.id)
+    return ok(
+        certificates=[{"id": c["id"], "tier": c["tier"], "title": c["title"],
+                       "verifyId": c["verify_id"]} for c in issued],
+        message=f"{len(issued)} certificate(s) up to date.",
+    )
 
 
 @router.post("/certificates/issue")

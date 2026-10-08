@@ -303,6 +303,9 @@ def migrate(schema_file: str | Path | None = None) -> int:
     execute(
         "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)"
     )
+    # Columns added after the table was first created. Kept here so a database
+    # that was seeded by an older build picks them up on the next migrate().
+    ensure_column("certificates", "tier", "TEXT NOT NULL DEFAULT 'bronze'")
     import time
 
     execute(
@@ -311,6 +314,25 @@ def migrate(schema_file: str | Path | None = None) -> int:
         int(time.time() * 1000),
     )
     return len(statements)
+
+
+def ensure_column(table: str, column: str, ddl: str) -> bool:
+    """Adds a column if the table does not already have it. Returns True if added.
+
+    The schema file is entirely ``CREATE TABLE IF NOT EXISTS``, so it can add
+    tables on an existing database but never add a column to one. Without this,
+    a new field means every deployment has to be rebuilt from scratch to pick
+    it up. Idempotent on both engines: PostgreSQL supports the clause directly,
+    SQLite does not, so it is checked against ``PRAGMA table_info`` first.
+    """
+    if get_settings().uses_postgres:  # pragma: no cover - exercised in the CI postgres job
+        execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl}")
+        return True
+    existing = {row["name"] for row in query(f"PRAGMA table_info({table})")}
+    if column in existing:
+        return False
+    execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+    return True
 
 
 def table_count(name: str) -> int:

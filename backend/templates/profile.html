@@ -59,8 +59,23 @@
         <strong>{{ n.title }}</strong><br>{{ n.body }}
         <span class="tiny muted">{{ n.created_at | ago }}</span></div>{% endfor %}</div></div>{% endif %}
     <div class="panel tight"><h3>Certificates</h3>
-      <p class="small muted">Complete a topic or project, then claim a verifiable certificate.</p>
-      <a class="btn btn-soft btn-sm btn-block" href="/api/certificates">View mine</a></div>
+      {% if certificates %}<div class="stack">
+        {% for c in certificates %}
+        <a class="cert-row cert-row-{{ c.tier or 'bronze' }}" href="/certificates/{{ c.verify_id }}">
+          <span class="cert-dot" aria-hidden="true"></span>
+          <span class="cert-body">
+            <strong>{{ c.tier_label }}</strong>
+            <span class="tiny muted">{{ c.title }}</span>
+            <span class="tiny muted">Verify {{ c.verify_id }}</span>
+          </span>
+        </a>{% endfor %}
+      </div>
+      {% else %}
+      <p class="small muted">Complete every topic in a subject to earn a Bronze certificate.
+        A 14-day streak takes it to Silver, 85% practice accuracy to Gold, and a 30-day streak
+        with 90% mastery to Platinum.</p>
+      {% endif %}
+    </div>
   </aside>
 </div>
 {% endblock %}

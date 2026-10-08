@@ -662,3 +662,49 @@ sup, sub { font-size: .74em; }
     cursor: grab;
   }
 }
+
+/* Certificates. The tier sets the border and seal colour; the layout is shared
+   so a bronze certificate and a platinum one are the same document. */
+.cert { position: relative; }
+.cert-bronze   { background: linear-gradient(135deg, #b45309, #f59e0b); }
+.cert-silver   { background: linear-gradient(135deg, #64748b, #cbd5e1); }
+.cert-gold     { background: linear-gradient(135deg, #b8860b, #ffd75e); }
+.cert-platinum { background: linear-gradient(135deg, #0ea5e9, #a78bfa, #f472b6); }
+.cert-bronze   { --tier: #b45309; }
+.cert-silver   { --tier: #64748b; }
+.cert-gold     { --tier: #b8860b; }
+.cert-platinum { --tier: #7c3aed; }
+.cert-seal { color: var(--tier, #b45309); display: flex; justify-content: center; margin-bottom: 6px; }
+.cert-eyebrow { letter-spacing: .16em; text-transform: uppercase; font-size: .72rem;
+  color: var(--muted); margin: 0; }
+.cert-tier { font-size: 1.5rem; font-weight: 800; letter-spacing: .04em; color: var(--tier, #b45309);
+  margin: 6px 0 2px; }
+.cert-evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 8px;
+  margin: 20px auto 0; max-width: 560px; text-align: left; }
+.cert-evidence > div { background: var(--panel-2); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 10px; }
+.cert-evidence .k { display: block; font-size: .68rem; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--muted); }
+.cert-evidence .v { display: block; font-size: 1.02rem; font-weight: 700; }
+.cert-sign { margin: 26px auto 0; max-width: 260px; }
+.cert-sign .sig-line { border-top: 1.5px solid var(--tier, #b45309); margin-bottom: 6px; }
+.cert-sign .sig-name { font-family: Georgia, 'Times New Roman', serif; font-style: italic;
+  font-size: 1.25rem; color: var(--tier, #b45309); }
+.cert-disclaimer { max-width: 520px; margin: 10px auto 0; line-height: 1.5; }
+@media print {
+  header, nav, .mobile-nav, .btn { display: none !important; }
+  .cert { break-inside: avoid; }
+}
+
+/* Certificate rows in the profile sidebar. The dot carries the tier colour so
+   the list stays scannable without repeating the label styling. */
+.cert-row { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px;
+  border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--panel-2); }
+.cert-row:hover { border-color: var(--tier); }
+.cert-row .cert-dot { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px;
+  background: var(--tier); flex: none; }
+.cert-row .cert-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cert-row-bronze   { --tier: #b45309; }
+.cert-row-silver   { --tier: #64748b; }
+.cert-row-gold     { --tier: #b8860b; }
+.cert-row-platinum { --tier: #7c3aed; }

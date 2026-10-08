@@ -848,7 +848,8 @@ CREATE TABLE IF NOT EXISTS certificates (
   title       TEXT NOT NULL,
   verify_id   TEXT NOT NULL UNIQUE,
   issued_at   INTEGER NOT NULL,
-  meta        TEXT NOT NULL DEFAULT '{}'
+  meta        TEXT NOT NULL DEFAULT '{}',
+  tier        TEXT NOT NULL DEFAULT 'bronze'   -- bronze|silver|gold|platinum
 );
 
 CREATE TABLE IF NOT EXISTS plans (

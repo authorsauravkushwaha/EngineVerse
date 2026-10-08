@@ -12,6 +12,7 @@ from fastapi import APIRouter, HTTPException, Request
 from engineverse import (
     brand,
     catalog,
+    certificates,
     coding,
     community,
     db,
@@ -488,6 +489,7 @@ async def profile_page(request: Request):
         notes=progress.personal_notes(viewer.id),
         notifications=progress.notifications(viewer.id, 20),
         submissions=coding.submissions_for(viewer.id, limit=15),
+        certificates=progress.certificates(viewer.id),
     )
 
 
@@ -541,6 +543,8 @@ async def certificate_page(request: Request, verify_id: str):
     record["full_name"] = holder.get("full_name")
     record["username"] = holder.get("username")
     record["branch"] = branch.get("name")
+    record["tier_label"] = certificates.TIER_LABELS.get(record.get("tier") or "bronze", "Bronze")
+    record["issuer"] = certificates.issuer_name()
     return render(request, "certificate.html", certificate=record, meta=bundle.get("meta") or {})
 
 

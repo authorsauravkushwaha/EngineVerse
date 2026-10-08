@@ -24,7 +24,7 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from engineverse import auth, brand, db, models3d, progress, search  # noqa: E402
+from engineverse import auth, brand, db, diagrams, models3d, progress, search  # noqa: E402
 from engineverse.judge import local as judge_local  # noqa: E402
 from engineverse.security.ids import ulid  # noqa: E402
 from engineverse.security.sanitize import slugify  # noqa: E402
@@ -34,6 +34,7 @@ from seed_data import catalog as catalog_data  # noqa: E402
 from seed_data import library_data  # noqa: E402
 from seed_data import models_3d as model_content  # noqa: E402
 from seed_data import flashcards_extra as flashcard_content  # noqa: E402
+from seed_data import diagrams_data  # noqa: E402
 from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
@@ -353,22 +354,27 @@ def seed_notes(topic_ids: dict[str, str]) -> int:
 
 
 def seed_diagrams(topic_ids: dict[str, str]) -> int:
-    all_topics = {slugify(entry["title"]): entry for entry in list(topics_cse.TOPICS) + list(topics_core.TOPICS)}
+    """Render one diagram per topic from ``diagrams_data`` and store it.
+
+    Every diagram is built through ``diagrams.render()``, which validates the
+    scene and rebuilds the SVG from scratch. A topic with no diagram authored
+    raises rather than being skipped: six of forty-eight topics had a diagram
+    under the old hand-written path, and the other forty-two rendered their
+    notes with no picture at all while the seed reported success.
+    """
+    missing = sorted(set(topic_ids) - set(diagrams_data.all_slugs()))
+    if missing:
+        raise KeyError(f"{len(missing)} topics have no diagram authored: {missing[:6]}")
     count = 0
     with db.transaction():
         for slug, topic_id in topic_ids.items():
-            entry = all_topics.get(slug)
-            if not entry:
-                continue
-            key = entry.get("diagram")
-            diagram = library_data.DIAGRAMS.get(key or "")
-            if not diagram:
-                continue
+            scene = diagrams_data.build(slug)
+            spec, hotspots = diagrams.render(scene)
             db.execute(
                 "INSERT INTO diagrams (id,topic_id,title,kind,spec,caption,hotspots,source_ref,created_at) "
                 "VALUES (?,?,?,?,?,?,?,'EngineVerse',?) ON CONFLICT(id) DO UPDATE SET spec=excluded.spec",
-                f"{slug}::{key}", topic_id, diagram["title"], diagram["kind"], diagram["spec"], diagram["caption"],
-                jdump(diagram.get("hotspots", [])), now_ms(),
+                f"{slug}::diagram", topic_id, scene["title"], "svg", spec, scene["caption"],
+                hotspots, now_ms(),
             )
             count += 1
     return count

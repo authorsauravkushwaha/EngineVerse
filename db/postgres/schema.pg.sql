@@ -794,7 +794,8 @@ CREATE TABLE IF NOT EXISTS certificates (
   verify_id    TEXT NOT NULL UNIQUE,   -- public verification URL, no accreditation claim
   title        TEXT NOT NULL,
   issued_at    BIGINT NOT NULL,
-  meta         JSONB NOT NULL DEFAULT '{}'::jsonb
+  meta         JSONB NOT NULL DEFAULT '{}'::jsonb,
+  tier         TEXT NOT NULL DEFAULT 'bronze'   -- bronze|silver|gold|platinum
 );
 CREATE INDEX IF NOT EXISTS idx_certificates_user ON certificates(user_id, issued_at DESC);
 
