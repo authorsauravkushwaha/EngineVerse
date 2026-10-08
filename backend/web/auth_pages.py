@@ -391,18 +391,26 @@ async def set_user_status(request: Request, user_id: str = Form(...), status: st
 @router.post("/admin/config")
 async def update_site_config(request: Request, site_name: str = Form(""), tagline: str = Form(""),
                              announcement: str = Form(""), support_email: str = Form(""),
-                             accent_color: str = Form("#4f7cff"), maintenance_mode: str = Form("0"),
+                             accent_color: str = Form("#4f7cff"),
+                             accent_color_2: str = Form("#38bdf8"),
+                             accent_color_3: str = Form("#a78bfa"),
+                             maintenance_mode: str = Form("0"),
                              registration_open: str = Form("1"), theme: str = Form("dark")):
     viewer = require_user(request)
     assert_can(viewer.role, "settings.manage")
     from engineverse import brand
+    from engineverse.security.sanitize import safe_css_color
 
     brand.set_many({
         "site_name": site_name.strip()[:60] or "EngineVerse",
         "tagline": tagline.strip()[:200],
         "announcement": announcement.strip()[:300],
         "support_email": support_email.strip()[:120],
-        "accent_color": accent_color.strip()[:20],
+        # Interpolated into a <style> block, so anything that is not a hex colour
+        # is replaced with the default rather than stored verbatim.
+        "accent_color": safe_css_color(accent_color, "#4f7cff"),
+        "accent_color_2": safe_css_color(accent_color_2, "#38bdf8"),
+        "accent_color_3": safe_css_color(accent_color_3, "#a78bfa"),
         "maintenance_mode": "1" if maintenance_mode else "0",
         "registration_open": "1" if registration_open else "0",
         "theme": theme.strip() if theme.strip() in ("dark", "light") else "dark",

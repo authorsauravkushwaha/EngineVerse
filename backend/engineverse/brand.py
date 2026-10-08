@@ -30,7 +30,6 @@ DEFAULTS = {
     "accent_color": "#4f7cff",
     "accent_color_2": "#38bdf8",
     "accent_color_3": "#a78bfa",
-    "primary_branch": "cse",
     "theme": "dark",
     "maintenance_mode": "0",
     "registration_open": "1",
@@ -48,7 +47,6 @@ PUBLIC_KEYS = (
     "accent_color",
     "accent_color_2",
     "accent_color_3",
-    "primary_branch",
     "theme",
     "maintenance_mode",
     "registration_open",
@@ -62,9 +60,24 @@ def get(key: str, default: str | None = None) -> str:
     return str(value)
 
 
+# Keys whose value is interpolated into CSS. Validated on the way out as well as
+# on the way in, so a value written before the check existed - or by any other
+# path - still cannot reach a page as anything but a hex colour.
+_COLOR_KEYS = {
+    "accent_color": "#4f7cff",
+    "accent_color_2": "#38bdf8",
+    "accent_color_3": "#a78bfa",
+}
+
+
 def brand() -> dict[str, str]:
     """Every branding key a template may read, always populated."""
-    return {key: get(key) for key in PUBLIC_KEYS}
+    from .security.sanitize import safe_css_color
+
+    values = {key: get(key) for key in PUBLIC_KEYS}
+    for key, fallback in _COLOR_KEYS.items():
+        values[key] = safe_css_color(values.get(key), fallback)
+    return values
 
 
 def is_maintenance() -> bool:

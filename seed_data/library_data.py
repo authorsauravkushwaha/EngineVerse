@@ -1538,7 +1538,6 @@ SITE_CONFIG = {
         "spaced-repetition revision and a placement preparation path - across every engineering branch."
     ),
     "support_email": "support@engineverse.local",
-    "primary_branch": "cse",
     "theme": "dark",
     "free_tier_note": (
         "All core learning content - notes, practice problems, coding problems, projects, flashcards and formulas "

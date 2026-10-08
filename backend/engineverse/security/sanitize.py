@@ -80,6 +80,19 @@ def truncate(value: str, limit: int = 200) -> str:
 #: depend on a header being present, and the admin CMS is meant to grow a
 #: diagram editor. Allowlist, not blocklist: new SVG gains a feature far more
 #: often than anyone remembers to block it.
+# A CSS colour that is safe to interpolate into a <style> block. Hex only, so a
+# stored value can never close the block or carry a url() / javascript: payload.
+# The admin panel accepts these as free text and they are written to site_config,
+# so the check belongs on the way in as well as on the way out.
+_HEX_COLOR = re.compile(r"\A#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\Z")
+
+
+def safe_css_color(value: str | None, fallback: str = "#4f7cff") -> str:
+    """Returns a hex colour, or the fallback when the value is not one."""
+    candidate = (value or "").strip()
+    return candidate if _HEX_COLOR.match(candidate) else fallback
+
+
 SVG_ELEMENTS = frozenset("""
 svg g defs marker path rect line polyline polygon circle ellipse text tspan
 title desc linearGradient radialGradient stop clipPath

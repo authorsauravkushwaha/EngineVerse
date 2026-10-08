@@ -990,6 +990,74 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestBrandingAccentColoursAreRealAndSafe:
+    """The accent colours must change the site, and must never carry a payload.
+
+    The admin panel wrote accent_color to site_config and nothing read it back:
+    app.css hard-codes --accent, --accent-2 and --accent-3, so the control did
+    nothing. accent_color_2, accent_color_3 and primary_branch were worse - in
+    PUBLIC_KEYS but not even in the form. Since these are interpolated into a
+    <style> block, wiring them up without validating would have turned a dead
+    control into a stored CSS-injection one.
+    """
+
+    @staticmethod
+    def _emitted(client):
+        import re
+
+        match = re.search(r"<style>:root\{([^}]*)\}</style>", client.get("/").text)
+        assert match, "the page emits no accent custom properties"
+        return match.group(1)
+
+    def test_the_configured_colours_reach_the_page(self, client, seeded):
+        from engineverse import brand
+
+        brand.set_many({"accent_color": "#ff8800", "accent_color_2": "#00cc88",
+                        "accent_color_3": "#cc00ff"})
+        try:
+            emitted = self._emitted(client)
+            for colour in ("#ff8800", "#00cc88", "#cc00ff"):
+                assert colour in emitted, f"{colour} was configured but the page emits {emitted}"
+        finally:
+            brand.set_many({"accent_color": "#4f7cff", "accent_color_2": "#38bdf8",
+                            "accent_color_3": "#a78bfa"})
+
+    def test_a_non_colour_value_never_reaches_the_page(self, client, seeded):
+        from engineverse import brand
+
+        for payload in ("</style><script>alert(1)</script>", "javascript:alert(1)",
+                        "red", "#gggggg", "expression(alert(1))"):
+            brand.set_many({"accent_color": payload})
+            try:
+                emitted = self._emitted(client)
+                assert payload not in emitted, f"{payload!r} was emitted verbatim"
+                assert "<script>" not in emitted
+                assert "--accent:#4f7cff" in emitted, (
+                    f"a non-colour value must fall back to the default, got {emitted}"
+                )
+            finally:
+                brand.set_many({"accent_color": "#4f7cff"})
+
+    def test_brand_returns_a_hex_colour_even_for_a_poisoned_row(self, seeded):
+        """Validation on read, so a value written before the check existed is safe."""
+        from engineverse import brand, db
+
+        db.execute("UPDATE site_config SET value = ? WHERE key = 'accent_color'",
+                   "expression(alert(1))")
+        try:
+            assert brand.brand()["accent_color"] == "#4f7cff"
+        finally:
+            db.execute("UPDATE site_config SET value = '#4f7cff' WHERE key = 'accent_color'")
+
+    def test_only_keys_something_reads_are_configurable(self, seeded):
+        """primary_branch was in PUBLIC_KEYS and read by nothing."""
+        from engineverse import brand
+
+        assert "primary_branch" not in brand.PUBLIC_KEYS
+        for key in ("accent_color", "accent_color_2", "accent_color_3"):
+            assert key in brand.PUBLIC_KEYS, f"{key} should be configurable"
+
+
 class TestUnhandledExceptionsBecomeClean500s:
     """An exception nobody caught must still produce a response.
 

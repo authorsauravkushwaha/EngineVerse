@@ -23,6 +23,11 @@
   <link rel="icon" href="/static/icons/favicon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
   <link rel="stylesheet" href="/static/css/app.css">
+  {# The configured accent colours, applied over the stylesheet's defaults.
+     These come from site_config and are interpolated into CSS, so they are run
+     through safe_css_color in the admin handler; | safe is used because Jinja
+     would otherwise escape the '#' and break the declarations. #}
+  <style>:root{--accent:{{ brand.accent_color | safe }};--accent-2:{{ brand.accent_color_2 | safe }};--accent-3:{{ brand.accent_color_3 | safe }};--grad:linear-gradient(135deg,var(--accent),var(--accent-3))}</style>
   <meta name="csrf-token" content="{{ csrf_token }}">
   <meta property="og:title" content="{% block og_title %}{{ brand.site_name }}{% endblock %}">
   <meta property="og:description" content="{{ brand.tagline }}">
