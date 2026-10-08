@@ -47,8 +47,11 @@ jobs:
         # suite would report success.
         shell: bash
         run: |
-          set -o pipefail
+          set +e +o pipefail
           python -m pytest backend/tests -q --tb=short 2>&1 | tee /tmp/pytest.txt
+          status=${PIPESTATUS[0]}
+          set -e -o pipefail
+          exit "$status"
         env:
           ENGINEVERSE_SECRET: ci-only-secret-not-used-in-production-0123456789
           ENGINEVERSE_DB_PATH: data/ci.sqlite3
@@ -108,10 +111,15 @@ jobs:
           PGPASSWORD: engineverse
         shell: bash
         run: |
-          set -o pipefail
+          # GitHub runs `shell: bash` as `bash -eo pipefail`, so a failing
+          # pipeline aborts the script on the spot and the annotation block below
+          # never runs. -e is switched off around the pipeline and the exit code
+          # taken from PIPESTATUS instead, which is the only way to report why.
+          set +e +o pipefail
           psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
             -f db/postgres/schema.pg.sql 2>&1 | tee /tmp/psql.txt
           status=${PIPESTATUS[0]}
+          set -e -o pipefail
           if [ "$status" -ne 0 ]; then
             echo "::error::psql exited ${status}; last 30 lines of output follow"
             tail -30 /tmp/psql.txt | while IFS= read -r line; do
