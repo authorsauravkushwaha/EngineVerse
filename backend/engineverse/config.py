@@ -68,6 +68,18 @@ class Settings:
         )
     )
 
+    # --- outbound mail ----------------------------------------------------
+    # Empty smtp_url means this instance has no mail transport. That is the
+    # default, and it matters: without it a password reset link has nowhere to
+    # go, so it must not be handed to the caller instead. See engineverse.notify.
+    smtp_url: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_SMTP_URL", ""))
+    mail_from: str = field(default_factory=lambda: os.environ.get(
+        "ENGINEVERSE_MAIL_FROM", "EngineVerse <no-reply@localhost>"))
+    #: Shows the reset token in the page instead of emailing it. Development
+    #: only, and refused outright when env is production. Default off: turning
+    #: it on makes POST /forgot-password an account-takeover endpoint.
+    reveal_reset_token: bool = field(default_factory=lambda: _bool("ENGINEVERSE_REVEAL_RESET_TOKEN", False))
+
     # --- AI tutor ---------------------------------------------------------
     ai_key: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_AI_KEY", ""))
     ai_url: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_AI_URL", ""))

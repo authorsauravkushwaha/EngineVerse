@@ -524,15 +524,36 @@ class TestPasswordResetTokens:
     reset that account's password - a full takeover with no credential at all.
     """
 
+    @pytest.fixture()
+    def dev_reset(self, monkeypatch):
+        """Puts the app in development reveal mode for the duration of a test.
+
+        These tests exercise the reset *flow* - single use, expiry,
+        supersession, hashing - and need the token. Reading it out of the
+        response was how they always got it, which is exactly the behaviour that
+        made POST /forgot-password an account-takeover endpoint. They now ask
+        for it explicitly, and a separate test class asserts the default is off.
+        """
+        from engineverse import config
+
+        monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+        config.reload_settings()
+        try:
+            yield
+        finally:
+            monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)
+            config.reload_settings()
+
     @staticmethod
     def _token(html: str) -> str:
         import re
 
         found = re.search(r"token=([A-Za-z0-9_\-]+)", html)
-        assert found, "the development build should surface the reset link"
+        assert found, "reveal mode was on but no reset link was rendered"
         return found.group(1)
 
-    def test_a_like_wildcard_does_not_match_any_pending_reset(self, client):
+    def test_a_like_wildcard_does_not_match_any_pending_reset(self, client, dev_reset):
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -551,7 +572,7 @@ class TestPasswordResetTokens:
                 f"token {guess!r} was accepted - the wildcard takeover is back"
             )
 
-    def test_a_valid_token_resets_the_password_once(self, client, restore_password):
+    def test_a_valid_token_resets_the_password_once(self, client, restore_password, dev_reset):
         from engineverse import auth, db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -576,7 +597,7 @@ class TestPasswordResetTokens:
         )
         assert again.status_code == 400, "a used reset token was accepted again"
 
-    def test_an_expired_token_is_refused(self, client, restore_password):
+    def test_an_expired_token_is_refused(self, client, restore_password, dev_reset):
         from engineverse import auth, db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -592,7 +613,7 @@ class TestPasswordResetTokens:
         )
         assert response.status_code == 400
 
-    def test_a_new_request_supersedes_the_previous_link(self, client, restore_password):
+    def test_a_new_request_supersedes_the_previous_link(self, client, restore_password, dev_reset):
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -608,7 +629,7 @@ class TestPasswordResetTokens:
         )
         assert response.status_code == 400, "a superseded reset link still worked"
 
-    def test_tokens_are_stored_hashed(self, client, restore_password):
+    def test_tokens_are_stored_hashed(self, client, restore_password, dev_reset):
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -901,3 +922,107 @@ class TestRegistrationEnumeration:
         response = self._post(client, "brandnew-address@example.com", "asha")
         assert response.status_code == 409
         assert "username is taken" in response.text.lower()
+
+
+class TestPasswordResetIsNotAnOracle:
+    """POST /forgot-password must never hand back a usable reset link.
+
+    There was no mail transport, so the route rendered the live token into the
+    response and the template linked to it. That made the endpoint a complete
+    account-takeover hole: POST a victim's address, read the link out of the
+    HTML, set a new password. Nothing gated it, and five tests depended on it.
+    """
+
+    def _post(self, client, email):
+        page = client.get("/forgot-password")
+        return client.post("/forgot-password",
+                           data={"csrf_token": _csrf(page.text), "email": email},
+                           follow_redirects=False)
+
+    def test_no_token_is_rendered_by_default(self, client, seeded, monkeypatch):
+        import re
+
+        from engineverse import config, db
+
+        monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+        config.reload_settings()
+
+        victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+        body = self._post(client, victim["email"]).text
+
+        assert "reset-password?token=" not in body, "a live reset link was rendered"
+        assert not re.search(r"token=([A-Za-z0-9_\-]{20,})", body), "a reset token was rendered"
+
+    def test_no_live_token_is_left_behind(self, client, seeded, monkeypatch):
+        """With no way to deliver it, the token is consumed rather than left in the table."""
+        from engineverse import config, db
+
+        monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+        config.reload_settings()
+        db.execute("DELETE FROM password_resets")
+
+        victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+        self._post(client, victim["email"])
+
+        live = db.query(
+            "SELECT user_id FROM password_resets WHERE used_at IS NULL AND expires_at > ?",
+            db.scalar("SELECT strftime('%s','now')") * 1000,
+        )
+        assert live == [], "an undeliverable reset token was left usable in the table"
+
+    def test_the_page_says_reset_is_unavailable(self, client, seeded, monkeypatch):
+        """Claiming "check your inbox" when nothing can be sent is a lie."""
+        from engineverse import config, db
+
+        monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+        config.reload_settings()
+
+        victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+        body = self._post(client, victim["email"]).text
+        assert "unavailable" in body.lower()
+        assert "Check your inbox" not in body
+
+    def test_production_refuses_the_reveal_flag(self, client, seeded, monkeypatch):
+        """An operator who leaves the flag on in production still must not get the link."""
+        from engineverse import config, db
+
+        monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
+        monkeypatch.setenv("ENGINEVERSE_ENV", "production")
+        config.reload_settings()
+        try:
+            victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+            body = self._post(client, victim["email"]).text
+            assert "reset-password?token=" not in body, (
+                "production honoured ENGINEVERSE_REVEAL_RESET_TOKEN"
+            )
+        finally:
+            monkeypatch.setenv("ENGINEVERSE_ENV", "test")
+            config.reload_settings()
+
+    def test_send_reports_failure_when_unconfigured(self, seeded, monkeypatch):
+        from engineverse import config, notify
+
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+        config.reload_settings()
+        assert notify.is_configured() is False
+        assert notify.send(notify.Message("a@b.c", "subject", "body")) is False
+
+    def test_a_mail_failure_does_not_leak_the_token(self, client, seeded, monkeypatch):
+        """A configured but unreachable relay must not fall back to revealing."""
+        from engineverse import config, db
+
+        monkeypatch.setenv("ENGINEVERSE_SMTP_URL", "smtp://127.0.0.1:1/?tls=0&starttls=0")
+        monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
+        config.reload_settings()
+        try:
+            victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+            response = self._post(client, victim["email"])
+            assert response.status_code == 200
+            assert "reset-password?token=" not in response.text
+        finally:
+            monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+            monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)
+            config.reload_settings()

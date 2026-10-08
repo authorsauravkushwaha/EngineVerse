@@ -190,17 +190,53 @@ async def forgot_page(request: Request):
 @router.post("/forgot-password")
 async def forgot_submit(request: Request, email: str = Form(...)):
     """Always reports success. Revealing which addresses exist is an oracle we
-    will not hand out. The reset link is printed to the audit log in this
-    self-hosted build; a production deployment wires this to an SMTP relay."""
+    will not hand out.
+
+    The token itself is only ever emailed. It used to be rendered into this page
+    because there was no mail transport, which made the endpoint an
+    account-takeover hole: POST a victim's address, read the live reset link
+    back out of the response, change their password. With no transport
+    configured the honest answer is that reset is unavailable, so that is what
+    the page says.
+    """
+    from engineverse import config, notify
+
+    settings = config.get_settings()
     auth.prune_password_resets()
     row = auth.find_by_email(email.strip())
     token = ""
+    mailed = False
+    unavailable = False
+    # Opting in is not enough: production refuses it outright, because a flag
+    # left behind in a production environment must not become an account
+    # takeover endpoint.
+    reveal = settings.reveal_reset_token and not settings.is_production
     if row:
         ip = request.client.host if request.client else None
         token = auth.issue_password_reset(row["id"], ip=ip)
         record("auth.reset_requested", actor_id=row["id"], ip=ip,
                entity_type="user", entity_id=row["id"])
-    return render(request, "forgot.html", sent=True, reset_token=token)
+        reset_url = f"{settings.site_url}/reset-password?token={token}"
+        if notify.is_configured():
+            mailed = notify.send_password_reset(email=row["email"], reset_url=reset_url)
+            if not mailed:
+                # The relay refused it. Never fall back to showing the link --
+                # a reachable form that reveals tokens when the relay is down is
+                # a takeover endpoint that turns on by itself during an outage.
+                auth.consume_password_reset(token)
+                unavailable = True
+        elif reveal:
+            pass  # development: the page will show the link
+        else:
+            # No transport and not permitted to reveal it, so the token is dead
+            # weight. Consume it rather than leaving a live one in the table.
+            auth.consume_password_reset(token)
+            unavailable = True
+    return render(
+        request, "forgot.html", sent=True,
+        reset_token=token if (row and reveal and not unavailable) else "",
+        mailed=mailed, reset_unavailable=unavailable,
+    )
 
 
 @router.get("/reset-password")

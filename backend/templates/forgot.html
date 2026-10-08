@@ -4,21 +4,25 @@
 <div class="form-panel panel">
   <h1>Reset your password</h1>
   {% if sent %}
-    <div class="callout"><span class="label">Check your inbox</span>
-      If an account exists for that address, a reset link is on its way. We always show this message so nobody can
-      use this form to discover which emails are registered.</div>
     {% if reset_token %}
-      {# This build has no mail transport, so the link is shown rather than emailed.
-         A deployment with an SMTP relay should remove this block. #}
-      <div class="callout"><span class="label">Development build &mdash; no mail transport</span>
-        <p class="small muted">This instance is not connected to an SMTP relay, so the link is shown here instead of
-          being sent. It expires in 30 minutes and works once.</p>
+      {# Development only. Gated in the route by ENGINEVERSE_REVEAL_RESET_TOKEN
+         and refused outright when ENGINEVERSE_ENV is production, because
+         showing a live reset link makes this form an account-takeover
+         endpoint for anyone who knows an address. #}
+      <div class="callout warning"><span class="label">Development build</span>
+        <p class="small muted">This instance is configured to show reset links instead of emailing them. Never enable
+          this outside development. The link expires in 30 minutes and works once.</p>
         <p><a class="btn btn-primary" href="/reset-password?token={{ reset_token }}">Continue to reset</a></p>
         <p class="small muted">Token: <code>{{ reset_token }}</code></p>
       </div>
+    {% elif reset_unavailable %}
+      <div class="callout"><span class="label">Self-service reset is unavailable here</span>
+        <p class="small muted">This instance has no mail relay configured, so there is nowhere to send a reset link.
+          Contact the site administrator, who can reset the password for you.</p></div>
     {% else %}
-      <p class="small muted">On a self-hosted instance without an SMTP relay, the reset token is written to the
-        audit log instead. See <code>docs/SECURITY.md</code>.</p>
+      <div class="callout"><span class="label">Check your inbox</span>
+        If an account exists for that address, a reset link is on its way. We always show this message so nobody can
+        use this form to discover which emails are registered.</div>
     {% endif %}
     <a class="btn btn-ghost" href="/login">Back to sign in</a>
   {% else %}

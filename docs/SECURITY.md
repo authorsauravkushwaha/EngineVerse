@@ -81,9 +81,26 @@ a token is a secret and must be looked up by equality, so it now has a table of
 its own with a hashed primary key. The old code also deleted from `audit_logs`,
 which contradicts that table being append-only.
 
-This build has no mail transport, so the link is rendered on the page after the
-request rather than emailed. A deployment with an SMTP relay should send it
-instead and drop that block from `forgot.html`.
+### Where the link goes
+
+The link is only ever emailed, by `engineverse/notify.py` over the standard
+library's `smtplib` — no third-party mail service. Configure it with
+`ENGINEVERSE_SMTP_URL` and `ENGINEVERSE_MAIL_FROM`.
+
+With no relay configured, which is the default, self-service reset is reported as
+**unavailable** and the token is consumed rather than left live in the table.
+This was not always the case: the route used to render the token into
+`forgot.html` because there was nowhere to send it, which made
+`POST /forgot-password` a complete account-takeover endpoint — post a victim's
+address, read the live reset link out of the response, set a new password.
+Nothing gated it, and five tests depended on the behaviour, so it had been
+working as designed.
+
+`ENGINEVERSE_REVEAL_RESET_TOKEN=1` restores the old page for local development,
+and is refused outright when `ENGINEVERSE_ENV=production`. It is also refused
+when a relay is configured but unreachable: a form that starts revealing tokens
+during an SMTP outage is a takeover endpoint that switches itself on at exactly
+the wrong moment.
 
 ## CSRF
 
