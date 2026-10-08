@@ -33,6 +33,8 @@ from seed_data import branches as branch_data  # noqa: E402
 from seed_data import catalog as catalog_data  # noqa: E402
 from seed_data import library_data  # noqa: E402
 from seed_data import models_3d as model_content  # noqa: E402
+from seed_data import flashcards_extra as flashcard_content  # noqa: E402
+from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
@@ -599,7 +601,8 @@ def seed_projects(subject_ids: dict[str, str], branch_ids: dict[str, str]) -> No
 
 def seed_videos(subject_ids: dict[str, str]) -> None:
     with db.transaction():
-        for title, channel, url, minutes, level, category, subject_slug, why in library_data.VIDEOS:
+        rows = list(library_data.VIDEOS) + resource_sources.build_videos(_subject_rows())
+        for title, channel, url, minutes, level, category, subject_slug, why in rows:
             slug = slugify(title)
             db.execute(
                 "INSERT INTO videos (id,slug,title,channel,url,duration_s,language,level,category,topic_id,"
@@ -612,7 +615,7 @@ def seed_videos(subject_ids: dict[str, str]) -> None:
 
 def seed_books(subject_ids: dict[str, str]) -> None:
     with db.transaction():
-        for entry in library_data.BOOKS:
+        for entry in list(library_data.BOOKS) + resource_sources.build_books(_subject_rows()):
             title, author, subject_slug, level, description, why, topics, url, access, publisher = entry
             slug = slugify(title)
             db.execute(
@@ -624,9 +627,18 @@ def seed_books(subject_ids: dict[str, str]) -> None:
             )
 
 
+def _subject_rows() -> list[dict]:
+    """Every subject with its branch category, for per-discipline expansion."""
+    return db.query(
+        "SELECT s.slug AS slug, s.name AS name, COALESCE(b.category, 'core') AS category "
+        "FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id ORDER BY s.slug"
+    )
+
+
 def seed_resources(subject_ids: dict[str, str]) -> None:
     with db.transaction():
-        for title, url, kind, category, subject_slug, level, description in library_data.RESOURCES:
+        rows = list(library_data.RESOURCES) + resource_sources.build(_subject_rows())
+        for title, url, kind, category, subject_slug, level, description in rows:
             slug = slugify(title)
             db.execute(
                 "INSERT INTO resources (id,slug,title,url,kind,category,branch_id,subject_id,level,format,language,"
@@ -637,9 +649,66 @@ def seed_resources(subject_ids: dict[str, str]) -> None:
             )
 
 
+def _assert_known_refs(subject_ids: dict[str, str], topic_ids: dict[str, str],
+                       problem_ids: dict[str, str]) -> None:
+    """Fail the seed if any content row points at something that does not exist.
+
+    Every seeder resolves a key with ``dict.get()`` and a miss becomes NULL. A
+    NULL subject means the row never appears on any subject page, and a NULL
+    roadmap reference renders as a node that links nowhere — in both cases the
+    seed reports success. That is how four rows keyed to a
+    ``probability-statistics`` subject that was never created went unnoticed:
+    a book, a formula, a roadmap step and a flashcard, all silently dropped.
+
+    Checking up front turns that into a clear error naming the offender.
+    """
+    problems: list[str] = []
+
+    def check(value: str | None, known: dict[str, str], what: str, where: str) -> None:
+        if value is None:
+            return                       # a genuinely unassigned row is allowed
+        if value not in known:
+            problems.append(f"{where}: {what} {value!r} does not exist")
+
+    for index, row in enumerate(library_data.VIDEOS):
+        check(row[6], subject_ids, "subject", f"VIDEOS[{index}] {row[0]!r}")
+    for index, row in enumerate(library_data.BOOKS):
+        check(row[2], subject_ids, "subject", f"BOOKS[{index}] {row[0]!r}")
+    for index, row in enumerate(library_data.RESOURCES):
+        check(row[4], subject_ids, "subject", f"RESOURCES[{index}] {row[0]!r}")
+    for index, row in enumerate(library_data.FLASHCARDS):
+        check(row[0], subject_ids, "subject", f"FLASHCARDS[{index}] {row[2]!r}")
+    for index, row in enumerate(library_data.FORMULAS):
+        check(row[1], subject_ids, "subject", f"FORMULAS[{index}] {row[3]!r}")
+
+    project_slugs = {r["slug"] for r in db.query("SELECT slug FROM projects")}
+    module_slugs = {r["slug"] for r in db.query("SELECT slug FROM language_modules")}
+    lookups = {"subject": subject_ids, "topic": topic_ids, "coding": problem_ids,
+               "project": project_slugs, "module": module_slugs}
+    for entry in library_data.ROADMAPS:
+        for order, node in enumerate(entry["nodes"]):
+            ref_type, ref_key = node[2], node[3]
+            if ref_type not in lookups:
+                problems.append(f"{entry['slug']} node {order}: unknown ref_type {ref_type!r}")
+                continue
+            check(ref_key, lookups[ref_type], ref_type, f"{entry['slug']} node {order} {node[0]!r}")
+
+    if problems:
+        raise SystemExit("Seed data references things that do not exist:\n  " + "\n  ".join(problems))
+
+
 def seed_roadmaps(branch_ids: dict[str, str], topic_ids: dict[str, str],
                   problem_ids: dict[str, str], subject_ids: dict[str, str]) -> None:
-    lookup = {"topic": topic_ids, "coding": problem_ids, "subject": subject_ids}
+    lookup = {
+        "topic": topic_ids, "coding": problem_ids, "subject": subject_ids,
+        # A node may point at a project or at a language module. Neither was in
+        # the lookup before, so those references resolved to NULL and the step
+        # rendered with nothing to click. These map slug -> slug to match the
+        # convention the other three use: roadmap_nodes.ref_id holds a slug,
+        # which is what the URL needs.
+        "project": {r["slug"]: r["slug"] for r in db.query("SELECT slug FROM projects")},
+        "module": {r["slug"]: r["slug"] for r in db.query("SELECT slug FROM language_modules")},
+    }
     with db.transaction():
         for index, entry in enumerate(library_data.ROADMAPS):
             slug = entry["slug"]
@@ -651,6 +720,8 @@ def seed_roadmaps(branch_ids: dict[str, str], topic_ids: dict[str, str],
             )
             for order, (title, summary, ref_type, ref_key, required) in enumerate(entry["nodes"]):
                 ref_id = lookup.get(ref_type, {}).get(ref_key)
+                if ref_key and not ref_id:
+                    raise KeyError(f"roadmap {slug!r} node {order} references unknown {ref_type} {ref_key!r}")
                 db.execute(
                     "INSERT INTO roadmap_nodes (id,roadmap_id,title,summary,ref_type,ref_id,is_required,order_index) "
                     "VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET ref_id=excluded.ref_id",
@@ -660,8 +731,17 @@ def seed_roadmaps(branch_ids: dict[str, str], topic_ids: dict[str, str],
 
 def seed_flashcards(subject_ids: dict[str, str]) -> None:
     with db.transaction():
-        for subject_slug, deck, front, back, hint, difficulty in library_data.FLASHCARDS:
-            card_id = f"fc-{slugify(front)}"
+        counts: dict[str, int] = {}
+        for row in library_data.FLASHCARDS:
+            counts[row[0]] = counts.get(row[0], 0) + 1
+        rows = list(library_data.FLASHCARDS) + flashcard_content.build(_subject_rows(), counts)
+        for subject_slug, deck, front, back, hint, difficulty in rows:
+            # Keyed by subject as well as the question, because two subjects can
+            # legitimately ask the same thing. With the subject left out, the
+            # second card's ON CONFLICT clause overwrote the first instead of
+            # adding it — machine-learning silently lost a card to a shared
+            # "What is the bias-variance trade-off?" stem.
+            card_id = f"fc-{slugify(subject_slug)}-{slugify(front)}"
             db.execute(
                 "INSERT INTO flashcards (id,topic_id,subject_id,deck,front,back,hint,difficulty,created_at) "
                 "VALUES (?,NULL,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET back=excluded.back",
@@ -839,6 +919,10 @@ def run(fresh: bool) -> None:
 
     print("Seeding projects ...")
     seed_projects(subject_ids, branch_ids)
+
+    # Runs before the library phase so a bad cross-reference fails the seed
+    # with the offending row named, instead of quietly dropping it.
+    _assert_known_refs(subject_ids, topic_ids, problem_ids)
 
     print("Seeding library (videos, books, resources, roadmaps, flashcards) ...")
     seed_videos(subject_ids)

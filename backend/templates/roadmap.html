@@ -12,8 +12,8 @@
     <div class="prose mb">{{ roadmap.description | md | safe }}</div>
     <div class="roadmap">{% for node in nodes %}
       <div class="rnode">
-        <div class="t">{% if node.ref_id %}
-          <a href="{{ '/topics/' + node.ref_id if node.ref_type == 'topic' else '/practice/problems/' + node.ref_id if node.ref_type == 'coding' else '/subjects/' + node.ref_id if node.ref_type == 'subject' else '/programming' }}">{{ node.title }}</a>
+        <div class="t">{% if node.href %}
+          <a href="{{ node.href }}">{{ node.title }}</a>
           {% else %}{{ node.title }}{% endif %}
           {% if not node.is_required %}<span class="chip">optional</span>{% endif %}</div>
         <p class="small muted" style="margin:2px 0 0">{{ node.summary }}</p>

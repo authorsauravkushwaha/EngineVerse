@@ -147,7 +147,42 @@ def get_roadmap(slug: str) -> dict | None:
 
 
 def roadmap_nodes(roadmap_id: str) -> list[dict]:
-    return db.query("SELECT * FROM roadmap_nodes WHERE roadmap_id = ? ORDER BY order_index", roadmap_id)
+    """Roadmap steps, each with its destination resolved.
+
+    The ref_type to URL mapping lives here rather than in the template so there
+    is one place to keep correct. A ``module`` step carries only a module slug,
+    so it is resolved through to the language page that module belongs to —
+    previously such steps fell through to the bare programming index.
+    """
+    rows = db.query("SELECT * FROM roadmap_nodes WHERE roadmap_id = ? ORDER BY order_index", roadmap_id)
+    module_language = {
+        row["slug"]: row["language_slug"]
+        for row in db.query(
+            "SELECT lm.slug AS slug, pl.slug AS language_slug FROM language_modules lm "
+            "JOIN programming_languages pl ON pl.id = lm.language_id"
+        )
+    }
+    for node in rows:
+        node["href"] = _node_href(node, module_language)
+    return rows
+
+
+def _node_href(node: dict, module_language: dict[str, str]) -> str | None:
+    ref_type, ref_id = node["ref_type"], node["ref_id"]
+    if not ref_id:
+        return None
+    if ref_type == "topic":
+        return f"/topics/{ref_id}"
+    if ref_type == "coding":
+        return f"/practice/problems/{ref_id}"
+    if ref_type == "subject":
+        return f"/subjects/{ref_id}"
+    if ref_type == "project":
+        return f"/projects/{ref_id}"
+    if ref_type == "module":
+        language = module_language.get(ref_id)
+        return f"/programming/{language}" if language else "/programming"
+    return None
 
 
 # ---- flashcards -----------------------------------------------------------
