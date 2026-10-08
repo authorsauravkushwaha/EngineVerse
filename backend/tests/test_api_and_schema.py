@@ -743,6 +743,155 @@ class TestSearchIndexSelfHeal:
         types = {row["type"] for row in search.search("array", limit=10)["results"]}
         assert "note" in types, "a search for a covered concept returns no notes"
 
+    def test_content_added_after_boot_becomes_searchable(self, seeded):
+        """docs/CONTENT.md says to extend the catalogue by inserting rows.
+
+        Nothing indexes a row when it is written, and refresh_if_stale() used to
+        consult only the schema-version marker, which it writes on first boot. So
+        once a process had booted once the marker matched forever and a subject
+        added afterwards stayed invisible to global search and to the AI tutor -
+        not until a restart, permanently.
+        """
+        from engineverse import db, search
+        from engineverse.security.ids import now_ms, ulid
+
+        search.refresh_if_stale()
+        assert search.refresh_if_stale() == 0, "precondition: the index is current"
+
+        subject = db.query_one("SELECT id FROM subjects LIMIT 1")
+        topic_id = ulid()
+        try:
+            db.execute(
+                "INSERT INTO topics (id, subject_id, slug, title, summary, status, "
+                "difficulty, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,'published','intermediate',?,?)",
+                topic_id, subject["id"], "zz-reindex-probe-topic",
+                "Quantum Tunnelling Rate Probe",
+                "How tunnelling probability depends on barrier width and height.",
+                now_ms(), now_ms(),
+            )
+            assert search.refresh_if_stale() > 0, "an inserted topic did not trigger a rebuild"
+            titles = [r["title"] for r in search.search("quantum tunnelling probe", limit=5)["results"]]
+            assert any("Quantum Tunnelling Rate Probe" in t for t in titles), (
+                f"the inserted topic is not searchable: {titles}"
+            )
+        finally:
+            db.execute("DELETE FROM topics WHERE id = ?", topic_id)
+            search.refresh_if_stale()
+
+    def test_edited_and_deleted_content_leaves_the_index(self, seeded):
+        from engineverse import db, search
+        from engineverse.security.ids import now_ms, ulid
+
+        search.refresh_if_stale()
+        subject = db.query_one("SELECT id FROM subjects LIMIT 1")
+        topic_id = ulid()
+        try:
+            db.execute(
+                "INSERT INTO topics (id, subject_id, slug, title, summary, status, "
+                "difficulty, created_at, updated_at) "
+                "VALUES (?,?,?,?,?,'published','intermediate',?,?)",
+                topic_id, subject["id"], "zz-reindex-probe-two",
+                "Tunnelling Probe Two", "probe body", now_ms(), now_ms(),
+            )
+            search.refresh_if_stale()
+
+            db.execute(
+                "UPDATE topics SET title = 'Tunnelling Probe Two Renamed', updated_at = ? "
+                "WHERE id = ?", now_ms(), topic_id,
+            )
+            assert search.refresh_if_stale() > 0, "an edit did not trigger a rebuild"
+            titles = [r["title"] for r in search.search("tunnelling probe two", limit=5)["results"]]
+            assert any("Renamed" in t for t in titles), f"the edit is not in the index: {titles}"
+
+            db.execute("DELETE FROM topics WHERE id = ?", topic_id)
+            assert search.refresh_if_stale() > 0, "a delete did not trigger a rebuild"
+            titles = [r["title"] for r in search.search("tunnelling probe two", limit=5)["results"]]
+            assert not any("Tunnelling Probe Two" in t for t in titles), (
+                f"a deleted topic is still indexed: {titles}"
+            )
+        finally:
+            db.execute("DELETE FROM topics WHERE id = ?", topic_id)
+            search.refresh_if_stale()
+
+    def test_a_unchanged_catalogue_is_not_reindexed_on_every_boot(self, seeded):
+        """The fingerprint check must not cause a rebuild on every start."""
+        from engineverse import search
+
+        search.refresh_if_stale()
+        for _ in range(3):
+            assert search.refresh_if_stale() == 0, "a rebuild storm: nothing changed"
+
+
+class TestNoteIndexing:
+    """Notes are indexed once per topic, merging every published note it has.
+
+    It used to index one entry per note keyed by the topic slug. index_entity()
+    deletes before inserting, so a topic's four notes overwrote each other and
+    only the last one read survived - 192 notes produced 48 index rows, and which
+    quality level won depended on row order rather than anything a reader could
+    rely on.
+    """
+
+    def test_reindex_reports_the_number_of_rows_it_actually_wrote(self, seeded):
+        from engineverse import db, search
+
+        claimed = search.reindex_all()
+        actual = db.row_count("search_index")
+        assert claimed == actual, (
+            f"reindex_all() claimed {claimed} entities but wrote {actual} rows; "
+            "the gap was notes overwriting each other"
+        )
+
+    def test_every_published_note_contributes_to_its_topic_entry(self, seeded):
+        from engineverse import db, search
+
+        search.reindex_all()
+        for topic in db.query(
+            "SELECT t.id, t.slug FROM topics t "
+            "WHERE EXISTS (SELECT 1 FROM notes n WHERE n.topic_id = t.id AND n.status='published') "
+            "LIMIT 12"
+        ):
+            levels = {
+                row["quality_level"]
+                for row in db.query(
+                    "SELECT quality_level FROM notes WHERE topic_id = ? AND status='published'",
+                    topic["id"],
+                )
+            }
+            entry = db.query_one(
+                "SELECT body, tags FROM search_index WHERE entity_type='note' AND entity_id=?",
+                topic["slug"],
+            )
+            assert entry, f"topic {topic['slug']} has published notes but no index entry"
+            assert levels <= set(entry["tags"].split()), (
+                f"topic {topic['slug']}: indexed tags {entry['tags']!r} are missing {sorted(levels)}"
+            )
+
+    def test_one_entry_per_topic_so_a_search_does_not_repeat_itself(self, seeded):
+        from engineverse import db, search
+
+        search.reindex_all()
+        dupes = db.query(
+            "SELECT entity_id, count(*) AS c FROM search_index WHERE entity_type='note' "
+            "GROUP BY entity_id HAVING c > 1"
+        )
+        assert not dupes, f"note results are keyed by topic but appear more than once: {dupes}"
+
+    def test_note_bodies_are_not_truncated_away(self, seeded):
+        """The 4000-character cap cut 47 of 48 topics and kept 71% of the prose."""
+        from engineverse import db, search
+
+        search.reindex_all()
+        truncated = db.query_one(
+            "SELECT count(*) AS c FROM search_index "
+            "WHERE entity_type='note' AND length(body) >= ?", search.MAX_BODY_CHARS,
+        )["c"]
+        assert truncated == 0, (
+            f"{truncated} note entries hit the {search.MAX_BODY_CHARS}-character cap; "
+            "raise it or the tail of those notes is unsearchable"
+        )
+
 
 class TestDeployTopologyIsCoherent:
     """The compose file must describe a topology that can actually run.

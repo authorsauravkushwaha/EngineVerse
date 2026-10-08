@@ -41,15 +41,23 @@ def url_for(entity_type: str, entity_id: str) -> str:
     return template.format(id=entity_id)
 
 
+# Ceiling on indexed prose. Sized from measurement, not taste: merging a topic's
+# published notes produces a median of 5.4k characters and a maximum of 11.3k, so
+# the 4000 this used to be truncated 47 of 48 topics and kept 71% of the text.
+MAX_BODY_CHARS = 16000
+
+
 def index_entity(
     *, entity_type: str, entity_id: str, title: str, body: str = "",
     branch: str = "", semester: str = "", difficulty: str = "", tags: str = "",
+    body_limit: int = MAX_BODY_CHARS,
 ) -> None:
     db.execute("DELETE FROM search_index WHERE entity_type = ? AND entity_id = ?", entity_type, entity_id)
     db.execute(
         "INSERT INTO search_index (entity_type,entity_id,title,body,branch,semester,difficulty,tags) "
         "VALUES (?,?,?,?,?,?,?,?)",
-        entity_type, entity_id, title[:500], body[:4000], branch or "", semester or "", difficulty or "", tags or "",
+        entity_type, entity_id, title[:500], body[:body_limit], branch or "",
+        semester or "", difficulty or "", tags or "",
     )
 
 
@@ -242,25 +250,77 @@ def indexed_count() -> int:
 INDEX_SCHEMA_VERSION = 2
 
 
-def refresh_if_stale() -> int:
-    """Rebuilds the index when the code indexes more than the stored index does.
+# The content tables the index is derived from. Row counts and the newest
+# updated_at across them make a cheap fingerprint: inserting a row changes the
+# count, editing one moves the timestamp.
+_FINGERPRINT_TABLES = (
+    "branches", "subjects", "topics", "notes", "formulas", "questions",
+    "coding_problems", "projects", "videos", "books", "resources",
+    "roadmaps", "programming_languages",
+)
 
-    Records the version it wrote in site_config so the check is cheap on every
-    later start. Returns the number of entities reindexed, or 0 when the index
-    was already current.
+
+def content_fingerprint() -> str:
+    """A cheap signature over the content tables the index is derived from.
+
+    A handful of COUNT/SUM/MAX queries over single tables, no joins, so this is
+    safe to run on every boot. Two different content states can produce the same
+    fingerprint in principle, but the index is rebuilt whenever it differs and a
+    false positive only costs one rebuild.
+
+    Sum as well as max, because max alone only notices a timestamp that moves
+    forward past every other row; a backdated edit would leave it untouched.
+    Neither catches an in-place edit that changes no count and no timestamp -
+    `scripts/reindex.py` covers that case.
+    """
+    parts = []
+    for table in _FINGERPRINT_TABLES:
+        try:
+            row = db.query_one(
+                f"SELECT count(*) AS c, COALESCE(sum(updated_at), 0) AS s, "
+                f"COALESCE(max(updated_at), 0) AS m FROM {table}"
+            )
+        except db.sqlite3.OperationalError:
+            row = None
+        parts.append(f"{row['c'] if row else 0}:{row['s'] if row else 0}:{row['m'] if row else 0}")
+    return "|".join(parts)
+
+
+def refresh_if_stale() -> int:
+    """Rebuilds the index when it no longer describes the content tables.
+
+    Two independent reasons to rebuild:
+
+    - the code indexes more entity types than the stored index holds, tracked by
+      INDEX_SCHEMA_VERSION, which covers a schema change on upgrade;
+    - the content has changed since the index was built, tracked by
+      content_fingerprint(). This is the one that matters operationally: nothing
+      indexes a row when it is inserted, and docs/CONTENT.md tells you to extend
+      the catalogue by inserting rows. Without this, a subject added that way
+      would be invisible to global search and to the AI tutor until the process
+      restarted with a bumped version - which it never would.
+
+    Returns the number of entities reindexed, or 0 when the index was current.
     """
     from .security.ids import now_ms
 
-    row = db.query_one("SELECT value FROM site_config WHERE key = 'search_index_version'")
-    if row and row["value"] == str(INDEX_SCHEMA_VERSION):
+    fingerprint = content_fingerprint()
+    version_row = db.query_one("SELECT value FROM site_config WHERE key = 'search_index_version'")
+    marker_row = db.query_one("SELECT value FROM site_config WHERE key = 'search_index_marker'")
+    version_ok = bool(version_row) and version_row["value"] == str(INDEX_SCHEMA_VERSION)
+    marker_ok = bool(marker_row) and marker_row["value"] == fingerprint
+    if version_ok and marker_ok:
         return 0
+
     count = reindex_all()
-    if row:
-        db.execute("UPDATE site_config SET value = ?, updated_at = ? WHERE key = 'search_index_version'",
-                   str(INDEX_SCHEMA_VERSION), now_ms())
-    else:
-        db.execute("INSERT INTO site_config (key, value, updated_at) VALUES (?,?,?)",
-                   "search_index_version", str(INDEX_SCHEMA_VERSION), now_ms())
+    stamp = now_ms()
+    for key, value in (("search_index_version", str(INDEX_SCHEMA_VERSION)),
+                       ("search_index_marker", fingerprint)):
+        db.execute(
+            "INSERT INTO site_config (key, value, updated_at) VALUES (?,?,?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            key, value, stamp,
+        )
     return count
 
 
@@ -306,24 +366,43 @@ def reindex_all() -> int:
 
     # Notes were never indexed, so the 192 published notes and their 957
     # sections were invisible to global search - a student searching for a
-    # concept found the topic page but not the writing that explains it. The
-    # body is capped: the index is a pointer into the note, not a copy of it.
+    # concept found the topic page but not the writing that explains it.
+    #
+    # One entry per topic, merging every published note it has. This used to
+    # index one entry per note keyed by the topic slug, and index_entity()
+    # deletes before inserting, so the four notes a topic carries silently
+    # overwrote each other and only the last one read survived - 192 notes
+    # produced 48 index rows and which quality level won depended on row order.
+    # Merging keeps every note's prose searchable while still returning one
+    # result per topic, which is what ENTITY_URLS["note"] points at anyway.
+    # The body is capped at MAX_BODY_CHARS, which the measured sizes above fit.
     for row in db.query(
-        "SELECT n.id, n.quality_level, t.slug AS topic_slug, t.title AS topic_title, s.name AS subject, "
+        "SELECT t.slug AS topic_slug, t.title AS topic_title, s.name AS subject, "
         "       b.slug AS branch, s.semester_id AS semester, t.difficulty "
-        "FROM notes n JOIN topics t ON t.id = n.topic_id JOIN subjects s ON s.id = t.subject_id "
-        "LEFT JOIN branches b ON b.id = s.branch_id WHERE n.status = 'published'"
+        "FROM topics t JOIN subjects s ON s.id = t.subject_id "
+        "LEFT JOIN branches b ON b.id = s.branch_id "
+        "WHERE EXISTS (SELECT 1 FROM notes n WHERE n.topic_id = t.id AND n.status = 'published')"
     ):
-        sections = db.query(
-            "SELECT title, body FROM note_sections WHERE note_id = ? ORDER BY order_index", row["id"]
-        )
-        body = " ".join(f"{sec['title']}. {sec['body']}" for sec in sections)[:4000]
+        parts = []
+        levels = []
+        for note in db.query(
+            "SELECT id, quality_level FROM notes WHERE topic_id = "
+            "(SELECT id FROM topics WHERE slug = ?) AND status = 'published' "
+            "ORDER BY quality_level, id", row["topic_slug"]
+        ):
+            sections = db.query(
+                "SELECT title, body FROM note_sections WHERE note_id = ? ORDER BY order_index",
+                note["id"],
+            )
+            levels.append(note["quality_level"])
+            parts.append(" ".join(f"{sec['title']}. {sec['body']}" for sec in sections))
+        body = " ".join(parts)[:MAX_BODY_CHARS]
         index_entity(
             entity_type="note", entity_id=row["topic_slug"],
-            title=f"{row['topic_title']} — {row['quality_level']} notes",
+            title=f"{row['topic_title']} — {len(levels)} notes",
             body=f"{row['subject']}. {body}", branch=row["branch"] or "",
             semester=str(row["semester"] or ""), difficulty=row["difficulty"],
-            tags=row["quality_level"],
+            tags=" ".join(levels),
         )
         count += 1
 

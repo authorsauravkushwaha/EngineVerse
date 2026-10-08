@@ -137,9 +137,37 @@ Two invariants the tests hold: every source is a relative platform URL, and note
 bodies are stripped of markup server-side before they enter an answer, so a
 stored `<script>` cannot reach a client even one that trusted the response.
 
+## The search index is derived data
+
+`search_index` is a rebuildable projection of the content tables, not a table
+anyone writes to directly. Both the search box and the tutor read it, so when it
+falls behind, content exists but cannot be found — which is why staleness is
+handled rather than assumed away.
+
+Nothing indexes a row at the moment it is written. Two things close that gap:
+
+- `search.refresh_if_stale()` runs at startup and compares a fingerprint of the
+  content tables — row count, `updated_at` sum and maximum per table — against
+  the marker written at the last build. An insert, an edit or a delete all change
+  it, so the next boot rebuilds. The schema-version marker alone is not enough:
+  it records which *shape* of index the code produces, and once it matches it
+  stays matched.
+- `scripts/reindex.py` rebuilds on demand, which is what an operator runs after
+  inserting catalogue rows by hand. `--check` reports what the index holds
+  without changing it.
+
+Notes are indexed once per topic, merging every published note that topic has.
+They used to be indexed one entry per note keyed by the topic slug; since
+`index_entity()` deletes before inserting, a topic's notes overwrote each other
+and only the last one read survived. Prose is capped at `MAX_BODY_CHARS`, sized
+from measurement: merged topic notes run to a median of 5.4k characters and a
+maximum of 11.3k, and the previous 4000-character cap truncated 47 of 48 topics.
+
 ## Data layer
 
-`db/schema.sql` is the development schema (SQLite, 63 tables) and
+`db/schema.sql` is the development schema (SQLite, 64 tables; a migrated
+database holds 71, because `db.migrate()` adds `schema_meta`, `search_index`
+and that table's five FTS shadow tables) and
 `db/postgres/schema.pg.sql` mirrors it for production. They share the model
 exactly and differ only where scale demands it: hash partitioning on the hot
 tables, `citext` for case-insensitive emails, `jsonb` for indexed payloads,

@@ -83,6 +83,31 @@ topics, questions, problems and projects are rows, and the templates iterate
 them. Adding a branch means inserting into `branches` and `subjects`; no template
 changes.
 
+### After you insert rows, the search index has to catch up
+
+Global search and the AI tutor both read a derived index, not the content tables.
+Nothing indexes a row at the moment it is written, so a subject you just inserted
+is not searchable until the index is rebuilt. Two things do that:
+
+```bash
+python scripts/reindex.py            # rebuild now
+python scripts/reindex.py --check    # report what the index holds, change nothing
+```
+
+and the application rebuilds on startup when it notices the content has changed.
+`search.refresh_if_stale()` fingerprints the content tables — row counts and
+`updated_at` sums per table — and compares it with the marker written at the last
+build, so an insert, an edit or a delete all trigger a rebuild on the next boot.
+
+Both are worth knowing about because the version marker alone is not enough.
+It records which *schema* of index the code produces, and once it matches it
+stays matched, so relying on it would have left newly added content invisible
+until a schema change happened to force a rebuild.
+
+A fingerprint cannot notice an edit that changes neither a row count nor a
+timestamp. If you rewrite content in place by hand, run `scripts/reindex.py`.
+`scripts/seed.py` reindexes as part of seeding, so reseeding never needs it.
+
 The one place a new *shape* of content needs code is the coding judge: a problem
 whose input is not one of the thirteen known forms needs a new wrapper in
 `engineverse/drivers.py`. Everything else is data.
