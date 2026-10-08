@@ -1127,6 +1127,71 @@ class TestModerationCanActuallyHide:
             db.execute("DELETE FROM discussions WHERE id = ?", thread_id)
 
 
+class TestEveryFormHandlerMatchesItsTemplate:
+    """Every Form(...) parameter must have an input in the form that posts to it.
+
+    Checked by hand once and it found three real bugs: two admin accent colours
+    that reset on every save, and note_quality/language silently reverted whenever
+    a notification checkbox was ticked. The mechanism is easy to miss because
+    nothing errors - a field the browser never sends arrives as the handler's
+    Form default and overwrites the stored value.
+    """
+
+    @staticmethod
+    def _forms_by_action():
+        import pathlib
+        import re
+
+        by_action = {}
+        for path in pathlib.Path("backend/templates").rglob("*.html"):
+            text = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"<form\b([^>]*)>(.*?)</form>", text, re.S):
+                action = re.search(r'action="([^"]+)"', match.group(1))
+                if not action:
+                    continue
+                target = action.group(1).split("?")[0]
+                by_action.setdefault(target, set()).update(
+                    re.findall(r'name="([a-zA-Z_0-9]+)"', match.group(2))
+                )
+        return by_action
+
+    @staticmethod
+    def _form_params(module_name):
+        import inspect
+        import re
+
+        module = __import__(f"web.{module_name}", fromlist=["x"])
+        source_all = inspect.getsource(module)
+        found = {}
+        for match in re.finditer(r'@router\.post\("([^"]+)"\)\s*\nasync def (\w+)\(', source_all):
+            route, function_name = match.group(1), match.group(2)
+            signature = getattr(module, function_name, None)
+            if signature is None:
+                continue
+            body = inspect.getsource(signature)
+            head = body[: body.find("):") + 2] if "):" in body else body
+            params = set(re.findall(r"(\w+)\s*:\s*[^=,]+?=\s*Form\(", head))
+            if params:
+                found[route] = params
+        return found
+
+    def test_no_handler_accepts_a_field_its_form_never_sends(self):
+        by_action = self._forms_by_action()
+        problems = {}
+        for module_name in ("auth_pages", "pages"):
+            for route, params in self._form_params(module_name).items():
+                fields = by_action.get(route)
+                if fields is None:
+                    continue  # posted by client script rather than a template form
+                missing = params - fields
+                if missing:
+                    problems[f"{module_name}:{route}"] = sorted(missing)
+        assert not problems, (
+            f"these handlers accept parameters their form never sends, so saving "
+            f"resets them to the handler defaults: {problems}"
+        )
+
+
 class TestEveryFormFieldHasAnInput:
     """A handler parameter with no matching input silently takes its default.
 
