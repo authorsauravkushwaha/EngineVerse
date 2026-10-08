@@ -1,0 +1,271 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  # The networked link check is slow and can be failed by a publisher rate
+  # limiting us, so it runs on a schedule rather than blocking every push.
+  schedule:
+    - cron: "0 4 * * 1"   # 04:00 UTC every Monday
+  workflow_dispatch:
+
+jobs:
+  python:
+    name: Python · tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Everything the suite needs is pinned in requirements.txt. This step
+          # used to follow it with a bare `pip install pytest pytest-asyncio
+          # sqlglot`, which resolves to whatever is newest and silently overrode
+          # those pins - so CI tested a different toolchain than the one the pins
+          # describe, and a new pytest release could turn a green suite red for a
+          # reason nothing in the repository changed.
+          pip install -r requirements.txt
+
+      - name: Seed a throwaway database
+        run: |
+          cp .env.example .env
+          python scripts/seed.py --fresh --stats
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+
+      - name: Run the test suite
+        # pipefail matters: without it the pipeline's status is tee's, and a red
+        # suite would report success.
+        shell: bash
+        run: |
+          set +e +o pipefail
+          python -m pytest backend/tests -q --tb=short 2>&1 | tee /tmp/pytest.txt
+          status=${PIPESTATUS[0]}
+          set -e -o pipefail
+          exit "$status"
+        env:
+          ENGINEVERSE_SECRET: ci-only-secret-not-used-in-production-0123456789
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+          ENGINEVERSE_ENV: test
+
+      - name: Surface test failures as annotations
+        # Raw job logs are only reachable from a browser session. Workflow
+        # annotations are readable over the REST API, so echoing the failure
+        # lines here is what makes a red run diagnosable from a script or a
+        # sandbox that cannot open the Actions UI.
+        if: failure()
+        run: |
+          { grep -E "^(FAILED|ERROR) " /tmp/pytest.txt | head -40; \
+            grep -E "^E  " /tmp/pytest.txt | head -40; } | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+          tail -5 /tmp/pytest.txt | while IFS= read -r line; do
+            echo "::notice::${line}"
+          done
+
+      - name: Every resource URL is well-formed
+        # Offline: no network needed, so it runs on every push. Catches
+        # malformed URLs, non-https links, private hosts and placeholders.
+        run: python scripts/check_links.py --offline
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+
+      - name: Report seed volume
+        run: python scripts/seed.py --stats
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+
+  postgres:
+    name: PostgreSQL · schema applies
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: engineverse
+          POSTGRES_PASSWORD: engineverse
+          POSTGRES_DB: engineverse
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U engineverse"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Apply the production schema
+        env:
+          PGPASSWORD: engineverse
+        shell: bash
+        run: |
+          # GitHub runs `shell: bash` as `bash -eo pipefail`, so a failing
+          # pipeline aborts the script on the spot and the annotation block below
+          # never runs. -e is switched off around the pipeline and the exit code
+          # taken from PIPESTATUS instead, which is the only way to report why.
+          set +e +o pipefail
+          psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
+            -f db/postgres/schema.pg.sql 2>&1 | tee /tmp/psql.txt
+          status=${PIPESTATUS[0]}
+          set -e -o pipefail
+          if [ "$status" -ne 0 ]; then
+            echo "::error::psql exited ${status}; last 30 lines of output follow"
+            tail -30 /tmp/psql.txt | while IFS= read -r line; do
+              echo "::error::${line}"
+            done
+            exit "$status"
+          fi
+
+      - name: Verify partitions and row limits were created
+        env:
+          PGPASSWORD: engineverse
+        run: |
+          psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 <<'SQL'
+          -- Every partitioned table must have its full fan-out. This raises
+          -- rather than selecting: a bare SELECT with a HAVING clause returns
+          -- zero rows and exits 0 when the partitions are missing, so the old
+          -- version of this check passed whether or not it had verified anything.
+          DO $do$
+          DECLARE found integer;
+          BEGIN
+            SELECT count(*) INTO found FROM (
+              SELECT c.relname
+                FROM pg_inherits i JOIN pg_class c ON c.oid = i.inhparent
+               WHERE c.relname IN ('submissions','activity','audit_logs','coding_submissions')
+               GROUP BY c.relname
+              HAVING count(i.inhrelid) >= 128
+            ) satisfied;
+            IF found <> 4 THEN
+              RAISE EXCEPTION 'expected 4 hash-partitioned tables with >=128 partitions, found %', found;
+            END IF;
+          END $do$;
+
+          -- Inserts must land in a partition rather than failing.
+          --
+          -- Two things this used to get wrong, both of which let it pass while
+          -- checking nothing: it selected the question from an empty `questions`
+          -- table (so the INSERT affected zero rows), and it passed the boolean
+          -- `true` for `is_correct`, which is BIGINT because the SQLite schema
+          -- declares it INTEGER. A zero-row insert satisfies any constraint.
+          INSERT INTO users (id, email, username, password_hash, password_changed_at, created_at, updated_at)
+          VALUES ('01TEST', 'schema-check@engineverse.test', 'schemacheck', 'scrypt$16384$8$1$AA$BB', 0, 0, 0);
+          INSERT INTO questions (id, slug, kind, stem, created_at)
+          VALUES ('01Q', 'schema-check-question', 'mcq', 'Partition routing check.', 0);
+          INSERT INTO submissions (id, user_id, question_id, is_correct, created_at)
+          VALUES ('01SUB', '01TEST', '01Q', 1, 0);
+
+          -- Assert the row is physically in a child partition. `tableoid` on a
+          -- partitioned table resolves to the partition the row landed in, so a
+          -- value of the parent would mean hashing never happened.
+          DO $do$
+          DECLARE routed text;
+          BEGIN
+            SELECT tableoid::regclass::text INTO routed FROM submissions WHERE id = '01SUB';
+            IF routed IS NULL THEN
+              RAISE EXCEPTION 'the submission row is missing';
+            END IF;
+            IF routed = 'submissions' THEN
+              RAISE EXCEPTION 'the row landed in the parent table, not a partition';
+            END IF;
+            RAISE NOTICE 'submission routed into %', routed;
+          END $do$;
+          SQL
+
+      - name: Re-applying the schema must be a no-op
+        env:
+          PGPASSWORD: engineverse
+        run: |
+          psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
+            -f db/postgres/schema.pg.sql
+
+  javascript:
+    name: Assets · no build step required
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      # The 3D scene check runs the shipped scenes through the shipped renderer,
+      # which needs the Python that defines them. No third-party packages.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: The client bundle parses as valid JavaScript
+        # sw.js is checked too: it is the other script the browser runs, and a
+        # syntax error there breaks offline caching silently rather than loudly.
+        run: |
+          node --check backend/static/js/app.js
+          node --check backend/static/js/engine3d.js
+          node --check backend/static/sw.js
+
+      - name: The 3D renderer's maths is correct
+        # Runs the real mesh builders under a DOM stub and asserts finite
+        # geometry, clamping, the arrow orientation maths and the projection.
+        run: node scripts/check_engine3d.js
+
+      - name: Every stored 3D scene can actually be drawn
+        # A scene that validates as JSON can still name a mesh the renderer
+        # does not have; this builds all 48 with the browser's own code.
+        run: python scripts/dump_scenes.py | node scripts/check_scenes.js
+
+      - name: No CDN or third-party origins are referenced
+        run: |
+          if grep -rnE 'https?://[^"]*(cdn|unpkg|jsdelivr|googleapis|gstatic)' \
+               backend/static backend/templates; then
+            echo "error: a third-party asset host is referenced" >&2
+            exit 1
+          fi
+          echo "OK: every asset is self-hosted"
+
+  links:
+    name: Links · external URLs still resolve
+    # Weekly and on demand only. Fetching a few hundred publisher URLs on every
+    # push is slow and would fail pull requests for reasons outside this repo.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Seed a throwaway database
+        run: |
+          cp .env.example .env
+          python scripts/seed.py --fresh
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3
+
+      - name: Fetch every resource URL
+        # Non-zero only on a genuine failure. 403/429/451 are warnings: plenty
+        # of publishers refuse automated clients, and failing on that would make
+        # the whole check noise.
+        run: python scripts/check_links.py --timeout 20 --concurrency 8
+        env:
+          ENGINEVERSE_DB_PATH: data/ci.sqlite3

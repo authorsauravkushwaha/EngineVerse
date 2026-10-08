@@ -1,0 +1,78 @@
+# EngineVerse web application.
+#
+#   docker build -f deploy/Dockerfile.web -t engineverse-web .
+#
+# Serves server-rendered HTML and the JSON API.
+#
+# IMPORTANT, and previously misstated in this file: the judge runs learner code
+# IN THIS CONTAINER. The bridge invokes `java -jar`, `gcc` and `python3` as
+# subprocesses, so the toolchains have to be present wherever the application
+# process is - a separate container cannot serve a subprocess call. What contains
+# a submission here is rlimits, a mount namespace over the application tree, a
+# network namespace, a private process group and an unprivileged user, not
+# container separation. See docs/SECURITY.md for exactly what that does and does
+# not stop.
+
+FROM python:3.11-slim AS build
+WORKDIR /src
+COPY requirements.txt ./
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+# --- build stage: compile the Java sandbox jar -------------------------------
+# The bridge needs the jar next to the application, so it is built here rather
+# than shipped in a separate image nothing can reach.
+FROM maven:3.9-eclipse-temurin-21 AS javabuild
+WORKDIR /src
+COPY sandbox-java/pom.xml ./
+RUN mvn -B -q dependency:go-offline
+COPY sandbox-java/src ./src
+RUN mvn -B -q -DskipTests package && cp target/engineverse-sandbox.jar /engineverse-sandbox.jar
+
+FROM python:3.11-slim
+
+# A non-root user and the toolchains the judge invokes: gcc and g++ for C/C++
+# submissions, and openjdk-21-jdk-headless for Java ones. Nothing else is
+# installed - the smaller the image, the smaller the surface.
+#
+# The JDK rather than the JRE, because the judge compiles with javac before it
+# runs. A JRE has no compiler, so shipping one would have made Java the same kind
+# of dead option SQL was: offered in the picker, failing on Run.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends gcc g++ libc6-dev openjdk-21-jdk-headless \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10001 engineverse \
+ && useradd  --system --uid 10001 --gid engineverse --no-create-home --shell /usr/sbin/nologin engineverse \
+ && mkdir -p /app/data \
+ && chown -R engineverse:engineverse /app
+
+COPY --from=build /install /usr/local
+COPY --from=javabuild /engineverse-sandbox.jar /app/engineverse-sandbox.jar
+WORKDIR /app
+
+COPY backend ./backend
+COPY db ./db
+COPY scripts ./scripts
+COPY seed_data ./seed_data
+
+# The database lives on a volume so it survives a redeploy. In production point
+# ENGINEVERSE_DB_URL at PostgreSQL instead and this stays empty.
+VOLUME ["/app/data"]
+
+USER engineverse
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ENGINEVERSE_DB_PATH=/app/data/engineverse.sqlite3 \
+    HOST=0.0.0.0 \
+    PORT=8000
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status==200 else 1)"
+
+# Migrate and seed on first boot only; an existing database is left alone.
+# `seed.py` is idempotent, so this is safe to re-run.
+CMD ["sh", "-c", "python -c \"import sys; sys.path.insert(0,'backend'); from engineverse import db; db.migrate()\" \
+      && python scripts/seed.py \
+      && exec uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000"]

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}{{ branch.name }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/explore">Branches</a> › <span>{{ branch.name }}</span></nav>
+<header class="panel hero mb">
+  <h1>{{ branch.name }}</h1>
+  <p class="lead">{{ branch.description }}</p>
+  <div class="tags"><span class="chip accent">{{ subjects | length }} subjects</span>
+    <span class="chip">{{ branch.category | titlecase }}</span></div>
+</header>
+
+<section class="section">
+  <h2>Subjects</h2>
+  <div class="grid g3">
+    {% for subject in subjects %}
+      <a class="card" href="/subjects/{{ subject.slug }}">
+        <span class="title">{{ subject.name }}</span>
+        <span class="desc">{{ subject.description | excerpt(120) }}</span>
+        <div class="tags">
+          {% if subject.semester_id %}<span class="chip">Sem {{ subject.semester_id }}</span>{% endif %}
+          {% if subject.credits %}<span class="chip">{{ subject.credits }} cr</span>{% endif %}
+          <span class="chip diff-{{ subject.difficulty }}">{{ subject.difficulty }}</span>
+        </div>
+      </a>
+    {% else %}
+      <div class="empty"><span class="em">🚧</span>Subjects for this branch are being added.</div>
+    {% endfor %}
+  </div>
+</section>
+
+{% if roadmaps %}
+<section class="section">
+  <h2>Roadmaps</h2>
+  <div class="grid g3">{% for r in roadmaps %}
+    <a class="card" href="/roadmaps/{{ r.slug }}"><span class="title">{{ r.title }}</span>
+      <span class="desc">{{ r.summary }}</span></a>{% endfor %}</div>
+</section>
+{% endif %}
+
+{% if related_projects %}
+<section class="section">
+  <h2>Projects for this branch</h2>
+  <div class="grid g3">{% for p in related_projects %}
+    <a class="card" href="/projects/{{ p.slug }}"><span class="title">{{ p.title }}</span>
+      <span class="desc">{{ p.summary | excerpt(120) }}</span>
+      <div class="tags"><span class="chip accent">{{ p.difficulty }}</span><span class="chip">{{ p.est_hours }} h</span></div></a>
+  {% endfor %}</div>
+</section>
+{% endif %}
+{% endblock %}

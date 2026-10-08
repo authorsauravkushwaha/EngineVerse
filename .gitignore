@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+htmlcov/
+coverage.xml
+
+# Local database + runtime state
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.db
+
+# Secrets
+.env
+.env.local
+.env.*.local
+
+# Toolchains fetched locally (never committed)
+.toolchain/
+*.jar
+sandbox-java/target/
+sandbox-java/build/
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
+*.log
+.scratch/

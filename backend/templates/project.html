@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}{{ project.title }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/projects">Projects</a> › <span>{{ project.title }}</span></nav>
+<div class="layout-2">
+  <article class="stack">
+    <header>
+      <h1>{{ project.title }}</h1>
+      <p class="muted">{{ project.summary }}</p>
+      <div class="tags"><span class="chip accent">{{ project.difficulty }}</span>
+        <span class="chip">{{ project.est_hours }} hours</span>
+        <span class="chip">{{ project.category }}</span>
+        {% for tech in (project.tech | fromjson([])) %}<span class="chip">{{ tech }}</span>{% endfor %}</div>
+      {% if user %}
+      <div class="row mt" style="gap:8px;flex-wrap:wrap">
+        <button class="btn btn-primary btn-sm" data-bookmark="project" data-type="project"
+          data-id="{{ project.id }}">☆ Save to portfolio</button>
+        <form method="post" action="/api/projects/track" data-json-form>
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <input type="hidden" name="projectSlug" value="{{ project.slug }}">
+          <button class="btn btn-soft btn-sm" type="submit">I built this (+5 XP)</button>
+        </form>
+      </div>
+      {% endif %}
+    </header>
+
+    <section class="panel"><h2>Problem statement</h2><div class="prose">{{ project.problem_statement | md | safe }}</div>
+      <h3>Objective</h3><div class="prose">{{ project.objective | md | safe }}</div></section>
+
+    <section class="panel"><h2>Architecture</h2><div class="prose">{{ project.architecture | md | safe }}</div>
+      {% if project.hardware %}<h3>Hardware</h3><p class="muted">{{ project.hardware }}</p>{% endif %}
+      {% if project.software %}<h3>Software</h3><p class="muted">{{ project.software }}</p>{% endif %}</section>
+
+    <section class="panel"><h2>Build steps</h2>
+      <div class="roadmap">{% for step in steps %}
+        <div class="rnode"><div class="t">{{ step.phase }} — {{ step.title }}</div>
+          <div class="prose small">{{ step.body | md | safe }}</div></div>
+      {% endfor %}</div></section>
+
+    <section class="panel"><h2>Implementation</h2>
+      <div class="prose">{{ project.source_code | md | safe }}</div>
+      {% if project.database_design %}<h3>Database design</h3>
+        <div class="prose">{{ project.database_design | md | safe }}</div>{% endif %}</section>
+
+    <section class="panel"><h2>Testing</h2><div class="prose">{{ project.testing | md | safe }}</div>
+      <h3>Expected output</h3><div class="prose">{{ project.expected_output | md | safe }}</div></section>
+
+    <section class="panel"><h2>Take it further</h2>
+      <ul>{% for item in (project.improvements | fromjson([])) %}<li>{{ item }}</li>{% endfor %}</ul></section>
+
+    <section class="panel"><h2>On your résumé</h2>
+      <pre class="console">{{ project.resume_md }}</pre>
+      <h3>Questions you will be asked</h3>
+      <ol>{% for q in (project.interview_questions | fromjson([])) %}<li>{{ q }}</li>{% endfor %}</ol></section>
+  </article>
+
+  <aside class="sidebar">
+    {% if user %}
+    <div class="panel tight"><h3>Build log</h3>
+      <p class="small muted">{{ project.build_count or 0 }} engineer{{ '' if (project.build_count or 0) == 1 else 's' }} have logged this build.
+        Mark yours so it counts toward your portfolio.</p>
+    </div>
+    {% endif %}
+    <div class="panel tight"><h3>Prerequisites</h3>
+      <div class="tags">{% for p in (project.prerequisites | fromjson([])) %}<span class="chip">{{ p }}</span>{% endfor %}</div></div>
+    {% if resources %}<div class="panel tight"><h3>Resources</h3><div class="stack">
+      {% for r in resources %}<a class="small" href="{{ r.url }}" target="_blank" rel="noopener noreferrer nofollow">{{ r.title }}</a>{% endfor %}
+    </div></div>{% endif %}
+    {% if similar %}<div class="panel tight"><h3>Next projects</h3><div class="stack">
+      {% for p in similar %}<a class="small" href="/projects/{{ p.slug }}">{{ p.title }}</a>{% endfor %}</div></div>{% endif %}
+  </aside>
+</div>
+{% endblock %}

@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}Video library — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Video library</h1>
+<p class="muted">Curated lectures from NPTEL, MIT OpenCourseWare, Khan Academy and freeCodeCamp. We link to the
+  source — nothing is re-hosted.</p>
+<div class="chips-row"><a class="chip {{ 'on' if not active_category }}" href="/videos">All</a>
+  {% for c in categories %}<a class="chip {{ 'on' if active_category == c.category }}" href="/videos?category={{ c.category }}">{{ c.category }} ({{ c.count }})</a>{% endfor %}</div>
+<div class="grid g3">
+  {% for v in videos %}
+    <a class="card" href="{{ v.url }}" target="_blank" rel="noopener noreferrer nofollow">
+      <span class="title">{{ v.title }}</span>
+      <span class="desc">{{ v.channel }} · {{ (v.duration_s / 60) | round | int }} min · {{ v.level }}</span>
+      <p class="small muted">{{ v.why_useful }}</p>
+      <div class="tags"><span class="chip accent">{{ v.category }}</span></div>
+    </a>
+  {% else %}<div class="empty"><span class="em">🎬</span>No videos in this category yet.</div>{% endfor %}
+</div>
+{% include "_pager.html" %}
+{% endblock %}

@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ 'Privacy' if which == 'privacy' else 'Terms' }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="prose panel" style="max-width:820px;margin:0 auto">
+{% if which == 'privacy' %}
+  <h1>Privacy</h1>
+  <h2>What we store</h2>
+  <p>Your email address, a scrypt hash of your password, your profile details, and your learning history: topics
+    read, questions answered, code you submitted, flashcard reviews and XP.</p>
+  <h2>What we never do</h2>
+  <ul><li>We do not use third-party authentication providers. Sign-in happens entirely on this server.</li>
+    <li>We do not load any third-party script, font, analytics pixel or advertising tag.</li>
+    <li>We do not sell or share your data.</li>
+    <li>We do not store your password in any recoverable form — only a salted scrypt hash.</li>
+    <li>Session cookies store only a SHA-256 digest of the token, so a database leak cannot be replayed as a
+      login.</li></ul>
+  <h2>Code you submit</h2>
+  <p>Code you run through the judge is stored against your account so you can review past submissions. It is
+    executed in an isolated process with no network access and strict resource limits, never inside the web
+    server.</p>
+  <h2>Your control</h2>
+  <p>You can change your password, sign out any session, adjust what your public portfolio shows, and delete your
+    account permanently from <a href="/settings">Settings</a>. Deletion removes your rows from every table.</p>
+{% else %}
+  <h1>Terms</h1>
+  <h2>Using the platform</h2>
+  <p>{{ brand.site_name }} is an educational tool. Content is provided in good faith and reviewed, but you should
+    verify anything critical against your own syllabus and standard textbooks.</p>
+  <h2>Content you post</h2>
+  <p>You keep ownership of what you post. You grant us a licence to store and display it on the platform. Do not
+    post anything unlawful, abusive, or infringing — including pirated books or videos. Reports are handled by
+    moderators.</p>
+  <h2>Certificates</h2>
+  <p>Certificates issued here record that you completed platform content. They are not university, government or
+    professional accreditation, and they do not claim to be. Each carries a verification id you can check.</p>
+  <h2>Availability</h2>
+  <p>We aim for continuous availability but do not guarantee it. Self-hosted deployments are the operator's
+    responsibility to back up.</p>
+  <h2>Changes</h2>
+  <p>If these terms change materially we will say so in the announcement banner before the change takes effect.</p>
+{% endif %}
+</div>
+{% endblock %}

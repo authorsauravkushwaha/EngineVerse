@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Install the app — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Install {{ brand.site_name }} on your phone</h1>
+<p class="muted">It is a progressive web app: no app store, no download size to speak of, works offline, and it
+  lives on your home screen like any other app.</p>
+<div class="grid g2">
+  <div class="panel"><h2>Android (Chrome)</h2>
+    <ol><li>Open this site in Chrome.</li>
+      <li>Tap the ⋮ menu, then <strong>Add to Home screen</strong> or <strong>Install app</strong>.</li>
+      <li>Confirm. The icon appears on your home screen.</li></ol></div>
+  <div class="panel"><h2>iPhone (Safari)</h2>
+    <ol><li>Open this site in Safari — Chrome on iOS cannot install web apps.</li>
+      <li>Tap the Share button.</li><li>Choose <strong>Add to Home Screen</strong>.</li></ol></div>
+  <div class="panel"><h2>Desktop</h2>
+    <ol><li>Look for the install icon in the address bar, or</li>
+      <li>Use your browser menu → <strong>Install {{ brand.site_name }}</strong>.</li></ol></div>
+  <div class="panel"><h2>What you get</h2>
+    <ul><li>Full-screen app, no browser chrome</li><li>Cached pages work offline</li>
+      <li>Push-free notifications you control</li><li>Updates arrive automatically</li></ul>
+    <button class="btn btn-primary hide" id="install-btn">Install now</button></div>
+</div>
+{% endblock %}

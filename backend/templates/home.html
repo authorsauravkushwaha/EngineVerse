@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}{{ brand.site_name }} — {{ brand.tagline }}{% endblock %}
+
+{% block content %}
+<section class="panel hero">
+  <span class="hero-badge">
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 2l2.4 6.9H21l-5.4 4.2 2 7L12 16l-5.6 4.1 2-7L3 8.9h6.6z"/></svg>
+    Every engineering branch, one platform
+  </span>
+  <h1>Learn engineering the way <span class="grad">engineers actually learn</span>.</h1>
+  <p class="lead">Structured notes with real derivations, daily practice problems, a working code judge,
+    guided projects you can put on a résumé, and spaced-repetition revision — from first-year physics to
+    final-year design. Free, forever, for the parts that matter.</p>
+  <div class="hero-cta">
+    <a class="btn btn-primary" href="/register">Start learning free</a>
+    <a class="btn btn-ghost" href="/explore">Browse {{ site.subjects }} subjects</a>
+    <a class="btn btn-ghost" href="/dpp">Today's practice</a>
+  </div>
+  <div class="statgrid">
+    <div class="stat"><div class="n">{{ site.branches }}</div><div class="l">Branches</div></div>
+    <div class="stat"><div class="n">{{ site.subjects }}</div><div class="l">Subjects</div></div>
+    <div class="stat"><div class="n">{{ site.topics }}</div><div class="l">Topics</div></div>
+    <div class="stat"><div class="n">{{ site.questions }}</div><div class="l">Questions</div></div>
+    <div class="stat"><div class="n">{{ site.problems }}</div><div class="l">Coding problems</div></div>
+    <div class="stat"><div class="n">{{ site.projects }}</div><div class="l">Projects</div></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Pick your branch</h2>
+    <a class="small" href="/explore">See all {{ site.branches }} branches →</a>
+  </div>
+  <div class="tiles">
+    {% for group in branches %}
+      {% for branch in group.branches[:4] %}
+        <a class="tile" href="/branches/{{ branch.slug }}" style="--tile-c: {{ branch.color or '#4f7cff' }}">
+          <span class="ic" aria-hidden="true">◆</span>
+          <span class="nm">{{ branch.name }}</span>
+          <span class="ct">{{ group.name }}</span>
+        </a>
+      {% endfor %}
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Most-studied subjects</h2><a class="small" href="/explore">All subjects →</a></div>
+  <div class="grid g4">
+    {% for subject in popular_subjects %}
+      <a class="card" href="/subjects/{{ subject.slug }}">
+        <span class="title">{{ subject.name }}</span>
+        <span class="desc">{{ subject.description | excerpt(110) }}</span>
+        <div class="tags"><span class="chip">{{ subject.topic_count or 0 }} topics</span>
+          {% if subject.code %}<span class="chip">{{ subject.code }}</span>{% endif %}</div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Featured topics</h2><a class="small" href="/explore">Explore the catalogue →</a></div>
+  <div class="grid g3">
+    {% for topic in featured_topics %}
+      <a class="card" href="/topics/{{ topic.slug }}">
+        <div class="row" style="gap:6px">
+          <span class="chip" style="border-color:{{ topic.color }}66">{{ topic.subject }}</span>
+          <span class="chip diff-{{ topic.difficulty }}">{{ topic.difficulty }}</span>
+        </div>
+        <span class="title">{{ topic.title }}</span>
+        <span class="desc">{{ topic.summary | excerpt(150) }}</span>
+        <span class="tiny muted">{{ topic.est_minutes }} min read</span>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Start coding</h2><a class="small" href="/programming">All problems →</a></div>
+  <div class="grid g3">
+    {% for problem in sample_problems %}
+      <a class="card" href="/practice/problems/{{ problem.slug }}">
+        <span class="title">{{ problem.title }}</span>
+        <span class="desc">{{ problem.statement | excerpt(130) }}</span>
+        <div class="tags"><span class="chip diff-{{ problem.difficulty }}">{{ problem.difficulty }}</span>
+          {% for t in (problem.topics | fromjson([]))[:2] %}<span class="chip">{{ t }}</span>{% endfor %}</div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Build something real</h2><a class="small" href="/projects">All projects →</a></div>
+  <div class="grid g3">
+    {% for project in sample_projects %}
+      <a class="card" href="/projects/{{ project.slug }}">
+        <span class="title">{{ project.title }}</span>
+        <span class="desc">{{ project.summary | excerpt(140) }}</span>
+        <div class="tags">
+          <span class="chip accent">{{ project.difficulty }}</span>
+          <span class="chip">{{ project.est_hours }} h</span>
+          {% for tech in (project.tech | fromjson([]))[:3] %}<span class="chip">{{ tech }}</span>{% endfor %}
+        </div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="section panel">
+  <h2>Why students and working engineers use {{ brand.site_name }}</h2>
+  <div class="grid g3" style="margin-top:16px">
+    <div><h3>Notes that derive, not describe</h3>
+      <p class="muted">Every topic follows one 13-section template: plain explanation, formal definition,
+        intuition, formula with units, full derivation, a worked numerical, real applications, common mistakes,
+        exam questions, interview questions and industry practice.</p></div>
+    <div><h3>Practise until it sticks</h3>
+      <p class="muted">A fresh Daily Practice set every day, a mistake notebook that brings your weak questions
+        back, and SM-2 spaced repetition so revision happens exactly when you are about to forget.</p></div>
+    <div><h3>Run real code, safely</h3>
+      <p class="muted">A sandboxed judge executes your submission in an isolated process with no network access,
+        strict resource limits and a hard timeout. Your code never runs inside the web server.</p></div>
+  </div>
+</section>
+{% endblock %}

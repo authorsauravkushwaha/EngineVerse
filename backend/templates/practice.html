@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Practice — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Daily practice</h1>
+<p class="muted">A fresh set every day, plus a bank of {{ kinds | length }} question types across every subject.</p>
+
+{% if dpp %}
+<section class="panel hero mb">
+  <div class="between">
+    <div><span class="hero-badge">Today's set</span>
+      <h2 style="margin:0">{{ dpp.set.title }}</h2>
+      <p class="muted">{{ dpp.questions | length }} questions · {{ dpp.set.duration_minutes }} minutes</p></div>
+    <a class="btn btn-primary" href="/dpp/{{ dpp.set.date }}">Start practice</a>
+  </div>
+</section>
+{% endif %}
+
+<div class="row mb">
+  <a class="btn btn-ghost" href="/practice/questions">Question bank</a>
+  <a class="btn btn-ghost" href="/mistakes">Mistake notebook</a>
+  <a class="btn btn-ghost" href="/practice/problems">Coding problems</a>
+</div>
+
+<section class="section"><h2>Recent sets</h2>
+  <div class="grid g4">{% for s in sets %}
+    <a class="card" href="/dpp/{{ s.date }}"><span class="title">{{ s.date }}</span>
+      <span class="desc">{{ s.question_count }} questions · {{ s.duration_minutes }} min</span></a>{% endfor %}</div>
+</section>
+{% endblock %}

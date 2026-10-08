@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Formula centre — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Formula centre</h1>
+<p class="muted">Every formula with its variables, units, meaning, an example and the conditions under which it
+  holds. Because a formula without its assumptions is a trap.</p>
+<form class="panel mb" method="get"><div class="row">
+  <input name="q" value="{{ q or '' }}" placeholder="Search formulas" style="max-width:340px">
+  <button class="btn btn-primary">Search</button></div></form>
+<div class="chips-row"><a class="chip {{ 'on' if not active_category }}" href="/formulas">All</a>
+  {% for c in categories %}<a class="chip {{ 'on' if active_category == c.category }}" href="/formulas?category={{ c.category | urlencode }}">{{ c.category }} ({{ c.count }})</a>{% endfor %}</div>
+<div class="grid g2">
+  {% for f in formulas %}
+    <div class="panel" id="{{ f.slug }}">
+      <h3>{{ f.name }}</h3>
+      <div class="prose"><div class="math-display">{{ ("$$ " + f.latex + " $$") | md | safe }}</div></div>
+      <p class="muted small">{{ f.meaning }}</p>
+      {% set vars = f.variables | fromjson([]) %}
+      {% if vars %}<table><thead><tr><th>Symbol</th><th>Meaning</th><th>Unit</th></tr></thead><tbody>
+        {% for v in vars %}<tr><td class="mono">{{ v.symbol }}</td><td>{{ v.name }}</td><td>{{ v.unit }}</td></tr>{% endfor %}
+      </tbody></table>{% endif %}
+      {% if f.example_latex %}<div class="prose mt"><strong>Example.</strong>
+        <div class="math">{{ ("$" + f.example_latex + "$") | md | safe }}</div></div>{% endif %}
+      {% if f.constraints %}<p class="tiny muted"><strong>Valid when:</strong> {{ f.constraints }}</p>{% endif %}
+      <p class="tiny muted">{{ f.category }}{% if f.application %} · {{ f.application }}{% endif %}</p>
+    </div>
+  {% else %}<div class="empty"><span class="em">∑</span>No formulas match.</div>{% endfor %}
+</div>
+{% endblock %}

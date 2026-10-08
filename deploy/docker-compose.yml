@@ -1,0 +1,81 @@
+# EngineVerse production topology.
+#
+#   docker compose -f deploy/docker-compose.yml up -d --build
+#
+# Two services: the web app and PostgreSQL.
+#
+# This file used to define a third - a `sandbox` container, hardened with
+# network_mode "none", cap_drop ALL and a read-only root filesystem. It could
+# never have worked. The judge bridge invokes the sandbox with subprocess.run,
+# which cannot cross a container boundary, and the service had no network and no
+# published port, so nothing could reach it either way. Its ENTRYPOINT reads one
+# JSON request from stdin, so with no stdin attached it would exit at once and
+# `restart: unless-stopped` would loop it forever. It was removed rather than
+# left as decoration implying a boundary that does not exist.
+#
+# Learner code therefore runs inside the web container, where the toolchains are.
+# deploy/Dockerfile.sandbox still builds a standalone sandbox image for anyone
+# who wants to run the judge as a separate host process, but wiring it up needs a
+# socket protocol in the bridge, not just a container.
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: engineverse-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Set these in deploy/.env (git-ignored). ENGINEVERSE_SECRET keys the
+      # session digests and the CSRF HMAC - rotating it signs everyone out.
+      ENGINEVERSE_SECRET: ${ENGINEVERSE_SECRET:?set ENGINEVERSE_SECRET in deploy/.env}
+      ENGINEVERSE_DB_URL: postgresql://engineverse:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@db:5432/engineverse
+      ENGINEVERSE_ENV: production
+      SITE_URL: ${SITE_URL:-https://engineverse.local}
+      # Route Java submissions to the sandbox rather than the local runner.
+      JUDGE: ${JUDGE:-auto}
+      JAVA_SANDBOX_JAR: /app/engineverse-sandbox.jar
+    ports:
+      - "8000:8000"
+    volumes:
+      - app-data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=256M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    # The web app does not need to reach the internet; it only talks to db.
+    networks: [internal]
+
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: engineverse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: engineverse
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      # The production schema is applied on first boot.
+      - ../db/postgres/schema.pg.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U engineverse -d engineverse"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    # Not published to the host: only the web service can reach it.
+    expose:
+      - "5432"
+    networks: [internal]
+
+volumes:
+  pg-data:
+  app-data:
+
+networks:
+  internal:
+    internal: true

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Learn to code — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Learn to code</h1>
+<p class="muted">Pick a language, work through the modules, then apply it on real problems.</p>
+
+<section class="section">
+  <div class="grid g3">{% for lang in languages %}
+    <a class="card" href="/programming/{{ lang.slug }}">
+      <span class="title" style="color:{{ lang.color }}">{{ lang.name }}</span>
+      <span class="desc">{{ lang.blurb }}</span>
+      <div class="tags"><span class="chip {{ 'ok' if lang.runnable else 'warn' }}">
+        {{ 'Runnable here' if lang.runnable else 'Source + CI only' }}</span></div>
+    </a>{% endfor %}</div>
+</section>
+
+<section class="section">
+  <div class="section-head"><h2>Problems</h2><a class="small" href="/practice/problems">All problems →</a></div>
+  <div class="grid g4">{% for p in problems[:16] %}
+    <a class="card" href="/practice/problems/{{ p.slug }}"><span class="title">{{ p.title }}</span>
+      <span class="chip diff-{{ p.difficulty }}">{{ p.difficulty }}</span></a>{% endfor %}</div>
+</section>
+
+{% if submissions %}
+<section class="section"><h2>Your recent submissions</h2>
+  <div class="tablewrap"><table><thead><tr><th>Problem</th><th>Language</th><th>Status</th><th>When</th></tr></thead>
+  <tbody>{% for s in submissions %}<tr>
+    <td><a href="/practice/problems/{{ s.problem_slug }}">{{ s.problem_title }}</a></td>
+    <td>{{ s.language }}</td>
+    <td><span class="chip {{ 'ok' if s.is_accepted else 'bad' }}">{{ s.status | replace('_',' ') }}</span></td>
+    <td>{{ s.created_at | ago }}</td></tr>{% endfor %}</tbody></table></div></section>
+{% endif %}
+{% endblock %}

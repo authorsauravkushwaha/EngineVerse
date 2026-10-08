@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div>
+    <h1 style="margin-bottom:2px">Welcome back, {{ user.full_name.split(' ')[0] }}</h1>
+    <p class="muted" style="margin:0">Level {{ stats.level }} · {{ stats.rank }} · {{ stats.currentStreak }} day streak</p>
+  </div>
+  <div class="row">
+    <a class="btn btn-primary" href="/today">Today's plan</a>
+    <a class="btn btn-ghost" href="/dpp">Daily practice</a>
+  </div>
+</div>
+
+<div class="grid g4 mb">
+  <div class="stat"><div class="n">{{ stats.xp }}</div><div class="l">Total XP</div></div>
+  <div class="stat"><div class="n">{{ stats.topicsCompleted }}</div><div class="l">Topics done</div></div>
+  <div class="stat"><div class="n">{{ stats.problemsSolved }}</div><div class="l">Problems solved</div></div>
+  <div class="stat"><div class="n">{{ stats.accuracy }}%</div><div class="l">Accuracy</div></div>
+</div>
+
+<div class="layout-2">
+  <div class="stack">
+    {% if dpp %}
+    <section class="panel">
+      <div class="between">
+        <h2 style="margin:0">Daily Practice — {{ dpp.set.date }}</h2>
+        <a class="btn btn-sm btn-soft" href="/dpp/{{ dpp.set.date }}">Open set</a>
+      </div>
+      <p class="muted small">{{ dpp.questions | length }} questions · {{ dpp.set.duration_minutes }} minutes</p>
+    </section>
+    {% endif %}
+
+    {% if continue_learning %}
+    <section class="panel">
+      <h2>Continue where you left off</h2>
+      <div class="stack">
+        {% for item in continue_learning %}
+          <a class="card" href="/topics/{{ item.slug }}" style="flex-direction:row;align-items:center;gap:14px">
+            <div style="flex:1">
+              <span class="title">{{ item.title }}</span>
+              <span class="desc">{{ item.subject }}</span>
+            </div>
+            <div style="width:90px">
+              <div class="bar thin"><span style="width:{{ item.mastery or 0 }}%"></span></div>
+              <span class="tiny muted">{{ item.mastery or 0 }}%</span>
+            </div>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if dashboard and dashboard.lessons %}
+    <section class="panel">
+      <h2>Recommended for you</h2>
+      <div class="grid g2">
+        {% for rec in dashboard.lessons %}
+          <a class="card" href="/topics/{{ rec.slug }}">
+            <span class="title">{{ rec.title }}</span>
+            <span class="desc">{{ rec.subject }} · {{ rec.difficulty }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if dashboard and dashboard.weak %}
+    <section class="panel">
+      <h2>Needs another pass</h2>
+      <div class="grid g2">
+        {% for w in dashboard.weak %}
+          <a class="card" href="/topics/{{ w.slug }}">
+            <span class="title">{{ w.title }}</span>
+            <span class="desc">{{ w.subject }} — {{ w.accuracy }}% correct over {{ w.attempts }} attempts</span>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+
+    {% if dashboard and dashboard.projects %}
+    <section class="panel">
+      <h2>Projects for your branch</h2>
+      <div class="grid g3">
+        {% for proj in dashboard.projects %}
+          <a class="card" href="/projects/{{ proj.slug }}">
+            <span class="title">{{ proj.title }}</span>
+            <span class="desc">{{ proj.summary | excerpt(120) }}</span>
+            <span class="chip accent">{{ proj.difficulty }}</span>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
+    {% endif %}
+  </div>
+
+  <aside class="sidebar">
+    <div class="panel tight center">
+      <div class="ring" style="--p:{{ stats.levelPct }};margin:0 auto"><b>{{ stats.level }}</b></div>
+      <p class="small muted" style="margin:10px 0 0">{{ stats.neededForNext }} XP to level {{ stats.level + 1 }}</p>
+      <div class="bar" style="margin-top:8px"><span style="width:{{ stats.levelPct }}%"></span></div>
+    </div>
+    <div class="panel tight">
+      <h3>Quick actions</h3>
+      <div class="stack">
+        <a class="btn btn-soft btn-block" href="/revision">Revise {{ due_cards }} due cards</a>
+        <a class="btn btn-soft btn-block" href="/mistakes">Mistake notebook</a>
+        <a class="btn btn-soft btn-block" href="/formulas">Formula centre</a>
+        <a class="btn btn-soft btn-block" href="/portfolio/{{ user.username }}">My portfolio</a>
+      </div>
+    </div>
+    {% if trending %}
+    <div class="panel tight">
+      <h3>Trending searches</h3>
+      <div class="tags">{% for t in trending %}<a class="chip" href="/search?q={{ t.query | urlencode }}">{{ t.query }}</a>{% endfor %}</div>
+    </div>
+    {% endif %}
+  </aside>
+</div>
+{% endblock %}

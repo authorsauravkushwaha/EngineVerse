@@ -1,0 +1,277 @@
+"""Video library, books, free resources, roadmaps and flashcards (spec §23-§28)."""
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from . import db
+
+
+def _json(value: Any, fallback: Any) -> Any:
+    if value in (None, ""):
+        return fallback
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        return json.loads(value)
+    except (ValueError, TypeError):
+        return fallback
+
+
+# ---- videos ---------------------------------------------------------------
+
+def _videos_where(
+    *, topic_id: str | None, subject_id: str | None, category: str | None, q: str | None,
+) -> tuple[str, list[Any]]:
+    """One filter builder shared by the list and the count.
+
+    Written once because a count that disagrees with the list it paginates is
+    the classic pagination bug: the pager shows a page that cannot exist.
+    """
+    clauses = ["1=1"]
+    args: list[Any] = []
+    if topic_id:
+        clauses.append("v.topic_id = ?")
+        args.append(topic_id)
+    if subject_id:
+        clauses.append("v.subject_id = ?")
+        args.append(subject_id)
+    if category:
+        clauses.append("v.category = ?")
+        args.append(category)
+    if q:
+        clauses.append("(v.title LIKE ? OR v.channel LIKE ?)")
+        args += [f"%{q}%"] * 2
+    return " AND ".join(clauses), args
+
+
+def list_videos(
+    *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
+    q: str | None = None, limit: int = 60, offset: int = 0,
+) -> list[dict]:
+    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q)
+    args += [limit, max(0, offset)]
+    return db.query(
+        "SELECT v.*, s.name AS subject_name, s.slug AS subject_slug, t.title AS topic_title, t.slug AS topic_slug "
+        f"FROM videos v LEFT JOIN subjects s ON s.id = v.subject_id LEFT JOIN topics t ON t.id = v.topic_id "
+        f"WHERE {where} ORDER BY v.rating DESC, v.title LIMIT ? OFFSET ?",
+        *args,
+    )
+
+
+def count_videos(
+    *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
+    q: str | None = None,
+) -> int:
+    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q)
+    return db.scalar(f"SELECT count(*) FROM videos v WHERE {where}", *args)
+
+
+def video_categories() -> list[dict]:
+    return db.query("SELECT category, count(*) AS count FROM videos GROUP BY category ORDER BY count DESC")
+
+
+# ---- books ----------------------------------------------------------------
+
+def _books_where(
+    *, subject_id: str | None, branch_id: str | None, q: str | None,
+) -> tuple[str, list[Any]]:
+    clauses = ["1=1"]
+    args: list[Any] = []
+    if subject_id:
+        clauses.append("b.subject_id = ?")
+        args.append(subject_id)
+    if branch_id:
+        clauses.append("b.branch_id = ?")
+        args.append(branch_id)
+    if q:
+        clauses.append("(b.title LIKE ? OR b.author LIKE ?)")
+        args += [f"%{q}%"] * 2
+    return " AND ".join(clauses), args
+
+
+def list_books(
+    *, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None,
+    limit: int = 80, offset: int = 0,
+) -> list[dict]:
+    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q)
+    args += [limit, max(0, offset)]
+    rows = db.query(
+        "SELECT b.*, s.name AS subject_name FROM books b LEFT JOIN subjects s ON s.id = b.subject_id "
+        f"WHERE {where} ORDER BY b.title LIMIT ? OFFSET ?",
+        *args,
+    )
+    for row in rows:
+        row["topics_data"] = _json(row.get("topics_covered"), [])
+    return rows
+
+
+def count_books(
+    *, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None,
+) -> int:
+    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q)
+    return db.scalar(f"SELECT count(*) FROM books b WHERE {where}", *args)
+
+
+# ---- resources ------------------------------------------------------------
+
+def _resources_where(
+    *, kind: str | None, branch_id: str | None, subject_id: str | None,
+    free_only: bool, q: str | None,
+) -> tuple[str, list[Any]]:
+    clauses = ["1=1"]
+    args: list[Any] = []
+    if kind:
+        clauses.append("r.kind = ?")
+        args.append(kind)
+    if branch_id:
+        clauses.append("r.branch_id = ?")
+        args.append(branch_id)
+    if subject_id:
+        clauses.append("r.subject_id = ?")
+        args.append(subject_id)
+    if free_only:
+        clauses.append("r.is_free = 1")
+    if q:
+        clauses.append("(r.title LIKE ? OR r.description LIKE ?)")
+        args += [f"%{q}%"] * 2
+    return " AND ".join(clauses), args
+
+
+def list_resources(
+    *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
+    free_only: bool = False, q: str | None = None, limit: int = 80, offset: int = 0,
+) -> list[dict]:
+    where, args = _resources_where(
+        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q,
+    )
+    args += [limit, max(0, offset)]
+    return db.query(
+        "SELECT r.*, s.name AS subject_name, b.name AS branch_name FROM resources r "
+        "LEFT JOIN subjects s ON s.id = r.subject_id LEFT JOIN branches b ON b.id = r.branch_id "
+        f"WHERE {where} ORDER BY r.kind, r.title LIMIT ? OFFSET ?",
+        *args,
+    )
+
+
+def count_resources(
+    *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
+    free_only: bool = False, q: str | None = None,
+) -> int:
+    where, args = _resources_where(
+        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q,
+    )
+    return db.scalar(f"SELECT count(*) FROM resources r WHERE {where}", *args)
+
+
+def resource_kinds() -> list[dict]:
+    return db.query("SELECT kind, count(*) AS count FROM resources GROUP BY kind ORDER BY kind")
+
+
+def topic_resources(topic_id: str, subject_id: str | None = None) -> dict[str, list[dict]]:
+    videos = db.query("SELECT * FROM videos WHERE topic_id = ? OR subject_id = ? ORDER BY rating DESC LIMIT 6", topic_id, subject_id)
+    resources = db.query("SELECT * FROM resources WHERE subject_id = ? LIMIT 6", subject_id) if subject_id else []
+    books = db.query("SELECT * FROM books WHERE subject_id = ? LIMIT 4", subject_id) if subject_id else []
+    return {"videos": videos, "resources": resources, "books": books}
+
+
+# ---- roadmaps -------------------------------------------------------------
+
+def list_roadmaps(*, kind: str | None = None, branch_slug: str | None = None) -> list[dict]:
+    clauses = ["1=1"]
+    args: list[Any] = []
+    if kind:
+        clauses.append("r.kind = ?")
+        args.append(kind)
+    if branch_slug:
+        clauses.append("(b.slug = ? OR r.branch_id IS NULL)")
+        args.append(branch_slug)
+    return db.query(
+        "SELECT r.*, b.name AS branch_name, b.slug AS branch_slug, "
+        "(SELECT count(*) FROM roadmap_nodes rn WHERE rn.roadmap_id = r.id) AS node_count "
+        f"FROM roadmaps r LEFT JOIN branches b ON b.id = r.branch_id WHERE {' AND '.join(clauses)} "
+        "ORDER BY r.order_index, r.title",
+        *args,
+    )
+
+
+def get_roadmap(slug: str) -> dict | None:
+    return db.query_one(
+        "SELECT r.*, b.name AS branch_name, b.slug AS branch_slug FROM roadmaps r "
+        "LEFT JOIN branches b ON b.id = r.branch_id WHERE r.slug = ?",
+        slug,
+    )
+
+
+def roadmap_nodes(roadmap_id: str) -> list[dict]:
+    """Roadmap steps, each with its destination resolved.
+
+    The ref_type to URL mapping lives here rather than in the template so there
+    is one place to keep correct. A ``module`` step carries only a module slug,
+    so it is resolved through to the language page that module belongs to —
+    previously such steps fell through to the bare programming index.
+    """
+    rows = db.query("SELECT * FROM roadmap_nodes WHERE roadmap_id = ? ORDER BY order_index", roadmap_id)
+    module_language = {
+        row["slug"]: row["language_slug"]
+        for row in db.query(
+            "SELECT lm.slug AS slug, pl.slug AS language_slug FROM language_modules lm "
+            "JOIN programming_languages pl ON pl.id = lm.language_id"
+        )
+    }
+    for node in rows:
+        node["href"] = _node_href(node, module_language)
+    return rows
+
+
+def _node_href(node: dict, module_language: dict[str, str]) -> str | None:
+    ref_type, ref_id = node["ref_type"], node["ref_id"]
+    if not ref_id:
+        return None
+    if ref_type == "topic":
+        return f"/topics/{ref_id}"
+    if ref_type == "coding":
+        return f"/practice/problems/{ref_id}"
+    if ref_type == "subject":
+        return f"/subjects/{ref_id}"
+    if ref_type == "project":
+        return f"/projects/{ref_id}"
+    if ref_type == "module":
+        language = module_language.get(ref_id)
+        return f"/programming/{language}" if language else "/programming"
+    return None
+
+
+# ---- flashcards -----------------------------------------------------------
+
+def flashcards_for_topic(topic_id: str) -> list[dict]:
+    return db.query("SELECT * FROM flashcards WHERE topic_id = ? ORDER BY rowid", topic_id)
+
+
+def flashcard_by_id(flashcard_id: str) -> dict | None:
+    return db.query_one("SELECT * FROM flashcards WHERE id = ?", flashcard_id)
+
+
+def decks() -> list[dict]:
+    return db.query("SELECT deck, count(*) AS count FROM flashcards GROUP BY deck ORDER BY count DESC")
+
+
+def due_flashcards(user_id: str, limit: int = 20) -> list[dict]:
+    from .security.ids import now_ms
+
+    return db.query(
+        "SELECT f.*, uf.ease_factor, uf.interval_days, uf.repetitions, uf.due_at FROM flashcards f "
+        "LEFT JOIN user_flashcards uf ON uf.flashcard_id = f.id AND uf.user_id = ? "
+        "WHERE uf.due_at IS NULL OR uf.due_at <= ? "
+        "ORDER BY (uf.due_at IS NULL) DESC, uf.due_at LIMIT ?",
+        user_id, now_ms(), limit,
+    )
+
+
+def flashcard_stats(user_id: str) -> dict[str, int]:
+    from .security.ids import now_ms
+
+    total = int(db.scalar("SELECT count(*) AS c FROM flashcards") or 0)
+    studied = int(db.scalar("SELECT count(*) AS c FROM user_flashcards WHERE user_id = ?", user_id) or 0)
+    due = int(db.scalar("SELECT count(*) AS c FROM user_flashcards WHERE user_id = ? AND due_at <= ?", user_id, now_ms()) or 0)
+    return {"total": total, "studied": studied, "due": due}

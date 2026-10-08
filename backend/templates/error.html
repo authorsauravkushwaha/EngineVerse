@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block title %}{{ status }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="panel center" style="max-width:560px;margin:40px auto">
+  <div style="font-size:3.4rem;font-weight:800;background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent">{{ status }}</div>
+  <h1 style="font-size:1.4rem">{{ message }}</h1>
+  <p class="muted">{% if status == 404 %}The page you were after has moved or never existed.
+    {% elif status == 403 %}You do not have permission to view that.
+    {% else %}Something broke on our side. It has been logged.{% endif %}</p>
+  <div class="row" style="justify-content:center">
+    <a class="btn btn-primary" href="/">Go home</a>
+    <a class="btn btn-ghost" href="/search">Search instead</a></div>
+</div>
+{% endblock %}

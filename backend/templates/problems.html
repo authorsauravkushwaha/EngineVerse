@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Coding problems — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="between mb"><div><h1>Coding problems</h1>
+  <p class="muted">LeetCode-style problems with a real judge. Run code in your browser, get an instant verdict.</p></div>
+  <a class="btn btn-ghost" href="/programming">Learn a language first</a></div>
+
+<form class="panel mb" method="get">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end">
+    <div><label for="q">Search</label><input id="q" name="q" value="{{ active_q or '' }}"></div>
+    <div><label for="difficulty">Difficulty</label><select id="difficulty" name="difficulty">
+      <option value="">Any</option>{% for d in ('easy','medium','hard') %}
+      <option value="{{ d }}" {{ 'selected' if active_difficulty == d }}>{{ d | titlecase }}</option>{% endfor %}</select></div>
+    <div><label for="topic">Pattern</label><select id="topic" name="topic"><option value="">Any</option>
+      {% for t in topics %}<option value="{{ t.topic }}" {{ 'selected' if active_topic == t.topic }}>{{ t.topic }} ({{ t.count }})</option>{% endfor %}
+      </select></div>
+    <div><button class="btn btn-primary btn-block">Filter</button></div>
+  </div>
+</form>
+
+<div class="panel"><div class="tablewrap"><table>
+  <thead><tr><th>#</th><th>Problem</th><th>Patterns</th><th>Difficulty</th>{% if user %}<th>Status</th>{% endif %}</tr></thead>
+  <tbody>{% for p in problems %}
+    <tr><td>{{ loop.index }}</td>
+      <td><a href="/practice/problems/{{ p.slug }}"><strong>{{ p.title }}</strong></a><br>
+        <span class="tiny muted">{{ p.statement | excerpt(90) }}</span></td>
+      <td><div class="tags">{% for t in (p.topics | fromjson([]))[:3] %}<span class="chip">{{ t }}</span>{% endfor %}</div></td>
+      <td><span class="chip diff-{{ p.difficulty }}">{{ p.difficulty }}</span></td>
+      {% if user %}<td>{% if p.id in solved %}<span class="chip ok">Solved</span>{% else %}<span class="chip">—</span>{% endif %}</td>{% endif %}
+    </tr>
+  {% else %}<tr><td colspan="5"><div class="empty">No problems match.</div></td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Community — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="between mb"><div><h1>Community</h1>
+  <p class="muted">Ask, answer and argue about engineering. Moderated, attributed, and indexed by search.</p></div>
+  {% if user %}<a class="btn btn-primary" href="#ask">Ask a question</a>{% else %}
+  <a class="btn btn-primary" href="/login">Sign in to post</a>{% endif %}</div>
+
+<div class="chips-row"><a class="chip {{ 'on' if not active_kind }}" href="/community">All</a>
+  {% for k in kinds %}<a class="chip {{ 'on' if active_kind == k.kind }}" href="/community?kind={{ k.kind }}">{{ k.kind }} ({{ k.count }})</a>{% endfor %}
+</div>
+{% if tags %}<div class="chips-row">{% for t in tags[:14] %}
+  <a class="chip {{ 'on' if active_tag == t.tag }}" href="/community?tag={{ t.tag | urlencode }}">#{{ t.tag }}</a>{% endfor %}</div>{% endif %}
+
+<div class="layout-2">
+  <div class="panel">
+    {% for thread in threads %}
+      <div class="thread">
+        <div class="votebox">
+          {% if user %}<button data-vote="1" data-type="discussion" data-id="{{ thread.id }}" title="Upvote">▲</button>
+          {% else %}<span>▲</span>{% endif %}
+          <span class="n">{{ thread.score or 0 }}</span></div>
+        <div style="flex:1;min-width:0">
+          <a href="/community/{{ thread.id }}"><strong>{{ thread.title }}</strong></a>
+          <p class="small muted" style="margin:4px 0">{{ thread.body | excerpt(170) }}</p>
+          <div class="tags"><span class="chip">{{ thread.kind }}</span>
+            {% for t in (thread.tags | fromjson([]))[:4] %}<span class="chip">#{{ t }}</span>{% endfor %}
+            <span class="chip">{{ thread.comment_count or 0 }} replies</span>
+            <span class="tiny muted">{{ thread.created_at | ago }} · {{ thread.username }}</span></div>
+        </div>
+      </div>
+    {% else %}<div class="empty"><span class="em">💬</span>No discussions yet — start the first one.</div>{% endfor %}
+
+    {% if user %}
+    <form class="panel mt" id="ask" method="post" action="/api/community/threads" data-json-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <h2>Ask a question</h2>
+      <div class="field"><label for="t">Title</label>
+        <input id="t" name="title" required maxlength="160" placeholder="Be specific — 'Why does Bernoulli assume inviscid flow?'"></div>
+      <div class="field"><label for="b">Details</label>
+        <textarea id="b" name="body" required placeholder="What have you tried? What is confusing you?"></textarea></div>
+      <div class="field"><label for="k">Type</label>
+        <select id="k" name="kind"><option value="question">Question</option><option value="discussion">Discussion</option>
+          <option value="resource">Resource</option><option value="showcase">Showcase</option></select></div>
+      <div class="field"><label for="tg">Tags (comma separated)</label>
+        <input id="tg" name="tags" placeholder="fluid-mechanics, exam"></div>
+      <button class="btn btn-primary" type="submit">Post</button>
+    </form>
+    {% endif %}
+  </div>
+  <aside class="sidebar">
+    <div class="panel tight"><h3>Guidelines</h3>
+      <ul class="small muted" style="padding-left:1.1em;margin:0">
+        <li>Search first — most questions have been asked.</li>
+        <li>Show what you tried.</li>
+        <li>Cite sources when you answer.</li>
+        <li>No spam, no piracy links.</li></ul></div>
+  </aside>
+</div>
+{% endblock %}

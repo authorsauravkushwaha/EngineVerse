@@ -1,0 +1,60 @@
+# EngineVerse judge sandbox.
+#
+# Builds a standalone image for the Java sandbox.
+#
+#   docker build -f deploy/Dockerfile.sandbox -t engineverse-sandbox .
+#
+# NOTE: nothing in deploy/docker-compose.yml runs this image, and that is
+# deliberate. The judge bridge invokes the sandbox with subprocess.run, which
+# cannot cross a container boundary, so in the shipped topology the jar runs
+# inside the web image instead. This Dockerfile is kept because the image is the
+# right shape for running the judge as a separate host process - non-root, JDK
+# only, /work as the sole writable path - but wiring it up needs a socket
+# protocol in judge/java_bridge.py that does not exist yet. See deploy/README.md.
+#
+# The containment flags it should be run with are listed in deploy/README.md.
+
+# --- build stage: compile the sandbox jar -----------------------------------
+FROM maven:3.9-eclipse-temurin-21 AS build
+WORKDIR /src
+COPY sandbox-java/pom.xml ./
+# Resolve dependencies first so the layer caches across source-only changes.
+RUN mvn -B -q dependency:go-offline
+COPY sandbox-java/src ./src
+RUN mvn -B -q -DskipTests package && cp target/engineverse-sandbox.jar /engineverse-sandbox.jar
+
+# --- runtime stage -----------------------------------------------------------
+FROM eclipse-temurin:21-jdk-jammy
+
+# A non-root user with no login shell and no writable home. Submitted code that
+# escapes the JVM lands here, not as root.
+RUN groupadd --system --gid 10001 judge \
+ && useradd  --system --uid 10001 --gid judge --no-create-home --shell /usr/sbin/nologin judge \
+ && mkdir -p /work \
+ && chown judge:judge /work
+
+# curl is only for the healthcheck; nothing else is installed beyond the JDK.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends curl \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY --from=build /engineverse-sandbox.jar /app/engineverse-sandbox.jar
+
+# Drop capabilities the judge has no use for. The container should also be run
+# with --cap-drop=ALL --security-opt=no-new-privileges (see docker-compose.yml).
+USER judge
+WORKDIR /work
+
+ENV JAVA_SANDBOX_JAR=/app/engineverse-sandbox.jar \
+    ENGINEVERSE_SANDBOX_POLICY=1
+
+EXPOSE 8001
+
+# The sandbox reads one JSON request on stdin and writes one verdict on stdout,
+# so the healthcheck verifies the JVM starts and answers rather than probing a
+# port.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+  CMD printf '%s' '{"language":"java","code":"public class Main{public static void main(String[] a){System.out.println(1);}}","stdin":"","timeoutMs":10000,"memoryKb":262144}' \
+      | java -Xmx128m -jar /app/engineverse-sandbox.jar | grep -q '"status":"accepted"'
+
+ENTRYPOINT ["java", "-Xmx256m", "-Xss8m", "-jar", "/app/engineverse-sandbox.jar"]

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Mistake notebook — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Mistake notebook</h1>
+<p class="muted">Every question you got wrong, kept until you get it right. This is the fastest way to close gaps.</p>
+<div class="stack">
+  {% for row in mistakes %}
+    <div class="q-card" data-quiz="{{ row.id }}">
+      <div class="row"><span class="chip bad">wrong {{ row.wrong_count }}×</span>
+        <span class="chip diff-{{ row.difficulty }}">{{ row.difficulty }}</span></div>
+      <div class="q-stem mt">{{ row.stem }}</div>
+      <form>{% for option in row.options %}
+        <label class="opt" data-index="{{ loop.index0 }}"><input type="radio" name="option" value="{{ loop.index0 }}">
+          <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>{% endfor %}
+        <div class="row"><button type="submit" class="btn btn-primary btn-sm">Try again</button>
+          <span class="verdict-inline chip" style="display:none"></span></div></form>
+      <div class="explain"><strong>Why.</strong> {{ row.explanation }}</div>
+    </div>
+  {% else %}<div class="empty"><span class="em">🎉</span>No mistakes recorded yet. Go and make some — that is how
+    you find the gaps.</div>{% endfor %}
+</div>
+{% if retry %}<section class="section"><h2>Recommended retry plan</h2>
+  <div class="grid g3">{% for q in retry %}<a class="card" href="/practice/questions">
+    <span class="desc">{{ q.stem | excerpt(130) }}</span></a>{% endfor %}</div></section>{% endif %}
+{% endblock %}

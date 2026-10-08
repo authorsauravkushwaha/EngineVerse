@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ certificate.tier_label }} Certificate — {{ certificate.verify_id }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="cert cert-{{ certificate.tier or 'bronze' }}"><div class="cert-inner">
+  <div class="cert-seal" aria-hidden="true">
+    <svg viewBox="0 0 120 120" width="104" height="104" role="presentation">
+      <circle cx="60" cy="60" r="54" fill="none" stroke="currentColor" stroke-width="2" opacity=".55"/>
+      <circle cx="60" cy="60" r="45" fill="none" stroke="currentColor" stroke-width="1" opacity=".35"
+              stroke-dasharray="4 6"/>
+      <path d="M60 26 L70 50 L96 52 L76 68 L82 94 L60 80 L38 94 L44 68 L24 52 L50 50 Z"
+            fill="currentColor" opacity=".16" stroke="currentColor" stroke-width="1.6"/>
+    </svg>
+  </div>
+
+  <p class="cert-eyebrow">{{ brand.site_name }} · Certificate of Completion</p>
+  <p class="cert-tier">{{ certificate.tier_label }}</p>
+
+  <h1>{{ meta.subject or certificate.title }}</h1>
+
+  <p class="muted">This certifies that</p>
+  <div class="name">{{ certificate.full_name or certificate.username }}</div>
+  {% if certificate.branch %}<p class="small muted">{{ certificate.branch }}</p>{% endif %}
+  <p class="muted">completed the above on {{ certificate.issued_at | ago }}.</p>
+
+  {% if meta.evidence %}
+  <div class="cert-evidence">
+    <div><span class="k">Topics completed</span><span class="v">{{ meta.evidence.topics_completed }}/{{ meta.evidence.topics_total }}</span></div>
+    <div><span class="k">Completion</span><span class="v">{{ meta.evidence.completion_pct }}%</span></div>
+    <div><span class="k">Practice accuracy</span><span class="v">{{ meta.evidence.accuracy_pct }}%</span></div>
+    <div><span class="k">Longest streak</span><span class="v">{{ meta.evidence.longest_streak_days }} days</span></div>
+    <div><span class="k">Mastery</span><span class="v">{{ meta.evidence.mastery_pct }}%</span></div>
+  </div>
+  <p class="tiny muted" style="margin-top:8px">
+    The tier is computed from these measured values, not awarded by hand.
+  </p>
+  {% endif %}
+
+  <div class="cert-sign">
+    <div class="sig-line"></div>
+    <div class="sig-name">{{ certificate.issuer }}</div>
+    <div class="tiny muted">Issuer, {{ brand.site_name }}</div>
+  </div>
+
+  <div class="verify">Verify this certificate: {{ certificate.verify_id }}</div>
+  <p class="tiny muted cert-disclaimer">
+    {{ meta.disclaimer or "This is a platform completion record. It is not a university, government or professional accreditation." }}
+  </p>
+</div></div>
+<div class="center mt">
+  <a class="btn btn-ghost" href="/">Back to {{ brand.site_name }}</a>
+  <button class="btn" type="button" onclick="window.print()">Print or save as PDF</button>
+</div>
+{% endblock %}

@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Explore subjects — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Explore the catalogue</h1>
+<p class="muted">{{ subjects | length }} subjects across every engineering branch. Filter by branch or semester.</p>
+
+<form class="panel mb" method="get" action="/explore">
+  <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end">
+    <div><label for="q">Search</label><input id="q" name="q" value="{{ active_q or '' }}" placeholder="subject or topic"></div>
+    <div><label for="branch">Branch</label>
+      <select id="branch" name="branch"><option value="">All branches</option>
+        {% for group in branches %}{% for b in group.branches %}
+          <option value="{{ b.slug }}" {{ 'selected' if active_branch == b.slug }}>{{ b.name }}</option>
+        {% endfor %}{% endfor %}</select></div>
+    <div><label for="semester">Semester</label>
+      <select id="semester" name="semester"><option value="">Any</option>
+        {% for s in semesters %}<option value="{{ s.id }}" {{ 'selected' if active_semester == s.id|string }}>{{ s.label }}</option>{% endfor %}
+      </select></div>
+    <div><button class="btn btn-primary btn-block" type="submit">Filter</button></div>
+  </div>
+</form>
+
+<div class="grid g3">
+  {% for subject in subjects %}
+    <a class="card" href="/subjects/{{ subject.slug }}">
+      <span class="title">{{ subject.name }}</span>
+      <span class="desc">{{ subject.description | excerpt(130) }}</span>
+      <div class="tags">
+        {% if subject.branch_name %}<span class="chip accent">{{ subject.branch_name }}</span>{% endif %}
+        {% if subject.semester_id %}<span class="chip">Sem {{ subject.semester_id }}</span>{% endif %}
+        {% if subject.code %}<span class="chip">{{ subject.code }}</span>{% endif %}
+      </div>
+    </a>
+  {% else %}
+    <div class="empty"><span class="em">🔍</span>No subjects match that filter.</div>
+  {% endfor %}
+</div>
+{% endblock %}

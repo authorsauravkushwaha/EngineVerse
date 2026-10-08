@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Leaderboard — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Leaderboard</h1>
+<p class="muted">Ranked by XP earned. Competition is a motivator, not the point — your streak matters more.</p>
+<form class="panel mb" method="get"><div class="row">
+  <select name="branch" style="max-width:260px"><option value="">All branches</option>
+    {% for b in branches %}<option value="{{ b.slug }}" {{ 'selected' if active_branch == b.slug }}>{{ b.name }}</option>{% endfor %}</select>
+  <select name="period" style="max-width:180px">{% for p in ('all','month','week') %}
+    <option value="{{ p }}" {{ 'selected' if active_period == p }}>{{ p | titlecase }}</option>{% endfor %}</select>
+  <button class="btn btn-primary">Apply</button></div></form>
+<div class="panel"><div class="tablewrap"><table>
+  <thead><tr><th>#</th><th>Engineer</th><th>Level</th><th>XP</th><th>Streak</th><th>Topics</th></tr></thead>
+  <tbody>{% for row in rows %}
+    <tr><td><strong>{{ loop.index }}</strong></td>
+      <td><a href="/portfolio/{{ row.username }}">{{ row.full_name or row.username }}</a>
+        <span class="tiny muted">@{{ row.username }}</span></td>
+      <td>{{ row.level }}</td><td>{{ row.xp }}</td>
+      <td>{{ row.current_streak }} 🔥</td><td>{{ row.topics or 0 }}</td></tr>
+  {% else %}<tr><td colspan="6"><div class="empty">No activity yet.</div></td></tr>{% endfor %}
+  </tbody></table></div></div>
+{% endblock %}

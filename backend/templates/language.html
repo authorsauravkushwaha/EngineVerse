@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{{ language.name }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/programming">Learn to code</a> › <span>{{ language.name }}</span></nav>
+<h1 style="color:{{ language.color }}">{{ language.name }}</h1>
+<p class="muted">{{ language.blurb }}</p>
+{% if not language.runnable %}
+  <div class="callout warning"><span class="label">Runtime not available on this host</span>
+    You can still read every module and copy the examples. Submissions in this language run only when the
+    matching toolchain is installed — see <code>docs/ARCHITECTURE.md</code>.</div>
+{% endif %}
+
+<div class="stack section">
+  {% for module in modules %}
+  <section class="panel" id="{{ module.slug }}">
+    <h2>{{ loop.index }}. {{ module.title }}</h2>
+    <p class="muted">{{ module.summary }}</p>
+    <div class="prose">{{ module.body | md | safe }}</div>
+    <h3>Example</h3><pre class="console">{{ module.example }}</pre>
+    <div class="callout exam"><span class="label">Exercise</span>{{ module.exercise }}</div>
+  </section>
+  {% else %}<div class="empty"><span class="em">📚</span>Modules are being written.</div>{% endfor %}
+</div>
+
+<section class="section"><h2>Practise {{ language.name }}</h2>
+  <div class="grid g4">{% for p in problems[:12] %}
+    <a class="card" href="/practice/problems/{{ p.slug }}"><span class="title">{{ p.title }}</span>
+      <span class="chip diff-{{ p.difficulty }}">{{ p.difficulty }}</span></a>{% endfor %}</div></section>
+{% endblock %}

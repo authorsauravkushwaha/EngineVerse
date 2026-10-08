@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Search {{ q }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<h1>Search</h1>
+<form class="panel mb" method="get"><div class="row">
+  <input name="q" value="{{ q }}" placeholder="Try 'bernoulli', 'deadlock', 'two sum'" autofocus style="max-width:520px">
+  <button class="btn btn-primary">Search</button></div></form>
+
+{% if q %}
+  <p class="muted">{{ total }} result{{ '' if total == 1 else 's' }} for “{{ q }}”
+    {% if suggestion %} — did you mean <a href="/search?q={{ suggestion | urlencode }}">{{ suggestion }}</a>?{% endif %}</p>
+  {% if not total %}<div class="empty"><span class="em">🔍</span>Nothing matched. Try a shorter or broader term.</div>{% endif %}
+
+  {% for group in groups %}
+    <section class="section"><h2>{{ group.type | titlecase }} <span class="muted small">({{ group.items | length }})</span></h2>
+      <div class="grid g3">{% for item in group.items %}
+        <a class="card" href="{{ item.url }}"><span class="title">{{ item.title }}</span>
+          <span class="desc">{{ item.snippet or item.body | excerpt(140) }}</span>
+          <div class="tags">{% if item.branch %}<span class="chip accent">{{ item.branch }}</span>{% endif %}
+            {% if item.difficulty %}<span class="chip">{{ item.difficulty }}</span>{% endif %}</div></a>
+      {% endfor %}</div></section>
+  {% endfor %}
+{% else %}
+  {% if trending %}<section class="section"><h2>Trending</h2><div class="tags">
+    {% for t in trending %}<a class="chip" href="/search?q={{ t.query | urlencode }}">{{ t.query }} ({{ t.count }})</a>{% endfor %}
+  </div></section>{% endif %}
+  <section class="section"><h2>Browse instead</h2><div class="row">
+    <a class="btn btn-ghost" href="/explore">All subjects</a><a class="btn btn-ghost" href="/formulas">Formulas</a>
+    <a class="btn btn-ghost" href="/practice/problems">Coding problems</a><a class="btn btn-ghost" href="/projects">Projects</a>
+  </div></section>
+{% endif %}
+{% endblock %}

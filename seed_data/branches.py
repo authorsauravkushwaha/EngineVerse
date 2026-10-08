@@ -1,0 +1,120 @@
+"""Engineering branch taxonomy (spec §3).
+
+Categories let the UI group branches without hard-coding them into pages, and
+admins can add new branches at runtime - nothing here is referenced by name
+from application code.
+"""
+
+BRANCH_CATEGORIES = [
+    {"key": "cse", "name": "Computer Science & IT"},
+    {"key": "electronics", "name": "Electronics & Electrical"},
+    {"key": "mechanical", "name": "Mechanical & Manufacturing"},
+    {"key": "civil", "name": "Civil & Infrastructure"},
+    {"key": "chemical", "name": "Chemical & Materials"},
+    {"key": "bio", "name": "Bio & Other Engineering"},
+    {"key": "other", "name": "Other Engineering Branches"},
+]
+
+BRANCHES = [
+    # ---- Computer Science / IT ----
+    ("computer-science", "Computer Science Engineering", "cse", "cpu", "#4f7cff",
+     "Algorithms, systems, software and the theory behind every computer you will ever use."),
+    ("information-technology", "Information Technology", "cse", "network", "#3b82f6",
+     "Applied computing, enterprise systems, networking and information management."),
+    ("ai-ml", "AI & Machine Learning", "cse", "brain-circuit", "#8b5cf6",
+     "Learning systems, neural networks, optimisation and applied intelligence."),
+    ("data-science", "Data Science", "cse", "bar-chart-3", "#06b6d4",
+     "Statistics, data engineering, visualisation and inference at scale."),
+    ("cyber-security", "Cyber Security", "cse", "shield", "#ef4444",
+     "Cryptography, network defence, application security and digital forensics."),
+    ("software-engineering", "Software Engineering", "cse", "boxes", "#22c55e",
+     "Design, process, quality, testing and delivery of software at team scale."),
+    ("cloud-computing", "Cloud Computing", "cse", "cloud", "#0ea5e9",
+     "Elastic infrastructure, distributed storage, serverless and cost engineering."),
+    ("devops", "DevOps & SRE", "cse", "git-branch", "#f97316",
+     "CI/CD, observability, infrastructure as code and reliability engineering."),
+    ("blockchain", "Blockchain Engineering", "cse", "link", "#a855f7",
+     "Consensus, cryptography, smart contracts and decentralised systems."),
+    ("iot", "Internet of Things", "cse", "radio", "#14b8a6",
+     "Sensors, edge gateways, embedded connectivity and device fleets."),
+
+    # ---- Electronics / Electrical ----
+    ("electronics-communication", "Electronics & Communication", "electronics", "radio-tower", "#f59e0b",
+     "Signals, devices, communication systems and the physics of electronics."),
+    ("electrical-engineering", "Electrical Engineering", "electronics", "zap", "#eab308",
+     "Machines, power systems, drives and energy conversion."),
+    ("electronics-engineering", "Electronics Engineering", "electronics", "circuit-board", "#fb923c",
+     "Analog and digital circuit design, from devices to systems."),
+    ("instrumentation", "Instrumentation Engineering", "electronics", "gauge", "#84cc16",
+     "Measurement, sensors, transducers and process instrumentation."),
+    ("vlsi", "VLSI Design", "electronics", "cpu", "#e11d48",
+     "CMOS design, layout, timing and the full digital IC flow."),
+    ("embedded-systems", "Embedded Systems", "electronics", "microchip", "#f43f5e",
+     "Microcontrollers, RTOS, firmware and real-time design."),
+    ("control-systems", "Control Systems", "electronics", "sliders-horizontal", "#0d9488",
+     "Feedback, stability, state space and modern control design."),
+    ("robotics", "Robotics", "electronics", "bot", "#6366f1",
+     "Kinematics, sensing, actuation and autonomous behaviour."),
+
+    # ---- Mechanical / Manufacturing ----
+    ("mechanical-engineering", "Mechanical Engineering", "mechanical", "cog", "#64748b",
+     "Mechanics, thermodynamics, design and manufacturing - the widest engineering discipline."),
+    ("automobile", "Automobile Engineering", "mechanical", "car", "#dc2626",
+     "Powertrain, chassis, vehicle dynamics and modern EV systems."),
+    ("mechatronics", "Mechatronics", "mechanical", "settings-2", "#7c3aed",
+     "The union of mechanics, electronics and control in one machine."),
+    ("production", "Production Engineering", "mechanical", "factory", "#0891b2",
+     "Process planning, tooling, quality and lean manufacturing."),
+    ("industrial", "Industrial Engineering", "mechanical", "workflow", "#059669",
+     "Operations research, ergonomics, systems and efficiency."),
+    ("manufacturing", "Manufacturing Engineering", "mechanical", "hammer", "#475569",
+     "Casting, forming, machining, joining and additive processes."),
+    ("robotics-automation", "Robotics & Automation", "mechanical", "move-3d", "#2563eb",
+     "Industrial robots, PLCs, vision and automated production lines."),
+    ("aerospace", "Aerospace Engineering", "mechanical", "plane", "#0284c7",
+     "Aerodynamics, propulsion, structures and flight mechanics."),
+
+    # ---- Civil / Infrastructure ----
+    ("civil-engineering", "Civil Engineering", "civil", "building-2", "#a16207",
+     "The built environment: structures, water, transport and geotechnics."),
+    ("structural", "Structural Engineering", "civil", "landmark", "#b45309",
+     "Analysis and design of beams, frames, slabs and foundations."),
+    ("environmental", "Environmental Engineering", "civil", "leaf", "#16a34a",
+     "Water treatment, waste management and environmental impact."),
+    ("transportation", "Transportation Engineering", "civil", "route", "#ca8a04",
+     "Highway design, traffic engineering and transport planning."),
+    ("construction", "Construction Engineering", "civil", "hard-hat", "#d97706",
+     "Site management, estimation, contracts and project delivery."),
+    ("geotechnical", "Geotechnical Engineering", "civil", "layers", "#92400e",
+     "Soil mechanics, foundations, slopes and earth retention."),
+
+    # ---- Chemical / Materials ----
+    ("chemical-engineering", "Chemical Engineering", "chemical", "flask-conical", "#db2777",
+     "Reaction engineering, separations, process design and scale-up."),
+    ("materials", "Materials Engineering", "chemical", "gem", "#9333ea",
+     "Structure-property relationships, phase diagrams and failure."),
+    ("metallurgical", "Metallurgical Engineering", "chemical", "anvil", "#78716c",
+     "Extraction, physical metallurgy and heat treatment of metals."),
+    ("polymer", "Polymer Engineering", "chemical", "shapes", "#c026d3",
+     "Polymerisation, rheology, processing and composite design."),
+    ("petroleum", "Petroleum Engineering", "chemical", "droplets", "#1e293b",
+     "Reservoir, drilling and production engineering."),
+    ("mining", "Mining Engineering", "chemical", "pickaxe", "#57534e",
+     "Mine planning, extraction, ventilation and mineral processing."),
+
+    # ---- Bio / other ----
+    ("biotechnology", "Biotechnology Engineering", "bio", "dna", "#10b981",
+     "Bioprocess, genetic and fermentation engineering."),
+    ("biomedical", "Biomedical Engineering", "bio", "heart-pulse", "#e11d48",
+     "Medical devices, biomaterials, imaging and clinical engineering."),
+    ("food-technology", "Food Technology", "bio", "wheat", "#f59e0b",
+     "Processing, preservation, safety and quality engineering."),
+    ("agricultural", "Agricultural Engineering", "bio", "sprout", "#65a30d",
+     "Farm machinery, irrigation, soil and post-harvest systems."),
+    ("marine", "Marine Engineering", "bio", "ship", "#0369a1",
+     "Ship design, marine propulsion and offshore structures."),
+    ("textile", "Textile Engineering", "bio", "shirt", "#be185d",
+     "Fibre science, yarn, fabric formation and dyeing technology."),
+    ("energy", "Energy Engineering", "bio", "battery-charging", "#0ea5e9",
+     "Renewables, storage, grids and energy economics."),
+]

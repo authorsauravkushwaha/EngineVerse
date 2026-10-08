@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ thread.title }} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/community">Community</a> › <span>{{ thread.title | excerpt(60) }}</span></nav>
+<div class="layout-2">
+  <article>
+    <div class="panel">
+      <div class="thread" style="border:0;padding:0">
+        <div class="votebox">
+          {% if user %}<button data-vote="1" data-type="discussion" data-id="{{ thread.id }}"
+            class="{{ 'on' if my_votes.get('discussion:' + thread.id) == 1 }}">▲</button>{% endif %}
+          <span class="n">{{ thread.score or 0 }}</span>
+          {% if user %}<button data-vote="-1" data-type="discussion" data-id="{{ thread.id }}"
+            class="{{ 'on' if my_votes.get('discussion:' + thread.id) == -1 }}">▼</button>{% endif %}</div>
+        <div style="flex:1"><h1 style="font-size:1.5rem">{{ thread.title }}</h1>
+          <p class="small muted">{{ thread.username }} · {{ thread.created_at | ago }} · {{ thread.kind }}</p>
+          <div class="prose mt">{{ thread.body | md | safe }}</div>
+          <div class="tags mt">{% for t in (thread.tags | fromjson([])) %}<span class="chip">#{{ t }}</span>{% endfor %}</div>
+          {% if user and thread.user_id != user.id %}
+          <details class="report mt">
+            <summary class="btn btn-ghost btn-sm">Report this post</summary>
+            <form method="post" action="/api/community/report" data-json-form class="row mt" style="gap:6px">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="entityType" value="thread">
+              <input type="hidden" name="entityId" value="{{ thread.id }}">
+              <input type="text" name="reason" required minlength="3" maxlength="120"
+                     placeholder="Why? (spam, incorrect, abusive...)" aria-label="Reason for reporting">
+              <button class="btn btn-soft btn-sm" type="submit">Send</button>
+            </form>
+          </details>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+
+    <h2 class="mt">{{ comments | length }} replies</h2>
+    {% for comment in comments %}
+      <div class="comment" style="margin-left:{{ (comment.depth or 0) * 18 }}px">
+        <div class="between"><span class="who"><strong>{{ comment.username }}</strong> · {{ comment.created_at | ago }}</span>
+          <span class="small">{{ comment.score or 0 }} ▲</span></div>
+        <div class="prose small">{{ comment.body | md | safe }}</div>
+        {% if user %}<div class="row">
+          <button class="btn btn-ghost btn-sm" data-vote="1" data-type="comment" data-id="{{ comment.id }}">▲</button>
+          {% if comment.user_id != user.id %}
+          <details class="report">
+            <summary class="btn btn-ghost btn-sm">Report</summary>
+            <form method="post" action="/api/community/report" data-json-form class="row mt" style="gap:6px">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="entityType" value="comment">
+              <input type="hidden" name="entityId" value="{{ comment.id }}">
+              <input type="text" name="reason" required minlength="3" maxlength="120"
+                     placeholder="Why? (spam, incorrect, abusive...)" aria-label="Reason for reporting">
+              <button class="btn btn-soft btn-sm" type="submit">Send</button>
+            </form>
+          </details>
+          {% endif %}
+        </div>{% endif %}
+      </div>
+    {% else %}<div class="empty"><span class="em">💬</span>No replies yet.</div>{% endfor %}
+
+    {% if user %}
+    <form class="panel mt" method="post" action="/api/community/comments" data-json-form>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="threadId" value="{{ thread.id }}">
+      <div class="field"><label for="cb">Your reply</label>
+        <textarea id="cb" name="body" required placeholder="Answer with reasoning, not just the answer."></textarea></div>
+      <button class="btn btn-primary">Reply</button>
+    </form>
+    {% else %}<div class="panel center"><a class="btn btn-primary" href="/login">Sign in to reply</a></div>{% endif %}
+  </article>
+  <aside class="sidebar">
+    <div class="panel tight"><h3>About this thread</h3>
+      <p class="small muted">Posted by {{ thread.username }} {{ thread.created_at | ago }}.
+        {% if thread.view_count %}{{ thread.view_count }} views.{% endif %}</p></div>
+  </aside>
+</div>
+{% endblock %}
