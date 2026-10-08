@@ -969,14 +969,64 @@ class TestDeployTopologyIsCoherent:
         )
 
     def test_the_web_image_provides_the_toolchains_the_judge_invokes(self):
-        """The bridge calls java, gcc and python3 as subprocesses."""
+        """The bridge calls java, gcc and python3 as subprocesses.
+
+        Matched against the package list rather than the whole file, so a word
+        appearing only in a comment does not satisfy it. Tokens are compared
+        whole rather than with \\b anchors, because `g++` ends in a non-word
+        character and \\b never matches after it.
+        """
         import pathlib
 
         dockerfile = pathlib.Path("deploy/Dockerfile.web").read_text(encoding="utf-8")
-        for toolchain in ("gcc", "g++", "jre"):
-            assert toolchain in dockerfile, (
+        tokens = {
+            tok
+            for line in dockerfile.splitlines()
+            if "apt-get install" in line
+            for tok in line.replace("\\", " ").split()
+        }
+        for toolchain in ("gcc", "g++", "openjdk-21-jdk-headless"):
+            assert toolchain in tokens, (
                 f"the judge needs {toolchain} in the web image and it is not installed"
             )
+
+    def test_the_web_image_ships_a_jdk_not_a_jre(self):
+        """The judge compiles Java with javac before it runs.
+
+        A JRE has no compiler, so openjdk-21-jre-headless would have made Java the
+        same dead option SQL was - listed in the editor's picker, failing on Run.
+        """
+        import pathlib
+
+        dockerfile = pathlib.Path("deploy/Dockerfile.web").read_text(encoding="utf-8")
+        assert "openjdk" in dockerfile and "jdk" in dockerfile, "no JDK is installed"
+        assert "-jre-headless" not in dockerfile, (
+            "a JRE is installed but the judge needs javac to compile submissions"
+        )
+
+    def test_no_comment_breaks_a_dockerfile_line_continuation(self):
+        """A comment inside a `\`-continued RUN silently ends the instruction.
+
+        Everything after it stops being part of the command, so the image builds
+        without the steps that were meant to run.
+        """
+        import pathlib
+        import re
+
+        for name in ("deploy/Dockerfile.web", "deploy/Dockerfile.sandbox"):
+            in_continuation = False
+            for lineno, raw in enumerate(
+                pathlib.Path(name).read_text(encoding="utf-8").splitlines(), 1
+            ):
+                line = raw.strip()
+                if in_continuation:
+                    assert not (line.startswith("#") and not line.endswith("\\")), (
+                        f"{name}:{lineno} - a comment terminates a continued instruction"
+                    )
+                    if not line.endswith("\\"):
+                        in_continuation = False
+                elif re.match(r"^(RUN|COPY|ENV|ARG)\b", line) and line.endswith("\\"):
+                    in_continuation = True
 
     def test_the_judge_can_write_when_the_root_filesystem_is_read_only(self):
         import pathlib

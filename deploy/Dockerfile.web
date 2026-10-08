@@ -30,11 +30,15 @@ RUN mvn -B -q -DskipTests package && cp target/engineverse-sandbox.jar /engineve
 
 FROM python:3.11-slim
 
-# A non-root user, the compilers the judge needs for C/C++ submissions, and a
-# headless JRE for Java ones. Nothing else is installed: the smaller the image,
-# the smaller the surface.
+# A non-root user and the toolchains the judge invokes: gcc and g++ for C/C++
+# submissions, and openjdk-21-jdk-headless for Java ones. Nothing else is
+# installed - the smaller the image, the smaller the surface.
+#
+# The JDK rather than the JRE, because the judge compiles with javac before it
+# runs. A JRE has no compiler, so shipping one would have made Java the same kind
+# of dead option SQL was: offered in the picker, failing on Run.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends gcc g++ libc6-dev openjdk-21-jre-headless \
+ && apt-get install -y --no-install-recommends gcc g++ libc6-dev openjdk-21-jdk-headless \
  && rm -rf /var/lib/apt/lists/* \
  && groupadd --system --gid 10001 engineverse \
  && useradd  --system --uid 10001 --gid engineverse --no-create-home --shell /usr/sbin/nologin engineverse \
