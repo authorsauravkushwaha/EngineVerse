@@ -440,7 +440,16 @@ async def api_comment(request: Request):
 async def api_vote(request: Request, entityType: str = Body(...), entityId: str = Body(...),
                    value: int = Body(1)):
     viewer = require_user(request)
-    score = community.vote(viewer.id, entityType, entityId, value)
+    # community.vote() only moves a score for "discussion" and "comment"; any
+    # other entity_type wrote a votes row and returned 200 with score 0, so a
+    # client sending the wrong string got a success response for a vote that
+    # silently did nothing. Refuse it instead, the way /community/report does.
+    entity_type = entityType.strip()
+    if entity_type not in ("discussion", "comment"):
+        return fail("That is not something you can vote on.", 400)
+    if not entityId.strip():
+        return fail("That is not something you can vote on.", 400)
+    score = community.vote(viewer.id, entity_type, entityId, value)
     return ok(score=score)
 
 

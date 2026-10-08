@@ -990,6 +990,79 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestVotingRejectsUnknownTargets:
+    """/api/community/vote must refuse an entity_type it cannot score.
+
+    community.vote() only moves a score for "discussion" and "comment". Any other
+    string wrote a votes row and returned 200 with score 0, so a client sending
+    the wrong value - "thread" is the obvious mistake, since that is what the URL
+    calls it - got a success response for a vote that silently did nothing, and
+    the table filled with rows no query would ever read. /community/report
+    already validated its types; vote did not.
+    """
+
+    def _thread(self, client):
+        token = _csrf(client.get("/community").text)
+        response = client.post(
+            "/api/community/threads",
+            data={
+                "title": "Does a vote on the wrong entity type fail loudly?",
+                "body": "Checking that an unknown entity_type is refused rather than ignored.",
+                "kind": "question",
+            },
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["id"], token
+
+    def test_an_unknown_entity_type_is_refused(self, signed_in, seeded):
+        thread_id, token = self._thread(signed_in)
+        for bad in ("thread", "banana", "", "DISCUSSION"):
+            response = signed_in.post(
+                "/api/community/vote",
+                json={"entityType": bad, "entityId": thread_id, "value": 1},
+                headers={"x-csrf-token": token},
+            )
+            assert response.status_code == 400, (
+                f"entityType={bad!r} returned {response.status_code}, expected 400"
+            )
+
+    def test_a_missing_entity_id_is_refused(self, signed_in, seeded):
+        token = _csrf(signed_in.get("/community").text)
+        response = signed_in.post(
+            "/api/community/vote",
+            json={"entityType": "discussion", "entityId": "   ", "value": 1},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 400
+
+    def test_no_vote_row_is_written_for_a_refused_vote(self, signed_in, seeded):
+        from engineverse import db
+
+        thread_id, token = self._thread(signed_in)
+        before = db.row_count("votes")
+        signed_in.post(
+            "/api/community/vote",
+            json={"entityType": "banana", "entityId": thread_id, "value": 1},
+            headers={"x-csrf-token": token},
+        )
+        assert db.row_count("votes") == before, "a refused vote still wrote a row"
+
+    def test_a_valid_vote_still_scores_and_stays_idempotent(self, signed_in, seeded):
+        thread_id, token = self._thread(signed_in)
+        headers = {"x-csrf-token": token}
+        payload = {"entityType": "discussion", "entityId": thread_id, "value": 1}
+        first = signed_in.post("/api/community/vote", json=payload, headers=headers).json()["score"]
+        again = signed_in.post("/api/community/vote", json=payload, headers=headers).json()["score"]
+        assert first == again == 1, f"voting twice gave {first} then {again}"
+        down = signed_in.post(
+            "/api/community/vote",
+            json={"entityType": "discussion", "entityId": thread_id, "value": -1},
+            headers=headers,
+        ).json()["score"]
+        assert down == -1, f"switching to a downvote gave {down}"
+
+
 class TestNoDeadLinks:
     """Every internal URL a template or the client script points at must exist.
 
