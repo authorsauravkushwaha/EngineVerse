@@ -1127,6 +1127,92 @@ class TestModerationCanActuallyHide:
             db.execute("DELETE FROM discussions WHERE id = ?", thread_id)
 
 
+class TestAccountDeletionIsHonestAboutWhatItRemoves:
+    """Deleting an account must not leave "None" as an author, or overclaim.
+
+    comments.user_id is ON DELETE SET NULL, so a reply outlives the account that
+    wrote it - correctly, since deleting it would break someone else's thread. But
+    the comment query selected u.username with no fallback, so the template printed
+    the literal string "None" where the author's name had been, and the flash
+    message claimed all of the user's data was removed when their replies were not.
+    """
+
+    def _orphaned_comment(self):
+        from engineverse import auth, community, db
+        from engineverse.security.ids import ulid
+
+        uid = ulid()
+        db.execute(
+            "INSERT INTO users (id,email,username,password_hash,role,status,"
+            "created_at,updated_at,password_changed_at) VALUES (?,?,?,?, 'student','active',0,0,0)",
+            uid, f"del-{uid[:8]}@example.test", f"del{uid[:12]}",
+            auth.hash_password("Throwaway#2026!"),
+        )
+        author = db.query_one("SELECT id FROM users LIMIT 1")["id"]
+        thread_id = community.create_thread(
+            author, title="Thread surviving a deletion",
+            body="Body long enough to pass validation.", kind="question",
+        )
+        community.add_comment(uid, thread_id, "This reply outlives its author.")
+        db.execute("DELETE FROM users WHERE id = ?", uid)
+        return thread_id
+
+    def test_an_orphaned_comment_has_a_readable_author(self, seeded):
+        from engineverse import community, db
+
+        thread_id = self._orphaned_comment()
+        try:
+            rows = community.comments(thread_id)
+            assert rows, "the reply did not survive the deletion"
+            username = rows[0]["username"]
+            assert username and username != "None", f"author rendered as {username!r}"
+        finally:
+            db.execute("DELETE FROM discussions WHERE id = ?", thread_id)
+
+    def test_the_page_never_prints_None_as_an_author(self, client, seeded):
+        from engineverse import db
+
+        thread_id = self._orphaned_comment()
+        try:
+            response = client.get(f"/community/{thread_id}")
+            assert response.status_code == 200
+            assert "<strong>None</strong>" not in response.text
+            assert "Deleted account" in response.text
+        finally:
+            db.execute("DELETE FROM discussions WHERE id = ?", thread_id)
+
+    def test_deleting_an_account_cascades_its_own_data(self, seeded):
+        from engineverse import auth, db, progress
+        from engineverse.security.ids import ulid
+
+        uid = ulid()
+        db.execute(
+            "INSERT INTO users (id,email,username,password_hash,role,status,"
+            "created_at,updated_at,password_changed_at) VALUES (?,?,?,?, 'student','active',0,0,0)",
+            uid, f"casc-{uid[:8]}@example.test", f"casc{uid[:12]}",
+            auth.hash_password("Throwaway#2026!"),
+        )
+        topic = db.query_one("SELECT slug FROM topics LIMIT 1")["slug"]
+        progress.complete_topic(uid, topic)
+        progress.toggle_bookmark(uid, "topic", topic)
+        assert db.query_one("SELECT count(*) AS c FROM user_progress WHERE user_id = ?", uid)["c"] == 1
+        db.execute("DELETE FROM users WHERE id = ?", uid)
+        for table, column in (("user_progress", "user_id"), ("bookmarks", "user_id"),
+                              ("xp_events", "user_id"), ("activity", "user_id")):
+            left = db.query_one(
+                f"SELECT count(*) AS c FROM {table} WHERE {column} = ?", uid
+            )["c"]
+            assert left == 0, f"{left} orphaned rows left in {table}"
+
+    def test_the_confirmation_message_does_not_overclaim(self):
+        import pathlib
+
+        source = pathlib.Path("backend/web/auth_pages.py").read_text(encoding="utf-8")
+        assert "all of its data were removed" not in source, (
+            "replies survive deletion, so the message must not claim everything is gone"
+        )
+
+
 class TestEveryFormHandlerMatchesItsTemplate:
     """Every Form(...) parameter must have an input in the form that posts to it.
 

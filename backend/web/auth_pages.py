@@ -366,7 +366,11 @@ async def delete_account_submit(request: Request, confirm: str = Form("")):
     record("auth.account_deleted", actor_id=viewer.id, ip=request.client.host if request.client else None)
     response = RedirectResponse("/", status_code=303)
     clear_session_cookie(response)
-    flash(response, "Your account and all of its data were removed.")
+    # Accurate rather than reassuring. Personal data cascades away, but a reply
+    # you left on someone else's thread is SET NULL and stays in the conversation
+    # under "Deleted account" - removing it would break other people's threads.
+    flash(response, "Your account was deleted. Replies you left on other people's "
+                    "threads stay visible, without your name attached.")
     return response
 
 

@@ -66,7 +66,11 @@ def get_thread(thread_id: str) -> dict | None:
 
 def comments(thread_id: str) -> list[dict]:
     rows = db.query(
-        "SELECT c.*, u.username, p.full_name, p.avatar_seed, u.role FROM comments c "
+        # comments.user_id is ON DELETE SET NULL, so a reply outlives the account
+        # that wrote it. Without COALESCE the template printed the literal string
+        # "None" as the author.
+        "SELECT c.*, COALESCE(u.username, 'Deleted account') AS username, p.full_name, "
+        "p.avatar_seed, u.role FROM comments c "
         "LEFT JOIN users u ON u.id = c.user_id LEFT JOIN profiles p ON p.user_id = c.user_id "
         "WHERE c.discussion_id = ? AND c.is_deleted = 0 ORDER BY c.created_at",
         thread_id,
