@@ -189,6 +189,21 @@ def shortest_path(graph, start, end):
 # Every test here reads the seeded catalogue.
 pytestmark = pytest.mark.usefixtures("seeded")
 
+#: Whether this host can isolate a submission at all. GitHub-hosted runners and
+#: most container runtimes block unprivileged user namespaces, so `unshare` fails
+#: with EPERM. The sandbox refuses to execute anything in that case, which is
+#: correct - but it means these tests have nothing to assert, so they skip
+#: rather than fail. Skipping is honest here: the behaviour under test cannot be
+#: produced on the host, and TestSandboxRefusesWithoutIsolation below covers the
+#: refusal itself on every host including those.
+_CAN_ISOLATE = bool(provider_info().get("have_namespace"))
+
+requires_isolation = pytest.mark.skipif(
+    not _CAN_ISOLATE,
+    reason="host cannot create an unprivileged user namespace; the sandbox "
+           "refuses to run submissions, so there is nothing to exercise",
+)
+
 
 def _wrapper(slug: str) -> str:
     row = db.query_one("SELECT wrapper FROM coding_problems WHERE slug = ?", slug)
@@ -236,6 +251,7 @@ class TestDriverComposition:
                     assert name.startswith("_"), f"{wrapper} defines public name {name}"
 
 
+@requires_isolation
 class TestSandbox:
     def test_provider_is_reported(self):
         info = provider_info()
@@ -297,6 +313,7 @@ class TestSandbox:
         assert "connected" not in result.stdout, "the sandbox must not allow outbound connections"
 
 
+@requires_isolation
 class TestEvaluation:
     def test_all_passing_cases_are_accepted(self):
         cases = [
@@ -333,6 +350,7 @@ class TestEvaluation:
         assert len(evaluation.cases) == 1, "a compile error should not be retried per case"
 
 
+@requires_isolation
 class TestReferenceSolutions:
     """Every seeded problem must be solvable through the real judge.
 
@@ -363,6 +381,7 @@ class TestReferenceSolutions:
         assert evaluation.passed < evaluation.total
 
 
+@requires_isolation
 class TestSandboxLimits:
     """The limits must actually be enforced.
 
@@ -501,6 +520,7 @@ def _count_processes_for(uid: int) -> int:
     return total
 
 
+@requires_isolation
 class TestSandboxFilesystemIsolation:
     """A submission must not be able to reach the application tree.
 
@@ -590,3 +610,44 @@ class TestSandboxFilesystemIsolation:
         """The provider must report what the host actually supports."""
         assert hasattr(provider, "_have_mount_ns")
         assert isinstance(provider._have_mount_ns, bool)
+
+
+class TestSandboxRefusesWithoutIsolation:
+    """The fallback path that must never run code.
+
+    Runs on every host, which is the point: this is the behaviour a runner that
+    *cannot* isolate is relying on, so it cannot be tested only where isolation
+    works. The old code ran the submission as a bare `timeout sh run.sh` here -
+    untrusted code on the application server with the real filesystem and
+    network.
+    """
+
+    def _provider(self, have_namespace: bool):
+        from engineverse.judge.local import LocalSandboxProvider
+
+        provider = LocalSandboxProvider()
+        provider._have_namespace = have_namespace
+        return provider
+
+    def test_no_namespace_means_no_execution(self):
+        provider = self._provider(False)
+        result = provider.run("python", "print('this must not run')", "")
+        assert result.status == "sandbox_unavailable"
+        assert "this must not run" not in result.stdout, "the submission was executed"
+        assert result.exit_code is None, "a child process was spawned"
+
+    def test_the_reason_is_explained(self):
+        provider = self._provider(False)
+        result = provider.run("python", "print(1)", "")
+        assert "namespace" in result.stderr.lower()
+
+    def test_available_tracks_the_host(self):
+        assert self._provider(False).available is False
+        assert self._provider(True).available is True
+
+    def test_other_languages_refuse_too(self):
+        provider = self._provider(False)
+        for language in ("javascript", "c", "cpp", "bash"):
+            assert provider.run(language, "", "").status in (
+                "sandbox_unavailable", "unsupported_language"
+            ), f"{language} was executed without isolation"

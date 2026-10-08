@@ -313,7 +313,14 @@ class LocalSandboxProvider:
 
     @property
     def available(self) -> bool:
-        return True
+        """True only when the host can actually isolate a submission.
+
+        This used to return True unconditionally, so on a host that blocks
+        unprivileged user namespaces - hardened kernels, most containers, and
+        GitHub-hosted runners - the platform advertised a working code runner
+        and then failed every submission with runtime_error.
+        """
+        return self._have_namespace
 
     def supports(self, language: str) -> bool:
         runner = RUNNERS.get(language)
@@ -336,6 +343,24 @@ class LocalSandboxProvider:
         runner = RUNNERS.get(language)
         if runner is None:
             return RunResult(status="unsupported_language", stderr=f'No runner configured for "{language}".')
+
+        if not self._have_namespace:
+            # Refuse rather than degrade. The fallback here used to run the
+            # submission as `timeout sh run.sh` with no namespace at all, which
+            # means untrusted code on the application server with the real
+            # filesystem, the real environment and unrestricted network access.
+            # That is the one thing this module exists to prevent, and it was
+            # marked `pragma: no cover` so nothing ever exercised it. A host
+            # that cannot provide a namespace gets a clear failure instead.
+            return RunResult(
+                status="sandbox_unavailable",
+                stderr=(
+                    "Code execution is disabled on this host: it cannot create an "
+                    "isolated namespace, and submissions are never run without one. "
+                    "Enable unprivileged user namespaces, or point "
+                    "ENGINEVERSE_JUDGE0_URL at a sandbox service."
+                ),
+            )
 
         settings = get_settings()
         timeout_ms = min(max(timeout_ms or settings.judge_timeout_ms, 500), 15_000)
@@ -388,8 +413,8 @@ class LocalSandboxProvider:
                     "--map-root-user", "--",
                     "timeout", "-s", "KILL", str(timeout_seconds), "sh", "run.sh",
                 ]
-            else:  # pragma: no cover - only when unshare/timeout are missing
-                argv = ["timeout", "-s", "KILL", str(timeout_seconds), "sh", "run.sh"]
+            else:  # unreachable: run() refuses before getting here
+                raise RuntimeError("refusing to execute a submission without a namespace")
 
             env = {
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
