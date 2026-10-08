@@ -255,7 +255,7 @@ class TestSqliteSchema:
         ]:
             assert db.row_count(table) >= minimum, f"{table} has too few rows"
 
-    def test_search_index_covers_the_catalogue(self):
+    def test_search_index_covers_the_catalogue(self, seeded):
         from engineverse import db
 
         assert db.row_count("search_index") > 200
@@ -710,7 +710,7 @@ class TestSearchIndexSelfHeal:
     remembered to reseed. The version marker makes that automatic.
     """
 
-    def test_a_stale_index_is_rebuilt(self):
+    def test_a_stale_index_is_rebuilt(self, seeded):
         from engineverse import db, search
 
         original = db.query_one(
@@ -730,13 +730,13 @@ class TestSearchIndexSelfHeal:
                 "SELECT value AS v FROM site_config WHERE key = 'search_index_version'"
             )["v"] == str(search.INDEX_SCHEMA_VERSION)
 
-    def test_a_current_index_is_left_alone(self):
+    def test_a_current_index_is_left_alone(self, seeded):
         from engineverse import search
 
         search.refresh_if_stale()
         assert search.refresh_if_stale() == 0, "an up-to-date index was rebuilt needlessly"
 
-    def test_notes_are_searchable(self):
+    def test_notes_are_searchable(self, seeded):
         from engineverse import search
 
         search.refresh_if_stale()
