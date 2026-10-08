@@ -990,6 +990,143 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestSettingsFormsDoNotOverwriteEachOther:
+    """Two handlers owned the same columns, and one form had no input for them.
+
+    /settings/preferences accepted note_quality and language with Form defaults,
+    but the inputs for those two live in the onboarding form. A field a form does
+    not render is not absent from the request - the default arrives in its place -
+    so ticking a single notification checkbox silently reset the reader's chosen
+    depth to "standard" and their language to "en".
+    """
+
+    def test_saving_preferences_keeps_the_reading_depth(self, signed_in, seeded):
+        import re
+
+        from engineverse import db
+
+        token = _csrf(signed_in.get("/settings").text)
+        form = dict(re.findall(r'name="([a-zA-Z_0-9]+)" value="([^"]*)"',
+                               signed_in.get("/settings").text))
+        form.update({"note_quality": "advanced", "language": "hi", "csrf_token": token})
+        signed_in.post("/settings/onboarding", data=form)
+
+        user = signed_in.get("/settings")
+        prefs = {
+            "show_email": "1", "show_activity": "1", "show_progress": "1",
+            "searchable": "1", "new_dpp": "1", "streak_reminder": "1",
+            "milestone": "1", "community_reply": "1",
+            "csrf_token": _csrf(user.text),
+        }
+        # TestClient follows redirects, so the 303 lands on /settings as a 200.
+        # What matters is the stored state, asserted below.
+        signed_in.post("/settings/preferences", data=prefs)
+
+        row = db.query_one(
+            "SELECT p.note_quality, p.language_pref FROM profiles p "
+            "JOIN users u ON u.id = p.user_id WHERE u.email = ?", "asha@example.com"
+        )
+        assert row["note_quality"] == "advanced", (
+            f"saving preferences reset the reading depth to {row['note_quality']!r}"
+        )
+        assert row["language_pref"] == "hi", (
+            f"saving preferences reset the language to {row['language_pref']!r}"
+        )
+
+    def test_saving_preferences_still_stores_privacy_and_notifications(self, signed_in, seeded):
+        import json
+
+        from engineverse import db
+
+        prefs = {
+            "show_email": "1", "show_progress": "1",
+            "milestone": "1", "csrf_token": _csrf(signed_in.get("/settings").text),
+        }
+        signed_in.post("/settings/preferences", data=prefs)
+        row = db.query_one(
+            "SELECT p.privacy, p.notification_prefs FROM profiles p "
+            "JOIN users u ON u.id = p.user_id WHERE u.email = ?", "asha@example.com"
+        )
+        privacy = json.loads(row["privacy"])
+        notifications = json.loads(row["notification_prefs"])
+        assert privacy["showEmail"] is True and privacy["showActivity"] is False
+        assert notifications["milestone"] is True and notifications["newDpp"] is False
+
+
+class TestModerationCanActuallyHide:
+    """Reporting stored "thread"; hiding looked for "discussion", so it never matched.
+
+    The URL says thread, the discussions table says discussion. Reports were stored
+    with whichever the client sent and resolve_report() hides only when the stored
+    type is "discussion", so the hide path was unreachable - a moderator could
+    close a report but never remove what was reported. The admin panel had no
+    control for it either.
+    """
+
+    def _thread(self, client):
+        token = _csrf(client.get("/community").text)
+        response = client.post(
+            "/api/community/threads",
+            data={"title": "A thread to moderate",
+                  "body": "This exists so moderation can be exercised end to end.",
+                  "kind": "question"},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["id"], token
+
+    def test_either_name_is_stored_as_discussion(self, signed_in, seeded):
+        from engineverse import db
+
+        thread_id, token = self._thread(signed_in)
+        headers = {"x-csrf-token": token}
+        for entity_type in ("thread", "discussion"):
+            response = signed_in.post(
+                "/api/community/report",
+                json={"entityType": entity_type, "entityId": thread_id, "reason": "spam"},
+                headers=headers,
+            )
+            assert response.status_code == 200, response.text
+        stored = {
+            row["entity_type"]
+            for row in db.query("SELECT entity_type FROM reports WHERE entity_id = ?", thread_id)
+        }
+        assert stored == {"discussion"}, f"reports stored {stored}, hiding needs 'discussion'"
+
+    def test_reporting_something_that_does_not_exist_is_refused(self, signed_in, seeded):
+        token = _csrf(signed_in.get("/community").text)
+        response = signed_in.post(
+            "/api/community/report",
+            json={"entityType": "thread", "entityId": "no-such-thread", "reason": "spam"},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 400, response.text
+
+    def test_resolving_with_hide_hides_the_discussion(self, seeded):
+        from engineverse import community, db
+        from engineverse.security.ids import ulid
+
+        thread_id = ulid()
+        author = db.query_one("SELECT id FROM users LIMIT 1")["id"]
+        db.execute(
+            "INSERT INTO discussions (id,user_id,title,body,kind,created_at,last_activity_at) "
+            "VALUES (?,?,'Moderation probe','body text long enough to pass.','question',0,0)",
+            thread_id, author,
+        )
+        try:
+            report_id = community.report(author, "discussion", thread_id, "spam", None)
+            assert db.query_one(
+                "SELECT is_hidden FROM discussions WHERE id = ?", thread_id
+            )["is_hidden"] == 0
+            community.resolve_report(author, report_id, hide=True)
+            assert db.query_one(
+                "SELECT is_hidden FROM discussions WHERE id = ?", thread_id
+            )["is_hidden"] == 1, "resolve_report(hide=True) did not hide the discussion"
+        finally:
+            db.execute("DELETE FROM reports WHERE id = ?", report_id)
+            db.execute("DELETE FROM discussions WHERE id = ?", thread_id)
+
+
 class TestEveryFormFieldHasAnInput:
     """A handler parameter with no matching input silently takes its default.
 

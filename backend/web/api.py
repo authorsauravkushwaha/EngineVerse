@@ -494,10 +494,22 @@ async def api_report(request: Request):
     entity_id = (data.get("entityId") or "").strip()
     reason = (data.get("reason") or "").strip()
     detail = (data.get("detail") or "").strip() or None
-    if entity_type not in ("thread", "comment") or not entity_id:
+    # The URL calls it a thread, the discussions table calls it a discussion, and
+    # community.resolve_report() hides the content only when the stored type is
+    # "discussion". Accepting "thread" here and storing it verbatim meant the hide
+    # path could never match, so a moderator could close a report but not remove
+    # what was reported. Normalise to the name the rest of the code uses.
+    if entity_type == "thread":
+        entity_type = "discussion"
+    if entity_type not in ("discussion", "comment") or not entity_id:
         return _reject(request, "/community", "That is not something you can report.")
     if len(reason) < 3:
         return _reject(request, "/community", "Give a reason so a moderator can act on it.")
+    if not db.query_one(
+        "SELECT 1 FROM discussions WHERE id = ?" if entity_type == "discussion"
+        else "SELECT 1 FROM comments WHERE id = ?", entity_id,
+    ):
+        return _reject(request, "/community", "That is not something you can report.")
     report_id = community.report(viewer.id, entity_type, entity_id, reason, detail)
     if wants_html(request):
         response = RedirectResponse("/community", status_code=303)

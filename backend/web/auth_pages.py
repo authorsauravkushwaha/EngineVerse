@@ -289,8 +289,12 @@ async def update_onboarding_submit(
 @router.post("/settings/preferences")
 async def update_preferences_submit(
     request: Request,
-    note_quality: str = Form("standard"),
-    language: str = Form("en"),
+    # note_quality and language used to be accepted here too, but the inputs for
+    # them live in the onboarding form, not this one. A field a form does not
+    # render is not simply absent from the request - the Form default arrives in
+    # its place - so saving any notification checkbox here silently reset the
+    # reader's chosen depth back to "standard" and their language back to "en".
+    # Those two settings belong to /settings/onboarding alone.
     show_email: str = Form(""),
     show_activity: str = Form(""),
     show_progress: str = Form(""),
@@ -304,8 +308,6 @@ async def update_preferences_submit(
 
     viewer = require_user(request)
     auth.update_profile(viewer.id, {
-        "note_quality": note_quality,
-        "language_pref": language,
         "privacy": json.dumps({
             "showEmail": bool(show_email), "showActivity": bool(show_activity),
             "showProgress": bool(show_progress), "searchable": bool(searchable),

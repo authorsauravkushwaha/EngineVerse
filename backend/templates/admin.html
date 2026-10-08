@@ -83,7 +83,15 @@
         <form method="post" action="/admin/reports/resolve">
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="report_id" value="{{ r.id }}">
-          <button class="btn btn-soft btn-sm">Resolve</button></form></div>
+          <button class="btn btn-soft btn-sm">Resolve</button>
+          {# The handler has accepted `hide` all along and community.resolve_report
+             hides the discussion when it is set, but no control ever sent it, so
+             moderation could close a report without removing what was reported.
+             Only offered for content that can actually be hidden. #}
+          {% if r.entity_type == 'discussion' %}
+            <button class="btn btn-soft btn-sm" name="hide" value="1">Resolve &amp; hide</button>
+          {% endif %}
+        </form></div>
       {% endfor %}</section>{% endif %}
   </div>
 
