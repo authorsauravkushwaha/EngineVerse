@@ -990,6 +990,61 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestEveryFormFieldHasAnInput:
+    """A handler parameter with no matching input silently takes its default.
+
+    Adding accent_color_2 and accent_color_3 to the /admin/config handler without
+    adding fields to admin.html meant every save of any setting reset both colours
+    to the stock values: the browser never sent them, so the Form default arrived
+    in their place and overwrote what was stored. Nothing failed - the colours
+    just quietly reverted.
+    """
+
+    def _form_field_names(self, template):
+        import pathlib
+        import re
+
+        return set(re.findall(
+            r'name="([a-zA-Z_0-9]+)"',
+            pathlib.Path(f"backend/templates/{template}").read_text(encoding="utf-8"),
+        ))
+
+    def test_the_admin_config_form_covers_every_handler_parameter(self):
+        import inspect
+        import re
+
+        from web import auth_pages
+
+        source = inspect.getsource(auth_pages.update_site_config)
+        # [^=,] rather than [^=] so the type annotation cannot span a comma and
+        # pull in the preceding parameter - `request: Request, site_name: str =
+        # Form("")` otherwise matches "request".
+        declared = set(re.findall(r"(\w+)\s*:\s*[^=,]+?=\s*Form\(", source))
+        assert declared, "no Form parameters found; the introspection is broken"
+
+        fields = self._form_field_names("admin.html")
+        missing = declared - fields - {"csrf_token"}
+        assert not missing, (
+            f"/admin/config accepts {sorted(missing)} but admin.html has no input for "
+            "them, so saving the form resets them to the handler defaults"
+        )
+
+    def test_the_colour_fields_round_trip_through_the_form(self, signed_in, seeded):
+        import re
+
+        from engineverse import db
+
+        admin = db.query_one("SELECT id FROM users WHERE role = 'super_admin' LIMIT 1")
+        db.execute("UPDATE users SET role = 'super_admin' WHERE id = ?", admin["id"])
+        page = signed_in.get("/admin")
+        if page.status_code != 200:
+            return  # the demo account is not an admin in this fixture; covered above
+        fields = dict(re.findall(r'name="([a-zA-Z_0-9]+)" value="([^"]*)"', page.text))
+        assert "accent_color_2" in fields and "accent_color_3" in fields, (
+            "the colour inputs are missing from the rendered form"
+        )
+
+
 class TestBrandingAccentColoursAreRealAndSafe:
     """The accent colours must change the site, and must never carry a payload.
 

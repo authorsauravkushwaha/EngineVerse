@@ -21,6 +21,14 @@
             <input id="sn" name="site_name" value="{{ config.get('site_name', 'EngineVerse') }}" maxlength="60"></div>
           <div class="field"><label for="ac">Accent colour</label>
             <input id="ac" name="accent_color" value="{{ config.get('accent_color', '#4f7cff') }}" maxlength="20"></div>
+          {# Every colour the handler accepts needs a field here. One that is
+             missing is not simply ignored: the handler's Form default arrives in
+             its place, so saving any unrelated setting would silently reset that
+             colour to the stock value. #}
+          <div class="field"><label for="ac2">Accent colour 2</label>
+            <input id="ac2" name="accent_color_2" value="{{ config.get('accent_color_2', '#38bdf8') }}" maxlength="20"></div>
+          <div class="field"><label for="ac3">Accent colour 3</label>
+            <input id="ac3" name="accent_color_3" value="{{ config.get('accent_color_3', '#a78bfa') }}" maxlength="20"></div>
           <div class="field"><label for="th">Default colour theme</label>
             <select id="th" name="theme">
               <option value="dark" {{ 'selected' if config.get('theme', 'dark') == 'dark' }}>Dark</option>
