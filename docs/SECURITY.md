@@ -160,6 +160,22 @@ instead and drop that block from `forgot.html`.
 | `Permissions-Policy` | camera, microphone and geolocation disabled |
 | `Cross-Origin-Opener-Policy` / `Cross-Origin-Resource-Policy` | `same-origin` |
 | `Strict-Transport-Security` | sent when the request arrives over HTTPS |
+| `Cache-Control` | `private, no-store, max-age=0` on any page rendered for a signed-in user |
+
+### Offline caching and shared devices
+
+The service worker keeps a copy of fetched pages so the app works offline. Its
+`cacheable()` check refuses non-GET requests, other origins, `/api/`, `/settings`
+and `/admin` — but that is a denylist, and most pages render the viewer's own
+data: `/today`, `/profile`, `/notifications`, `/mistakes`, `/streaks`. Cached on
+a library machine or a sibling's phone, those would have been waiting for the
+next person to open the app offline.
+
+So `render()` marks every response built for a signed-in viewer as non-cacheable,
+and the worker's `storable()` refuses to store anything carrying `no-store` or
+`private`. The check lives in the response rather than in a path list because a
+route added later is easy to forget, and the server already knows whether the
+page it just built belongs to somebody.
 
 ## Rate limiting and lockout
 

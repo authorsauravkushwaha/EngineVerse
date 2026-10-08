@@ -34,6 +34,17 @@ function cacheable(request) {
   return true;
 }
 
+// The path checks above are not sufficient on their own: most pages render the
+// signed-in user's own data, and a denylist has to be maintained by hand as
+// routes are added. The server marks a personalised response with
+// `Cache-Control: private, no-store`; honouring that is what actually keeps one
+// user's dashboard out of the cache another user can read offline.
+function storable(response) {
+  if (!response || !response.ok) return false;
+  const cc = (response.headers.get("Cache-Control") || "").toLowerCase();
+  return !cc.includes("no-store") && !cc.includes("private");
+}
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (!cacheable(request)) return;
@@ -44,18 +55,22 @@ self.addEventListener("fetch", (event) => {
   if (isStatic) {
     event.respondWith(
       caches.match(request).then((hit) => hit || fetch(request).then((res) => {
-        const copy = res.clone();
-        caches.open(VERSION).then((c) => c.put(request, copy));
+        if (storable(res)) {
+          const copy = res.clone();
+          caches.open(VERSION).then((c) => c.put(request, copy));
+        }
         return res;
       }).catch(() => caches.match("/offline")))
     );
     return;
   }
 
-  // Pages: fresh from the network when possible, cached copy offline.
+  // Pages: fresh from the network when possible, cached copy offline. A
+  // personalised page is never stored, so there is no cached copy to fall back
+  // to - it goes to /offline instead, which is the honest answer.
   event.respondWith(
     fetch(request).then((res) => {
-      if (res.ok) {
+      if (storable(res)) {
         const copy = res.clone();
         caches.open(VERSION).then((c) => c.put(request, copy));
       }

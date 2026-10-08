@@ -495,6 +495,27 @@ class TestAdminInputValidation:
         assert not crashes, f"foreign-key failures reached the error log: {crashes}"
 
 
+@pytest.fixture()
+def restore_password():
+    """Restores every demo password a reset test changes.
+
+    The database is session-scoped, so a test that resets the student 'asha'
+    leaves the password changed for the rest of the run - and `signed_in`, which
+    later suites depend on, logs in as asha. Without this the failure surfaces
+    far from its cause as a 401 in an unrelated test.
+    """
+    from engineverse import db
+
+    before = {row["id"]: row["password_hash"]
+              for row in db.query("SELECT id, password_hash FROM users")}
+    try:
+        yield
+    finally:
+        for user_id, hashed in before.items():
+            db.execute("UPDATE users SET password_hash = ? WHERE id = ?", hashed, user_id)
+        db.execute("DELETE FROM password_resets")
+
+
 class TestPasswordResetTokens:
     """Reset tokens used to be looked up with a LIKE pattern against the audit log.
 
@@ -530,7 +551,7 @@ class TestPasswordResetTokens:
                 f"token {guess!r} was accepted - the wildcard takeover is back"
             )
 
-    def test_a_valid_token_resets_the_password_once(self, client):
+    def test_a_valid_token_resets_the_password_once(self, client, restore_password):
         from engineverse import auth, db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -555,7 +576,7 @@ class TestPasswordResetTokens:
         )
         assert again.status_code == 400, "a used reset token was accepted again"
 
-    def test_an_expired_token_is_refused(self, client):
+    def test_an_expired_token_is_refused(self, client, restore_password):
         from engineverse import auth, db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -571,7 +592,7 @@ class TestPasswordResetTokens:
         )
         assert response.status_code == 400
 
-    def test_a_new_request_supersedes_the_previous_link(self, client):
+    def test_a_new_request_supersedes_the_previous_link(self, client, restore_password):
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -587,7 +608,7 @@ class TestPasswordResetTokens:
         )
         assert response.status_code == 400, "a superseded reset link still worked"
 
-    def test_tokens_are_stored_hashed(self, client):
+    def test_tokens_are_stored_hashed(self, client, restore_password):
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
@@ -694,3 +715,48 @@ class TestSvgSanitising:
         for diagram in diagrams:
             assert diagram["spec"].lstrip().startswith("<svg")
             assert "<script" not in diagram["spec"]
+
+
+class TestPersonalPagesAreNotCacheable:
+    """A signed-in page must not end up in a cache another user can read.
+
+    The service worker keeps a copy of fetched pages for offline use. Its
+    denylist covered /api/, /settings and /admin, but most pages render the
+    viewer's own data - /today, /profile, /notifications, /mistakes - so on a
+    shared machine the next person to open the app offline was shown the
+    previous user's dashboard. The server now says which responses belong to
+    somebody, and the worker honours it.
+    """
+
+    PERSONAL = ["/today", "/profile", "/notifications", "/mistakes",
+                "/streaks", "/onboarding", "/revision", "/community"]
+
+    @pytest.mark.parametrize("path", PERSONAL)
+    def test_a_signed_in_page_is_marked_no_store(self, signed_in, path):
+        response = signed_in.get(path)
+        assert response.status_code == 200, f"{path} -> {response.status_code}"
+        cache_control = response.headers.get("cache-control", "")
+        assert "no-store" in cache_control, (
+            f"{path} is personalised but sent Cache-Control: {cache_control!r}"
+        )
+
+    def test_an_anonymous_page_is_still_cacheable(self, client):
+        response = client.get("/explore")
+        assert response.status_code == 200
+        assert "no-store" not in response.headers.get("cache-control", ""), (
+            "a public page was needlessly marked non-cacheable"
+        )
+
+    def test_the_service_worker_honours_the_header(self):
+        """The worker is the thing that would store the page, so it must check."""
+        from pathlib import Path
+
+        script = Path("backend/static/sw.js").read_text(encoding="utf-8")
+        assert "no-store" in script, "the service worker ignores Cache-Control"
+        assert "storable" in script
+        # Every place that writes to the cache has to go through the check.
+        writes = script.count("c.put(")
+        guards = script.count("storable(")
+        assert writes > 0 and guards >= writes, (
+            f"{writes} cache writes but only {guards} storable() checks"
+        )

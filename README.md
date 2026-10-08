@@ -126,13 +126,13 @@ password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/S
 ## Testing
 
 ```bash
-python -m pytest backend/tests -q          # 324 tests
+python -m pytest backend/tests -q          # 334 tests
 python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
 ```
 
 | Suite | Tests | Covers |
 |---|---|---|
-| `test_security.py` | 90 | Hashing, salting, NFKC, policy, RBAC, safe URLs, ULIDs; every POST form carries a CSRF token; every capability the web layer checks actually exists |
+| `test_security.py` | 100 | Hashing, salting, NFKC, policy, RBAC, safe URLs, ULIDs; every POST form carries a CSRF token; every capability the web layer checks actually exists |
 | `test_judge.py` | 53 | All 13 reference solutions through the real sandbox; rlimits read back from inside a submission; fork bomb containment; the checkout is invisible to submitted code |
 | `test_tutor.py` | 13 | Grounded answers cite only listed sources; uncovered subjects are refused, not invented; stored markup never reaches the client; the rate limit engages |
 | `test_routes.py` | 97 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
@@ -154,7 +154,7 @@ backend/
   web/                pages.py (SSR), auth_pages.py, api.py (JSON)
   templates/          48 Jinja2 templates
   static/             one CSS file, one JS file, PWA manifest, service worker, icons
-  tests/              324 tests
+  tests/              334 tests
 db/
   schema.sql          SQLite, 63 tables (development)
   postgres/           hash-partitioned Postgres schema (production)

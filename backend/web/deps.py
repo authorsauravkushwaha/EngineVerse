@@ -191,10 +191,22 @@ def render(request: Request, template: str, status_code: int = 200, **extra: Any
     silently bind it as a template variable and the response would still be 200 -
     which is exactly what made the login and register error paths report success
     to clients that check the status code.
+
+    A signed-in response is marked non-cacheable. Most pages render the viewer's
+    own data - /today, /profile, /notifications, /mistakes - and the service
+    worker keeps a copy for offline use, so on a shared machine the next person
+    to open the app offline would be shown the previous user's dashboard. The
+    header is set here rather than by a per-route denylist because a new page
+    added next year would otherwise be forgotten; the server knows whether the
+    response belongs to somebody, so the server says so.
     """
-    return templates.TemplateResponse(
-        request, template, base_context(request, **extra), status_code=status_code
+    context = base_context(request, **extra)
+    response = templates.TemplateResponse(
+        request, template, context, status_code=status_code
     )
+    if context.get("user") is not None:
+        response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    return response
 
 
 def flash(response, message: str) -> None:
