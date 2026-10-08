@@ -800,3 +800,104 @@ def test_sanitize_svg_still_strips_event_handlers_and_scripts():
     assert "onmouseover" not in out.lower()
     assert "alert" not in out.lower()
     assert out.count("viewBox") == 1, "a duplicated attribute should collapse to one"
+
+
+def _callout_text(html: str) -> str:
+    """Pulls the text of the error callout out of a rendered page.
+
+    Whole-page substring tests are unusable here: the registration form carries
+    a permanent "Already registered? Sign in" link, so the phrase appears on
+    every response whether or not the address is taken.
+    """
+    import re
+
+    match = re.search(r'<div class="callout warning">(.*?)</div>', html, re.S)
+    if not match:
+        return ""
+    return re.sub(r"<[^>]+>", " ", match.group(1))
+
+
+class TestRegistrationEnumeration:
+    """"That email is taken" is an oracle for which addresses have accounts.
+
+    An attacker can register a list of candidate addresses and keep the ones
+    that come back as duplicates. The reply has to be the same one a genuine
+    mistake produces, and it has to cost the same time.
+    """
+
+    def _post(self, client, email, username, password="StrongPassphrase#2026!"):
+        page = client.get("/register")
+        return client.post(
+            "/register",
+            data={"csrf_token": _csrf(page.text), "email": email, "username": username,
+                  "full_name": "Enumeration Probe", "password": password,
+                  "password_confirm": password},
+            follow_redirects=False,
+        )
+
+    def test_an_existing_email_is_not_named_in_the_reply(self, client, seeded):
+        """asha@example.com exists in the seed data."""
+        from engineverse import db
+        assert db.query_one("SELECT id FROM users WHERE email = 'asha@example.com'") is not None
+
+        response = self._post(client, "asha@example.com", "probeuser01")
+
+        assert response.status_code == 422
+        # Asserted on the error callout only. Substring-testing the whole page
+        # gives a false positive on the template's own "Already registered?
+        # Sign in" link, which says nothing about this address.
+        callout = _callout_text(response.text)
+        assert callout, "the rejection rendered no error callout at all"
+        lowered = callout.lower()
+        for leak in ("already exists", "already registered", "email already", "taken"):
+            assert leak not in lowered, f"callout leaks that the account exists: {leak!r}"
+        assert "password reset" in lowered or "sign in" in lowered, (
+            "the reply must point at the recovery path"
+        )
+
+    def test_no_field_is_flagged_for_the_email(self, client, seeded):
+        """A red 'email' field is the same oracle in a different shape."""
+        response = self._post(client, "ravi@example.com", "probeuser02")
+        assert 'name="email"' in response.text  # the form is still rendered
+        assert response.status_code == 422
+        # register.html marks a bad field with <div class="err">. A red email
+        # field is the same oracle in a different shape, so there must be none.
+        assert '<div class="err">' not in response.text, (
+            "a per-field error was rendered, which flags the email address"
+        )
+
+    def test_the_attempt_is_audited(self, client, seeded):
+        """Not telling the user is only safe if the operator can still see it."""
+        from engineverse import db
+        before = db.scalar("SELECT count(*) FROM audit_logs WHERE action = 'auth.register_email_taken'")
+        self._post(client, "priya@example.com", "probeuser03")
+        after = db.scalar("SELECT count(*) FROM audit_logs WHERE action = 'auth.register_email_taken'")
+        assert after == before + 1
+
+    def test_a_duplicate_email_costs_the_same_as_a_real_hash(self, seeded):
+        """Early return skipped scrypt, making existence measurable by timing."""
+        import time
+
+        from engineverse import auth
+        from engineverse.security.passwords import hash_password
+
+        baseline = time.perf_counter()
+        hash_password("StrongPassphrase#2026!")
+        cost = time.perf_counter() - baseline
+
+        start = time.perf_counter()
+        with pytest.raises(auth.AuthError) as excinfo:
+            auth.register(email="asha@example.com", username="timingprobe",
+                          password="StrongPassphrase#2026!", full_name="Timing Probe")
+        elapsed = time.perf_counter() - start
+
+        assert excinfo.value.code == "email_taken"
+        # Generous floor: the duplicate path must do real hashing work, not bail
+        # out in microseconds. Half the baseline is far below any network noise.
+        assert elapsed >= cost * 0.5, f"duplicate path took {elapsed:.4f}s vs a hash at {cost:.4f}s"
+
+    def test_username_collision_still_says_so(self, client, seeded):
+        """Deliberate: usernames are public across the site, so this is no oracle."""
+        response = self._post(client, "brandnew-address@example.com", "asha")
+        assert response.status_code == 409
+        assert "username is taken" in response.text.lower()

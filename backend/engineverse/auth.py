@@ -24,11 +24,27 @@ DAY = 86_400_000
 
 
 class AuthError(Exception):
-    def __init__(self, message: str, status_code: int = 400, fields: dict[str, str] | None = None) -> None:
+    """A refused authentication or admin operation.
+
+    ``code`` is a stable machine-readable reason. It exists so a caller can tell
+    *why* something failed without the ``message`` having to be safe to show:
+    registration maps ``email_taken`` to a generic reply, because echoing
+    "that email already exists" tells an attacker which addresses have
+    accounts. ``message`` is only guaranteed to be internal-facing.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        status_code: int = 400,
+        fields: dict[str, str] | None = None,
+        code: str = "",
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.status_code = status_code
         self.fields = fields or {}
+        self.code = code
 
 
 @dataclass(frozen=True)
@@ -116,15 +132,28 @@ def register(
 
     issues = check_password_strength(password, [username, email, email.split("@")[0], full_name])
     if issues:
-        raise AuthError(issues[0].message, 422, {"password": issues[0].message})
+        raise AuthError(issues[0].message, 422, {"password": issues[0].message}, code="weak_password")
+
+    # Hashed before the existence checks, not after. scrypt costs ~50 ms, so
+    # returning early on a duplicate email made "does this address have an
+    # account" measurable from the response time alone even with an identical
+    # reply. Both paths now pay the same cost.
+    password_hash = hash_password(password)
+
     if find_by_email(email):
-        raise AuthError("An account with that email already exists.", 409, {"email": "Already registered."})
+        raise AuthError(
+            "An account with that email already exists.",
+            409,
+            {"email": "Already registered."},
+            code="email_taken",
+        )
     if find_by_username(username):
-        raise AuthError("That username is taken.", 409, {"username": "Already taken."})
+        # Usernames are shown publicly throughout the site, so confirming one is
+        # taken reveals nothing an attacker could not read off a leaderboard.
+        raise AuthError("That username is taken.", 409, {"username": "Already taken."}, code="username_taken")
 
     user_id = ulid()
     ts = now_ms()
-    password_hash = hash_password(password)
     privacy = json.dumps({"showEmail": False, "showActivity": True, "showProgress": True, "searchable": True})
     notifications = json.dumps(
         {"newDpp": True, "streakReminder": True, "milestone": True, "communityReply": True, "contest": False, "content": False}

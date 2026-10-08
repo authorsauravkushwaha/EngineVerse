@@ -128,6 +128,23 @@ async def register_submit(
                       branches=catalog.list_branches(), semesters=catalog.list_semesters(),
                       status_code=422)
     except auth.AuthError as exc:
+        # "That email is already registered" is an account-existence oracle: an
+        # attacker can enumerate every address that has an account by trying to
+        # register it. The reply is deliberately the same one a mistyped address
+        # would get, with the same status code and no field hint, so the two are
+        # indistinguishable. The real reason is logged, not shown.
+        if exc.code == "email_taken":
+            record("auth.register_email_taken", ip=request.client.host if request.client else None,
+                   meta={"email": email.strip()})
+            return render(request, "register.html", next=target, mode="register",
+                          error=(
+                              "We could not create that account. If you already have one, "
+                              "sign in, or use the password reset link if you have forgotten it."
+                          ),
+                          fields={}, email=email, username=username, full_name=full_name,
+                          universities=catalog.list_universities(),
+                          branches=catalog.list_branches(), semesters=catalog.list_semesters(),
+                          status_code=422)
         return render(request, "register.html", next=target, mode="register",
                       error=exc.message, fields=exc.fields or {}, email=email, username=username,
                       full_name=full_name, universities=catalog.list_universities(),
