@@ -5,8 +5,10 @@ Two drivers share one interface:
 * ``sqlite3`` (standard library) - zero-dependency default, WAL mode, FTS5.
   Suitable for development and single-node deployments.
 * PostgreSQL via any DB-API 2.0 driver (psycopg) - production. The DDL in
-  ``db/postgres/schema.sql`` is hash-partitioned for the multi-hundred-million
-  user case; see db/postgres/README.md.
+  ``db/postgres/schema.pg.sql`` is hash-partitioned for the multi-hundred-million
+  user case; see db/postgres/README.md. That file is generated from
+  ``db/schema.sql`` by ``scripts/gen_pg_schema.py`` - edit the SQLite schema and
+  regenerate, never the Postgres one.
 
 All SQL in the application lives in this module or in ``repositories``-style
 modules that call these helpers, so a driver swap touches one file.

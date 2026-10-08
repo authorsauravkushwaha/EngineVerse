@@ -8,8 +8,11 @@ weighting so titles outrank body text. Queries degrade gracefully:
   3. LIKE substring scan            -> fallback
   4. Levenshtein "did you mean"     -> typo correction
 
-The same interface maps onto PostgreSQL ``tsvector`` + ``pg_trgm`` in
-production (db/postgres/README.md), so no page code changes on migration.
+The generated Postgres schema (db/postgres/schema.pg.sql) gives search_index the
+same columns plus a stored ``tsvector`` with a GIN index, so the *data* migrates
+unchanged. The SQL below does not: ``MATCH`` and ``bm25()`` are FTS5-only, so a
+Postgres deployment needs a ``tsquery``/``ts_rank`` branch in ``search()`` before
+this module will run there. Page code is unaffected either way.
 """
 from __future__ import annotations
 

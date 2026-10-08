@@ -1,923 +1,918 @@
 -- ===========================================================================
 --  EngineVerse - production relational schema (PostgreSQL 16+)
 --  ---------------------------------------------------------------------------
---  Mirrors db/schema.sql 1:1, with the changes that matter at 10^9 scale:
+--  GENERATED FILE. Do not edit by hand.
 --
---    * High-cardinality, append-mostly tables are HASH PARTITIONED on the column
---      that every query already filters by (user_id, or the parent id). Hash
---      partitioning spreads rows evenly and needs no rebalancing as the table
---      grows, which is exactly the shape of a global learner platform.
---    * ULID text primary keys are kept: they are lexicographically sortable and
---      can be minted on any node without sequence contention.
---    * Epoch-millisecond BIGINT timestamps throughout, so the application layer
---      is identical on SQLite and Postgres.
---    * JSON payloads are jsonb, so they can be indexed and queried instead of
---      only round-tripped.
---    * Full-text search uses tsvector + GIN rather than SQLite's FTS5.
+--  Written by scripts/gen_pg_schema.py from db/schema.sql, which is the single
+--  source of truth. Regenerate with:
 --
---  Partition counts below assume 1.5e9 users. They are chosen so a single
---  partition of the largest table stays in the low tens of millions of rows -
---  small enough for VACUUM, reindexing and a restore to stay tractable.
+--      python scripts/gen_pg_schema.py
 --
---  Apply with:  psql "$DATABASE_URL" -f db/postgres/schema.pg.sql
+--  CI runs `python scripts/gen_pg_schema.py --check` and fails if this file is
+--  out of date, so the two schemas cannot diverge silently. They did once: 47
+--  of 66 shared tables had drifted, and certificates was missing kind,
+--  entity_type and entity_id, which the application inserts on every issue.
+--
+--  What differs from the SQLite DDL, and why:
+--    * INTEGER -> BIGINT, REAL -> DOUBLE PRECISION.
+--    * email/username -> CITEXT, so uniqueness ignores case.
+--    * JSON payloads stay TEXT, not jsonb: psycopg hands back a dict for jsonb
+--      and every reader here calls json.loads(), so jsonb would break them.
+--    * The FTS5 virtual table becomes a table with a generated tsvector + GIN.
+--    * High-volume tables are hash-partitioned. Postgres requires the partition
+--      key inside the primary key and every unique constraint, so tables with a
+--      lone `id` primary key get a composite (id, user_id) primary key here.
+--
+--  sessions and certificates are NOT partitioned: each carries a globally
+--  unique lookup column (token_hash, verify_id) that does not include a
+--  sensible partition key, and dropping that uniqueness would weaken the
+--  security model.
+--
+--  Partition counts assume ~1.5e9 users and keep the largest single partition
+--  in the low tens of millions of rows.
+--
+--  Apply with:  psql "$ENGINEVERSE_DB_URL" -f db/postgres/schema.pg.sql
 --  The script is idempotent.
 -- ===========================================================================
 
 SET client_min_messages TO WARNING;
 
--- ---------------------------------------------------------------------------
--- 0. EXTENSIONS
--- ---------------------------------------------------------------------------
-
 CREATE EXTENSION IF NOT EXISTS citext;   -- case-insensitive email/username
 CREATE EXTENSION IF NOT EXISTS pgcrypto; -- gen_random_bytes, digests
 
--- ---------------------------------------------------------------------------
--- 1. IDENTITY, AUTHENTICATION, AUDIT
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS users (
-  id                   TEXT PRIMARY KEY,
+  id                   TEXT NOT NULL,
   email                CITEXT NOT NULL UNIQUE,
   username             CITEXT NOT NULL UNIQUE,
-  password_hash        TEXT NOT NULL,            -- scrypt$N$r$p$saltB64$hashB64
+  password_hash        TEXT NOT NULL,
   role                 TEXT NOT NULL DEFAULT 'student',
   status               TEXT NOT NULL DEFAULT 'active',
-  email_verified       BOOLEAN NOT NULL DEFAULT FALSE,
-  failed_login_count   INTEGER NOT NULL DEFAULT 0,
+  email_verified       BIGINT NOT NULL DEFAULT 0,
+  failed_login_count   BIGINT NOT NULL DEFAULT 0,
   locked_until         BIGINT,
   password_changed_at  BIGINT NOT NULL,
-  totp_secret          TEXT,                     -- encrypted at rest
+  totp_secret          TEXT,
   created_at           BIGINT NOT NULL,
   updated_at           BIGINT NOT NULL,
-  deleted_at           BIGINT
+  deleted_at           BIGINT,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
-CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at DESC);
 
 CREATE TABLE IF NOT EXISTS user_roles (
-  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role       TEXT NOT NULL,
-  granted_by TEXT REFERENCES users(id) ON DELETE SET NULL,
-  granted_at BIGINT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role                 TEXT NOT NULL,
+  granted_by           TEXT,
+  granted_at           BIGINT NOT NULL,
   PRIMARY KEY (user_id, role)
 );
 
--- Per-user profile data. Partitioned so a profile lookup touches one partition.
 CREATE TABLE IF NOT EXISTS profiles (
-  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  full_name    TEXT,
-  headline     TEXT,
-  avatar_seed  TEXT,
-  bio          TEXT,
-  branch_id    TEXT,
-  semester_id  TEXT,
-  college_id   TEXT,
-  note_quality TEXT NOT NULL DEFAULT 'standard',
-  timezone     TEXT NOT NULL DEFAULT 'Asia/Kolkata',
-  is_public    BOOLEAN NOT NULL DEFAULT TRUE,
-  updated_at   BIGINT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  full_name            TEXT NOT NULL,
+  avatar_seed          TEXT,
+  headline             TEXT,
+  bio                  TEXT,
+  country              TEXT,
+  university_id        TEXT REFERENCES universities(id) ON DELETE SET NULL,
+  college_id           TEXT REFERENCES colleges(id) ON DELETE SET NULL,
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  semester_id          BIGINT REFERENCES semesters(id) ON DELETE SET NULL,
+  skill_level          TEXT NOT NULL DEFAULT 'beginner',
+  career_goal          TEXT,
+  programming_xp       TEXT NOT NULL DEFAULT 'none',
+  weekly_study_hours   BIGINT NOT NULL DEFAULT 7,
+  language_pref        TEXT NOT NULL DEFAULT 'en',
+  note_quality         TEXT NOT NULL DEFAULT 'standard',
+  github_url           TEXT,
+  linkedin_url         TEXT,
+  portfolio_url        TEXT,
+  skills               TEXT NOT NULL DEFAULT '[]',
+  privacy              TEXT NOT NULL DEFAULT '{}',
+  notification_prefs   TEXT NOT NULL DEFAULT '{}',
+  onboarded_at         BIGINT,
+  updated_at           BIGINT NOT NULL,
   PRIMARY KEY (user_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE TABLE IF NOT EXISTS profiles_p0 PARTITION OF profiles FOR VALUES WITH (MODULUS 64, REMAINDER 0);
-CREATE TABLE IF NOT EXISTS profiles_p1 PARTITION OF profiles FOR VALUES WITH (MODULUS 64, REMAINDER 1);
-CREATE TABLE IF NOT EXISTS profiles_p2 PARTITION OF profiles FOR VALUES WITH (MODULUS 64, REMAINDER 2);
-CREATE TABLE IF NOT EXISTS profiles_p3 PARTITION OF profiles FOR VALUES WITH (MODULUS 64, REMAINDER 3);
--- Partitions 4..63 are created by the DO block at the end of this file so the
--- script stays readable; they are identical to the four above.
-
--- Sessions are short-lived and voluminous: partition by list on a rolling
--- window is unnecessary, hash on session id keeps inserts even.
 CREATE TABLE IF NOT EXISTS sessions (
-  id             TEXT PRIMARY KEY,
-  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  token_hash     TEXT NOT NULL UNIQUE,           -- SHA-256 of the opaque cookie
-  ip             TEXT,
-  user_agent     TEXT,
-  created_at     BIGINT NOT NULL,
-  expires_at     BIGINT NOT NULL,
-  last_seen_at   BIGINT NOT NULL,
-  revoked_at     BIGINT
-) PARTITION BY HASH (id);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
-CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
-
--- Password reset tokens: hashed, exactly matched, short lived and single use.
--- Not partitioned - the table is pruned on use and expiry rather than grown.
-CREATE TABLE IF NOT EXISTS password_resets (
-  token_hash     TEXT PRIMARY KEY,               -- SHA-256 of the opaque token
-  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  created_at     BIGINT NOT NULL,
-  expires_at     BIGINT NOT NULL,
-  used_at        BIGINT,
-  ip             TEXT
+  id                   TEXT NOT NULL,
+  token_hash           TEXT NOT NULL UNIQUE,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at           BIGINT NOT NULL,
+  expires_at           BIGINT NOT NULL,
+  last_seen_at         BIGINT NOT NULL,
+  ip                   TEXT,
+  user_agent           TEXT,
+  revoked_at           BIGINT,
+  PRIMARY KEY (id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
+CREATE TABLE IF NOT EXISTS password_resets (
+  token_hash           TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at           BIGINT NOT NULL,
+  expires_at           BIGINT NOT NULL,
+  used_at              BIGINT,
+  ip                   TEXT,
+  PRIMARY KEY (token_hash)
+);
 
--- Append-only credential-stuffing defence. Hash-partitioned on the identifier
--- because that is the only key the login path ever uses.
 CREATE TABLE IF NOT EXISTS login_attempts (
-  id          TEXT NOT NULL,
-  identifier  TEXT NOT NULL,
-  ip          TEXT,
-  succeeded   BOOLEAN NOT NULL,
-  reason      TEXT,
-  created_at  BIGINT NOT NULL,
-  PRIMARY KEY (id, identifier)
-) PARTITION BY HASH (identifier);
-
-CREATE INDEX IF NOT EXISTS idx_login_attempts_recent ON login_attempts(identifier, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_login_attempts_ip ON login_attempts(ip, created_at DESC);
+  id                   TEXT NOT NULL,
+  identifier           TEXT NOT NULL,
+  ip                   TEXT NOT NULL,
+  success              BIGINT NOT NULL,
+  reason               TEXT,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
+) PARTITION BY HASH (id);
 
 CREATE TABLE IF NOT EXISTS api_rate_limits (
-  bucket     TEXT NOT NULL,
-  window_at  BIGINT NOT NULL,
-  count      INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (bucket, window_at)
-);
+  bucket               TEXT NOT NULL,
+  count                BIGINT NOT NULL DEFAULT 0,
+  window_start         BIGINT NOT NULL,
+  PRIMARY KEY (bucket)
+) PARTITION BY HASH (bucket);
 
--- Append-only. The single largest table on the platform, so it carries the
--- widest partition fan-out and is the first candidate for moving to a
--- time-series store or cold storage.
 CREATE TABLE IF NOT EXISTS audit_logs (
-  id          TEXT NOT NULL,
-  actor_id    TEXT,
-  action      TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id   TEXT,
-  ip          TEXT,
-  meta        JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at  BIGINT NOT NULL,
-  PRIMARY KEY (id, created_at)
+  id                   TEXT NOT NULL,
+  actor_id             TEXT,
+  action               TEXT NOT NULL,
+  entity_type          TEXT,
+  entity_id            TEXT,
+  meta                 TEXT NOT NULL DEFAULT '{}',
+  ip                   TEXT,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 ) PARTITION BY HASH (id);
 
-CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_audit_entity ON audit_logs(entity_type, entity_id);
-CREATE INDEX IF NOT EXISTS idx_audit_meta ON audit_logs USING GIN (meta jsonb_path_ops);
-
--- ---------------------------------------------------------------------------
--- 2. CATALOGUE: BRANCHES -> SEMESTERS -> SUBJECTS -> MODULES -> TOPICS
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS universities (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  country    TEXT NOT NULL DEFAULT 'IN',
-  slug       TEXT NOT NULL UNIQUE,
-  created_at BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  name                 TEXT NOT NULL,
+  code                 TEXT,
+  country              TEXT NOT NULL,
+  region               TEXT,
+  website              TEXT,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS colleges (
-  id            TEXT PRIMARY KEY,
-  university_id TEXT REFERENCES universities(id) ON DELETE SET NULL,
-  name          TEXT NOT NULL,
-  slug          TEXT NOT NULL UNIQUE,
-  city          TEXT,
-  created_at    BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  university_id        TEXT REFERENCES universities(id) ON DELETE SET NULL,
+  name                 TEXT NOT NULL,
+  city                 TEXT,
+  country              TEXT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS branches (
-  id         TEXT PRIMARY KEY,
-  slug       TEXT NOT NULL UNIQUE,
-  name       TEXT NOT NULL,
-  category   TEXT NOT NULL,
-  color      TEXT NOT NULL DEFAULT '#4f7cff',
-  summary    TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0,
-  created_at BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  name                 TEXT NOT NULL,
+  category             TEXT NOT NULL,
+  description          TEXT,
+  icon                 TEXT,
+  color                TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  parent_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  is_active            BIGINT NOT NULL DEFAULT 1,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_branches_category ON branches(category, order_index);
 
 CREATE TABLE IF NOT EXISTS semesters (
-  id          TEXT PRIMARY KEY,
-  branch_id   TEXT REFERENCES branches(id) ON DELETE CASCADE,
-  number      INTEGER NOT NULL,
-  name        TEXT NOT NULL,
-  order_index INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (branch_id, number)
+  id                   BIGINT NOT NULL,
+  label                TEXT NOT NULL,
+  year                 BIGINT,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS curricula (
-  id            TEXT PRIMARY KEY,
-  university_id TEXT REFERENCES universities(id) ON DELETE CASCADE,
-  branch_id     TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
-  year          INTEGER NOT NULL,
-  version       TEXT NOT NULL DEFAULT '1.0',
-  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-  UNIQUE (university_id, branch_id, year, version)
+  id                   TEXT NOT NULL,
+  university_id        TEXT NOT NULL REFERENCES universities(id) ON DELETE CASCADE,
+  branch_id            TEXT NOT NULL REFERENCES branches(id) ON DELETE CASCADE,
+  name                 TEXT NOT NULL,
+  effective_year       BIGINT NOT NULL DEFAULT 2024,
+  is_active            BIGINT NOT NULL DEFAULT 1,
+  UNIQUE (university_id, branch_id, effective_year),
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS curriculum_subjects (
-  curriculum_id TEXT NOT NULL REFERENCES curricula(id) ON DELETE CASCADE,
-  subject_id    TEXT NOT NULL,
-  semester_id   TEXT REFERENCES semesters(id) ON DELETE SET NULL,
-  credits       NUMERIC(4,1) NOT NULL DEFAULT 3,
-  is_core       BOOLEAN NOT NULL DEFAULT TRUE,
-  order_index   INTEGER NOT NULL DEFAULT 0,
+  curriculum_id        TEXT NOT NULL REFERENCES curricula(id) ON DELETE CASCADE,
+  subject_id           TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  semester_id          BIGINT NOT NULL REFERENCES semesters(id) ON DELETE SET NULL,
+  is_core              BIGINT NOT NULL DEFAULT 1,
   PRIMARY KEY (curriculum_id, subject_id)
 );
 
 CREATE TABLE IF NOT EXISTS subjects (
-  id          TEXT PRIMARY KEY,
-  branch_id   TEXT REFERENCES branches(id) ON DELETE SET NULL,
-  slug        TEXT NOT NULL UNIQUE,
-  name        TEXT NOT NULL,
-  code        TEXT,
-  summary     TEXT,
-  color       TEXT NOT NULL DEFAULT '#4f7cff',
-  semester    INTEGER,
-  first_year  BOOLEAN NOT NULL DEFAULT FALSE,
-  status      TEXT NOT NULL DEFAULT 'published',
-  order_index INTEGER NOT NULL DEFAULT 0,
-  created_at  BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  name                 TEXT NOT NULL,
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  semester_id          BIGINT REFERENCES semesters(id) ON DELETE SET NULL,
+  code                 TEXT,
+  credits              BIGINT,
+  difficulty           TEXT NOT NULL DEFAULT 'medium',
+  description          TEXT,
+  icon                 TEXT,
+  color                TEXT,
+  is_first_year        BIGINT NOT NULL DEFAULT 0,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  status               TEXT NOT NULL DEFAULT 'published',
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_subjects_branch ON subjects(branch_id, order_index);
-CREATE INDEX IF NOT EXISTS idx_subjects_status ON subjects(status);
 
 CREATE TABLE IF NOT EXISTS modules (
-  id          TEXT PRIMARY KEY,
-  subject_id  TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
-  summary     TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  subject_id           TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  slug                 TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  summary              TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  UNIQUE (subject_id, slug),
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_modules_subject ON modules(subject_id, order_index);
 
 CREATE TABLE IF NOT EXISTS topics (
-  id           TEXT PRIMARY KEY,
-  subject_id   TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
-  module_id    TEXT REFERENCES modules(id) ON DELETE SET NULL,
-  slug         TEXT NOT NULL UNIQUE,
-  title        TEXT NOT NULL,
-  summary      TEXT,
-  difficulty   TEXT NOT NULL DEFAULT 'beginner',
-  est_minutes  INTEGER NOT NULL DEFAULT 20,
-  status       TEXT NOT NULL DEFAULT 'published',
-  version      INTEGER NOT NULL DEFAULT 1,
-  order_index  INTEGER NOT NULL DEFAULT 0,
-  created_at   BIGINT NOT NULL,
-  updated_at   BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  subject_id           TEXT NOT NULL REFERENCES subjects(id) ON DELETE CASCADE,
+  module_id            TEXT REFERENCES modules(id) ON DELETE SET NULL,
+  title                TEXT NOT NULL,
+  summary              TEXT,
+  difficulty           TEXT NOT NULL DEFAULT 'medium',
+  est_minutes          BIGINT NOT NULL DEFAULT 20,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  prerequisites        TEXT NOT NULL DEFAULT '[]',
+  tags                 TEXT NOT NULL DEFAULT '[]',
+  status               TEXT NOT NULL DEFAULT 'published',
+  author_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
+  reviewer_id          TEXT REFERENCES users(id) ON DELETE SET NULL,
+  accuracy_state       TEXT NOT NULL DEFAULT 'reviewed',
+  source_ref           TEXT,
+  version              BIGINT NOT NULL DEFAULT 1,
+  view_count           BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  updated_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_topics_subject ON topics(subject_id, order_index);
-CREATE INDEX IF NOT EXISTS idx_topics_status ON topics(status);
-
--- ---------------------------------------------------------------------------
--- 3. CONTENT: NOTES (13-SECTION TEMPLATE), DIAGRAMS, FORMULAS
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS notes (
-  id         TEXT PRIMARY KEY,
-  topic_id   TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-  quality    TEXT NOT NULL DEFAULT 'standard',
-  author_id  TEXT REFERENCES users(id) ON DELETE SET NULL,
-  status     TEXT NOT NULL DEFAULT 'published',
-  version    INTEGER NOT NULL DEFAULT 1,
-  created_at BIGINT NOT NULL,
-  updated_at BIGINT NOT NULL,
-  UNIQUE (topic_id, quality)
+  id                   TEXT NOT NULL,
+  topic_id             TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  quality_level        TEXT NOT NULL DEFAULT 'standard',
+  language             TEXT NOT NULL DEFAULT 'en',
+  status               TEXT NOT NULL DEFAULT 'published',
+  author_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
+  reviewer_id          TEXT REFERENCES users(id) ON DELETE SET NULL,
+  version              BIGINT NOT NULL DEFAULT 1,
+  created_at           BIGINT NOT NULL,
+  updated_at           BIGINT NOT NULL,
+  UNIQUE (topic_id, quality_level, language),
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS note_sections (
-  id          TEXT PRIMARY KEY,
-  note_id     TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
-  kind        TEXT NOT NULL,     -- simple|definition|intuition|points|formula|...
-  title       TEXT NOT NULL,
-  body_md     TEXT NOT NULL DEFAULT '',
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  note_id              TEXT NOT NULL REFERENCES notes(id) ON DELETE CASCADE,
+  kind                 TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  body                 TEXT NOT NULL,
+  callout              TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_note_sections_note ON note_sections(note_id, order_index);
 
 CREATE TABLE IF NOT EXISTS diagrams (
-  id          TEXT PRIMARY KEY,
-  topic_id    TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
-  caption     TEXT,
-  svg         TEXT NOT NULL,
-  license     TEXT NOT NULL DEFAULT 'CC-BY-4.0',
-  source_url  TEXT,
-  hotspots    JSONB NOT NULL DEFAULT '[]'::jsonb,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  topic_id             TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  title                TEXT NOT NULL,
+  kind                 TEXT NOT NULL DEFAULT 'svg',
+  spec                 TEXT NOT NULL,
+  caption              TEXT,
+  hotspots             TEXT NOT NULL DEFAULT '[]',
+  source_ref           TEXT,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_diagrams_topic ON diagrams(topic_id, order_index);
 
--- Interactive 3D models. `scene` is JSON describing geometry, validated by
--- engineverse.models3d.validate_scene() on write and on read. It is JSONB here
--- so a model can be queried and indexed by the server without parsing it in
--- application code first.
 CREATE TABLE IF NOT EXISTS models_3d (
-  id          TEXT PRIMARY KEY,
-  topic_id    TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
-  caption     TEXT,
-  scene       JSONB NOT NULL,
-  source_ref  TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0,
-  created_at  BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  topic_id             TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  title                TEXT NOT NULL,
+  caption              TEXT,
+  scene                TEXT NOT NULL,
+  source_ref           TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_models_3d_topic ON models_3d(topic_id, order_index);
 
 CREATE TABLE IF NOT EXISTS formulas (
-  id         TEXT PRIMARY KEY,
-  topic_id   TEXT REFERENCES topics(id) ON DELETE CASCADE,
-  subject_id TEXT REFERENCES subjects(id) ON DELETE CASCADE,
-  category   TEXT NOT NULL DEFAULT 'general',
-  name       TEXT NOT NULL,
-  latex      TEXT NOT NULL,
-  variables  JSONB NOT NULL DEFAULT '[]'::jsonb,
-  notes_md   TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  topic_id             TEXT REFERENCES topics(id) ON DELETE CASCADE,
+  category             TEXT NOT NULL,
+  name                 TEXT NOT NULL,
+  latex                TEXT NOT NULL,
+  variables            TEXT NOT NULL DEFAULT '[]',
+  meaning              TEXT,
+  application          TEXT,
+  example_latex        TEXT,
+  constraints          TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_formulas_category ON formulas(category, order_index);
-CREATE INDEX IF NOT EXISTS idx_formulas_topic ON formulas(topic_id);
-
--- ---------------------------------------------------------------------------
--- 4. PRACTICE: QUESTIONS, DPP, SUBMISSIONS, MISTAKES
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS questions (
-  id           TEXT PRIMARY KEY,
-  subject_id   TEXT REFERENCES subjects(id) ON DELETE CASCADE,
-  topic_id     TEXT REFERENCES topics(id) ON DELETE CASCADE,
-  slug         TEXT NOT NULL UNIQUE,
-  kind         TEXT NOT NULL DEFAULT 'mcq',
-  difficulty   TEXT NOT NULL DEFAULT 'medium',
-  prompt_md    TEXT NOT NULL,
-  answer       TEXT,
-  explanation_md TEXT,
-  is_active    BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at   BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  topic_id             TEXT REFERENCES topics(id) ON DELETE SET NULL,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  kind                 TEXT NOT NULL,
+  difficulty           TEXT NOT NULL DEFAULT 'medium',
+  stem                 TEXT NOT NULL,
+  context              TEXT,
+  explanation          TEXT,
+  answer_index         BIGINT,
+  answer_text          TEXT,
+  tolerance            DOUBLE PRECISION,
+  code_language        TEXT,
+  starter_code         TEXT,
+  time_weight          BIGINT NOT NULL DEFAULT 1,
+  tags                 TEXT NOT NULL DEFAULT '[]',
+  author_id            TEXT REFERENCES users(id) ON DELETE SET NULL,
+  is_active            BIGINT NOT NULL DEFAULT 1,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_questions_topic ON questions(topic_id, difficulty);
-CREATE INDEX IF NOT EXISTS idx_questions_subject ON questions(subject_id, kind);
 
 CREATE TABLE IF NOT EXISTS question_options (
-  id          TEXT PRIMARY KEY,
-  question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-  label       TEXT NOT NULL,
-  body_md     TEXT NOT NULL,
-  is_correct  BOOLEAN NOT NULL DEFAULT FALSE,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  question_id          TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  label                TEXT NOT NULL,
+  body                 TEXT NOT NULL,
+  is_correct           BIGINT NOT NULL DEFAULT 0,
+  rationale            TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_qoptions_question ON question_options(question_id, order_index);
 
 CREATE TABLE IF NOT EXISTS dpp_sets (
-  id              TEXT PRIMARY KEY,
-  subject_id      TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-  branch_id       TEXT REFERENCES branches(id) ON DELETE SET NULL,
-  date            TEXT NOT NULL UNIQUE,
-  title           TEXT NOT NULL,
-  summary         TEXT,
-  duration_minutes INTEGER NOT NULL DEFAULT 30,
-  published       BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at      BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  date                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  difficulty           TEXT NOT NULL DEFAULT 'mixed',
+  duration_minutes     BIGINT NOT NULL DEFAULT 30,
+  published            BIGINT NOT NULL DEFAULT 1,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS dpp_questions (
-  set_id      TEXT NOT NULL REFERENCES dpp_sets(id) ON DELETE CASCADE,
-  question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-  position    INTEGER NOT NULL DEFAULT 0,
+  set_id               TEXT NOT NULL REFERENCES dpp_sets(id) ON DELETE CASCADE,
+  question_id          TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  position             BIGINT NOT NULL,
   PRIMARY KEY (set_id, question_id)
 );
 
--- The hottest write path on the platform: every answer from every learner.
--- Hash-partitioned on user_id so a learner's history lives in one partition
--- and the leaderboard's aggregation can run partition-parallel.
 CREATE TABLE IF NOT EXISTS submissions (
-  id           TEXT NOT NULL,
-  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  question_id  TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-  topic_id     TEXT REFERENCES topics(id) ON DELETE SET NULL,
-  dpp_set_id   TEXT REFERENCES dpp_sets(id) ON DELETE SET NULL,
-  answer       TEXT,
-  is_correct   BOOLEAN NOT NULL DEFAULT FALSE,
-  time_spent_s INTEGER NOT NULL DEFAULT 0,
-  created_at   BIGINT NOT NULL,
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question_id          TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  dpp_set_id           TEXT REFERENCES dpp_sets(id) ON DELETE SET NULL,
+  answer_index         BIGINT,
+  answer_text          TEXT,
+  is_correct           BIGINT NOT NULL,
+  time_ms              BIGINT,
+  created_at           BIGINT NOT NULL,
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
-
-CREATE INDEX IF NOT EXISTS idx_submissions_user ON submissions(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_submissions_question ON submissions(question_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_submissions_topic ON submissions(topic_id, is_correct);
 
 CREATE TABLE IF NOT EXISTS mistakes (
-  id          TEXT NOT NULL,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
-  topic_id    TEXT REFERENCES topics(id) ON DELETE SET NULL,
-  note        TEXT,
-  resolved    BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at  BIGINT NOT NULL,
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question_id          TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  given                TEXT,
+  correct              TEXT,
+  resolved_at          BIGINT,
+  created_at           BIGINT NOT NULL,
+  UNIQUE (user_id, question_id),
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_mistakes_open ON mistakes(user_id, resolved, created_at DESC);
-
--- ---------------------------------------------------------------------------
--- 5. CODING: LANGUAGES, PROBLEMS, SUBMISSIONS
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS programming_languages (
-  id          TEXT PRIMARY KEY,
-  slug        TEXT NOT NULL UNIQUE,
-  name        TEXT NOT NULL,
-  color       TEXT NOT NULL DEFAULT '#4f7cff',
-  runnable    BOOLEAN NOT NULL DEFAULT FALSE,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  name                 TEXT NOT NULL,
+  icon                 TEXT,
+  color                TEXT,
+  blurb                TEXT,
+  judge_slug           TEXT,
+  runnable             BIGINT NOT NULL DEFAULT 1,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS language_modules (
-  id          TEXT PRIMARY KEY,
-  language_id TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
-  body_md     TEXT NOT NULL,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  language_id          TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
+  slug                 TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  summary              TEXT,
+  body                 TEXT NOT NULL,
+  example              TEXT,
+  exercise             TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  UNIQUE (language_id, slug),
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS coding_problems (
-  id              TEXT PRIMARY KEY,
-  slug            TEXT NOT NULL UNIQUE,
-  title           TEXT NOT NULL,
-  statement       TEXT NOT NULL,
-  difficulty      TEXT NOT NULL DEFAULT 'medium',
-  topics          JSONB NOT NULL DEFAULT '[]'::jsonb,
-  hints           JSONB NOT NULL DEFAULT '[]'::jsonb,
-  editorial       TEXT,
-  solution_md     TEXT,
-  tags            JSONB NOT NULL DEFAULT '[]'::jsonb,
-  expected_time   TEXT,
-  expected_space  TEXT,
-  wrapper         TEXT NOT NULL DEFAULT 'raw',   -- see backend/engineverse/drivers.py
-  solve_count     BIGINT NOT NULL DEFAULT 0,
-  attempt_count   BIGINT NOT NULL DEFAULT 0,
-  is_premium      BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at      BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  statement            TEXT NOT NULL,
+  difficulty           TEXT NOT NULL DEFAULT 'medium',
+  topics               TEXT NOT NULL DEFAULT '[]',
+  hints                TEXT NOT NULL DEFAULT '[]',
+  editorial            TEXT,
+  solution_md          TEXT,
+  tags                 TEXT NOT NULL DEFAULT '[]',
+  expected_time        TEXT,
+  expected_space       TEXT,
+  wrapper              TEXT NOT NULL DEFAULT 'raw',
+  solve_count          BIGINT NOT NULL DEFAULT 0,
+  attempt_count        BIGINT NOT NULL DEFAULT 0,
+  is_premium           BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS coding_problem_stubs (
-  problem_id  TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
-  language_id TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
-  stub        TEXT NOT NULL,
-  signature   TEXT,
+  problem_id           TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
+  language_id          TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
+  stub                 TEXT NOT NULL,
+  signature            TEXT,
   PRIMARY KEY (problem_id, language_id)
 );
 
 CREATE TABLE IF NOT EXISTS coding_testcases (
-  id          TEXT PRIMARY KEY,
-  problem_id  TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
-  input       TEXT NOT NULL DEFAULT '',
-  expected    TEXT NOT NULL,
-  is_sample   BOOLEAN NOT NULL DEFAULT FALSE,
-  explanation TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  problem_id           TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
+  input                TEXT NOT NULL DEFAULT '',
+  expected             TEXT NOT NULL,
+  is_sample            BIGINT NOT NULL DEFAULT 0,
+  explanation          TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_tc_problem ON coding_testcases(problem_id, order_index);
 
--- Source code is bulky; partitioned on user_id so one learner's submissions are
--- contiguous and pruning works for the "my submissions" page.
 CREATE TABLE IF NOT EXISTS coding_submissions (
-  id           TEXT NOT NULL,
-  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  problem_id   TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
-  language     TEXT NOT NULL,
-  code         TEXT NOT NULL,
-  status       TEXT NOT NULL,
-  passed       INTEGER NOT NULL DEFAULT 0,
-  total        INTEGER NOT NULL DEFAULT 0,
-  runtime_ms   INTEGER NOT NULL DEFAULT 0,
-  memory_kb    INTEGER,
-  stderr       TEXT,
-  is_accepted  BOOLEAN NOT NULL DEFAULT FALSE,
-  created_at   BIGINT NOT NULL,
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  problem_id           TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
+  language             TEXT NOT NULL,
+  code                 TEXT NOT NULL,
+  status               TEXT NOT NULL,
+  passed               BIGINT NOT NULL DEFAULT 0,
+  total                BIGINT NOT NULL DEFAULT 0,
+  runtime_ms           BIGINT,
+  memory_kb            BIGINT,
+  stderr               TEXT,
+  is_accepted          BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_coding_sub_user ON coding_submissions(user_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_coding_sub_problem ON coding_submissions(problem_id, is_accepted);
-
--- ---------------------------------------------------------------------------
--- 6. PROJECTS, LIBRARY, ROADMAPS
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS projects (
-  id          TEXT PRIMARY KEY,
-  slug        TEXT NOT NULL UNIQUE,
-  title       TEXT NOT NULL,
-  summary     TEXT,
-  description_md TEXT NOT NULL DEFAULT '',
-  category    TEXT NOT NULL DEFAULT 'web',
-  difficulty  TEXT NOT NULL DEFAULT 'intermediate',
-  branch_id   TEXT REFERENCES branches(id) ON DELETE SET NULL,
-  skills      JSONB NOT NULL DEFAULT '[]'::jsonb,
-  status      TEXT NOT NULL DEFAULT 'published',
-  order_index INTEGER NOT NULL DEFAULT 0,
-  created_at  BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  difficulty           TEXT NOT NULL DEFAULT 'intermediate',
+  category             TEXT NOT NULL DEFAULT 'software',
+  est_hours            BIGINT NOT NULL DEFAULT 20,
+  summary              TEXT,
+  problem_statement    TEXT,
+  objective            TEXT,
+  prerequisites        TEXT NOT NULL DEFAULT '[]',
+  hardware             TEXT,
+  software             TEXT,
+  architecture         TEXT,
+  source_code          TEXT,
+  database_design      TEXT,
+  testing              TEXT,
+  expected_output      TEXT,
+  improvements         TEXT,
+  resume_md            TEXT,
+  interview_questions  TEXT NOT NULL DEFAULT '[]',
+  tech                 TEXT NOT NULL DEFAULT '[]',
+  skills               TEXT NOT NULL DEFAULT '[]',
+  repo_url             TEXT,
+  demo_url             TEXT,
+  report_template_url  TEXT,
+  build_count          BIGINT NOT NULL DEFAULT 0,
+  status               TEXT NOT NULL DEFAULT 'published',
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS project_steps (
-  id          TEXT PRIMARY KEY,
-  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
-  body_md     TEXT NOT NULL DEFAULT '',
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  phase                TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  body                 TEXT NOT NULL,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS project_resources (
-  id          TEXT PRIMARY KEY,
-  project_id  TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title       TEXT NOT NULL,
-  url         TEXT NOT NULL,
-  kind        TEXT NOT NULL DEFAULT 'link',
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  project_id           TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  kind                 TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  url                  TEXT,
+  note                 TEXT,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS videos (
-  id          TEXT PRIMARY KEY,
-  topic_id    TEXT REFERENCES topics(id) ON DELETE CASCADE,
-  subject_id  TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-  title       TEXT NOT NULL,
-  channel     TEXT NOT NULL,
-  url         TEXT NOT NULL,       -- links out; never re-hosted
-  duration_s  INTEGER NOT NULL DEFAULT 0,
-  category    TEXT NOT NULL DEFAULT 'lecture',
-  level       TEXT NOT NULL DEFAULT 'beginner',
-  language    TEXT NOT NULL DEFAULT 'en',
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  channel              TEXT NOT NULL,
+  url                  TEXT NOT NULL,
+  embed_id             TEXT,
+  duration_s           BIGINT,
+  language             TEXT NOT NULL DEFAULT 'en',
+  level                TEXT NOT NULL DEFAULT 'beginner',
+  category             TEXT NOT NULL DEFAULT 'concept',
+  topic_id             TEXT REFERENCES topics(id) ON DELETE SET NULL,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  rating               BIGINT NOT NULL DEFAULT 4,
+  why_useful           TEXT,
+  embeddable           BIGINT NOT NULL DEFAULT 1,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_videos_topic ON videos(topic_id);
-CREATE INDEX IF NOT EXISTS idx_videos_category ON videos(category, level);
 
 CREATE TABLE IF NOT EXISTS books (
-  id          TEXT PRIMARY KEY,
-  subject_id  TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-  title       TEXT NOT NULL,
-  author      TEXT NOT NULL,
-  url         TEXT,                -- publisher or open-access source
-  is_free     BOOLEAN NOT NULL DEFAULT FALSE,
-  level       TEXT NOT NULL DEFAULT 'beginner',
-  summary     TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  author               TEXT NOT NULL,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  level                TEXT NOT NULL DEFAULT 'undergraduate',
+  description          TEXT,
+  why_read             TEXT,
+  topics_covered       TEXT NOT NULL DEFAULT '[]',
+  legal_url            TEXT NOT NULL,
+  access_kind          TEXT NOT NULL DEFAULT 'official',
+  publisher            TEXT,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS resources (
-  id          TEXT PRIMARY KEY,
-  subject_id  TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-  branch_id   TEXT REFERENCES branches(id) ON DELETE SET NULL,
-  title       TEXT NOT NULL,
-  url         TEXT NOT NULL,
-  kind        TEXT NOT NULL DEFAULT 'article',
-  is_free     BOOLEAN NOT NULL DEFAULT TRUE,
-  summary     TEXT,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  url                  TEXT NOT NULL,
+  kind                 TEXT NOT NULL,
+  category             TEXT NOT NULL DEFAULT 'documentation',
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  level                TEXT NOT NULL DEFAULT 'beginner',
+  format               TEXT NOT NULL DEFAULT 'web',
+  language             TEXT NOT NULL DEFAULT 'en',
+  is_free              BIGINT NOT NULL DEFAULT 1,
+  description          TEXT,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS roadmaps (
-  id          TEXT PRIMARY KEY,
-  slug        TEXT NOT NULL UNIQUE,
-  title       TEXT NOT NULL,
-  summary     TEXT,
-  branch_id   TEXT REFERENCES branches(id) ON DELETE SET NULL,
-  status      TEXT NOT NULL DEFAULT 'published',
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  kind                 TEXT NOT NULL DEFAULT 'subject',
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  target_role          TEXT,
+  summary              TEXT,
+  description          TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS roadmap_nodes (
-  id          TEXT PRIMARY KEY,
-  roadmap_id  TEXT NOT NULL REFERENCES roadmaps(id) ON DELETE CASCADE,
-  topic_id    TEXT REFERENCES topics(id) ON DELETE SET NULL,
-  title       TEXT NOT NULL,
-  summary     TEXT,
-  parent_id   TEXT REFERENCES roadmap_nodes(id) ON DELETE SET NULL,
-  depth       INTEGER NOT NULL DEFAULT 0,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  roadmap_id           TEXT NOT NULL REFERENCES roadmaps(id) ON DELETE CASCADE,
+  title                TEXT NOT NULL,
+  summary              TEXT,
+  ref_type             TEXT,
+  ref_id               TEXT,
+  is_required          BIGINT NOT NULL DEFAULT 1,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_roadmap_nodes_parent ON roadmap_nodes(roadmap_id, parent_id, order_index);
-
--- ---------------------------------------------------------------------------
--- 7. LEARNING STATE: FLASHCARDS, PROGRESS, XP, STREAKS
--- ---------------------------------------------------------------------------
 
 CREATE TABLE IF NOT EXISTS flashcards (
-  id          TEXT PRIMARY KEY,
-  topic_id    TEXT REFERENCES topics(id) ON DELETE CASCADE,
-  subject_id  TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-  deck        TEXT NOT NULL DEFAULT 'core',
-  front_md    TEXT NOT NULL,
-  back_md     TEXT NOT NULL,
-  order_index INTEGER NOT NULL DEFAULT 0
+  id                   TEXT NOT NULL,
+  topic_id             TEXT REFERENCES topics(id) ON DELETE CASCADE,
+  subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  deck                 TEXT NOT NULL DEFAULT 'core',
+  front                TEXT NOT NULL,
+  back                 TEXT NOT NULL,
+  hint                 TEXT,
+  difficulty           TEXT NOT NULL DEFAULT 'medium',
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_flashcards_topic ON flashcards(topic_id, deck);
 
 CREATE TABLE IF NOT EXISTS user_flashcards (
-  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  flashcard_id  TEXT NOT NULL REFERENCES flashcards(id) ON DELETE CASCADE,
-  ease_factor   NUMERIC(4,2) NOT NULL DEFAULT 2.50,
-  interval_days INTEGER NOT NULL DEFAULT 0,
-  repetitions   INTEGER NOT NULL DEFAULT 0,
-  due_at        BIGINT NOT NULL,
-  last_seen_at  BIGINT,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  flashcard_id         TEXT NOT NULL REFERENCES flashcards(id) ON DELETE CASCADE,
+  ease_factor          DOUBLE PRECISION NOT NULL DEFAULT 2.5,
+  interval_days        DOUBLE PRECISION NOT NULL DEFAULT 0,
+  repetitions          BIGINT NOT NULL DEFAULT 0,
+  due_at               BIGINT NOT NULL,
+  last_reviewed_at     BIGINT,
   PRIMARY KEY (user_id, flashcard_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_flashcards_due ON user_flashcards(user_id, due_at);
-
 CREATE TABLE IF NOT EXISTS user_progress (
-  user_id        TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  topic_id       TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
-  status         TEXT NOT NULL DEFAULT 'started',
-  mastery        INTEGER NOT NULL DEFAULT 0,
-  time_spent_s   INTEGER NOT NULL DEFAULT 0,
-  last_viewed_at BIGINT NOT NULL,
-  completed_at   BIGINT,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  topic_id             TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+  status               TEXT NOT NULL DEFAULT 'started',
+  mastery              BIGINT NOT NULL DEFAULT 0,
+  time_spent_s         BIGINT NOT NULL DEFAULT 0,
+  last_viewed_at       BIGINT NOT NULL,
+  completed_at         BIGINT,
   PRIMARY KEY (user_id, topic_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_user_progress_status ON user_progress(user_id, status);
-
 CREATE TABLE IF NOT EXISTS bookmarks (
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL,
-  entity_id   TEXT NOT NULL,
-  created_at  BIGINT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type          TEXT NOT NULL,
+  entity_id            TEXT NOT NULL,
+  note                 TEXT,
+  created_at           BIGINT NOT NULL,
   PRIMARY KEY (user_id, entity_type, entity_id)
 ) PARTITION BY HASH (user_id);
 
 CREATE TABLE IF NOT EXISTS personal_notes (
-  id          TEXT NOT NULL,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  topic_id    TEXT REFERENCES topics(id) ON DELETE CASCADE,
-  body_md     TEXT NOT NULL,
-  created_at  BIGINT NOT NULL,
-  updated_at  BIGINT NOT NULL,
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type          TEXT NOT NULL DEFAULT 'topic',
+  entity_id            TEXT NOT NULL,
+  content              TEXT NOT NULL,
+  is_private           BIGINT NOT NULL DEFAULT 1,
+  created_at           BIGINT NOT NULL,
+  updated_at           BIGINT NOT NULL,
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
 CREATE TABLE IF NOT EXISTS xp_events (
-  id          TEXT NOT NULL,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  amount      INTEGER NOT NULL,
-  reason      TEXT NOT NULL,
-  entity_type TEXT,
-  entity_id   TEXT,
-  created_at  BIGINT NOT NULL,
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  amount               BIGINT NOT NULL,
+  reason               TEXT NOT NULL,
+  entity_type          TEXT,
+  entity_id            TEXT,
+  created_at           BIGINT NOT NULL,
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_xp_events_user ON xp_events(user_id, created_at DESC);
-
 CREATE TABLE IF NOT EXISTS streaks (
-  user_id        TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-  current_streak INTEGER NOT NULL DEFAULT 0,
-  longest_streak INTEGER NOT NULL DEFAULT 0,
-  last_active_day TEXT,
-  freeze_count   INTEGER NOT NULL DEFAULT 0,
-  total_xp       BIGINT NOT NULL DEFAULT 0,
-  level          INTEGER NOT NULL DEFAULT 1
-);
-CREATE INDEX IF NOT EXISTS idx_streaks_xp ON streaks(total_xp DESC);
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  current_streak       BIGINT NOT NULL DEFAULT 0,
+  longest_streak       BIGINT NOT NULL DEFAULT 0,
+  last_active_day      TEXT,
+  freeze_count         BIGINT NOT NULL DEFAULT 0,
+  total_xp             BIGINT NOT NULL DEFAULT 0,
+  level                BIGINT NOT NULL DEFAULT 1,
+  PRIMARY KEY (user_id)
+) PARTITION BY HASH (user_id);
 
--- One row per user per day. At 1.5e9 users this is the second-largest table,
--- so it is partitioned on user_id and is the primary candidate for rolling
--- older partitions into cold storage.
 CREATE TABLE IF NOT EXISTS activity (
-  user_id            TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  day                TEXT NOT NULL,
-  notes_studied      INTEGER NOT NULL DEFAULT 0,
-  questions_solved   INTEGER NOT NULL DEFAULT 0,
-  coding_submissions INTEGER NOT NULL DEFAULT 0,
-  projects_touched   INTEGER NOT NULL DEFAULT 0,
-  revisions          INTEGER NOT NULL DEFAULT 0,
-  minutes            INTEGER NOT NULL DEFAULT 0,
-  xp                 INTEGER NOT NULL DEFAULT 0,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  day                  TEXT NOT NULL,
+  notes_studied        BIGINT NOT NULL DEFAULT 0,
+  questions_solved     BIGINT NOT NULL DEFAULT 0,
+  coding_submissions   BIGINT NOT NULL DEFAULT 0,
+  projects_touched     BIGINT NOT NULL DEFAULT 0,
+  revisions            BIGINT NOT NULL DEFAULT 0,
+  minutes              BIGINT NOT NULL DEFAULT 0,
+  xp                   BIGINT NOT NULL DEFAULT 0,
   PRIMARY KEY (user_id, day)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_activity_day ON activity(day, xp DESC);
-
 CREATE TABLE IF NOT EXISTS badges (
-  id          TEXT PRIMARY KEY,
-  slug        TEXT NOT NULL UNIQUE,
-  name        TEXT NOT NULL,
-  description TEXT NOT NULL,
-  icon        TEXT,
-  tier        TEXT NOT NULL DEFAULT 'bronze',
-  criterion   TEXT
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  name                 TEXT NOT NULL,
+  description          TEXT NOT NULL,
+  icon                 TEXT NOT NULL DEFAULT 'award',
+  tier                 TEXT NOT NULL DEFAULT 'bronze',
+  criterion            TEXT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS user_badges (
-  user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  badge_id   TEXT NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
-  awarded_at BIGINT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  badge_id             TEXT NOT NULL REFERENCES badges(id) ON DELETE CASCADE,
+  earned_at            BIGINT NOT NULL,
   PRIMARY KEY (user_id, badge_id)
 ) PARTITION BY HASH (user_id);
 
--- ---------------------------------------------------------------------------
--- 8. COMMUNITY
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS discussions (
-  id          TEXT PRIMARY KEY,
-  author_id   TEXT REFERENCES users(id) ON DELETE SET NULL,
-  topic_id    TEXT REFERENCES topics(id) ON DELETE SET NULL,
-  subject_id  TEXT REFERENCES subjects(id) ON DELETE SET NULL,
-  kind        TEXT NOT NULL DEFAULT 'question',
-  title       TEXT NOT NULL,
-  body_md     TEXT NOT NULL,
-  tags        JSONB NOT NULL DEFAULT '[]'::jsonb,
-  resolved    BOOLEAN NOT NULL DEFAULT FALSE,
-  vote_score  INTEGER NOT NULL DEFAULT 0,
-  comment_count INTEGER NOT NULL DEFAULT 0,
-  created_at  BIGINT NOT NULL,
-  updated_at  BIGINT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_discussions_recent ON discussions(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_discussions_kind ON discussions(kind, resolved, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_discussions_topic ON discussions(topic_id, created_at DESC);
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  title                TEXT NOT NULL,
+  body                 TEXT NOT NULL,
+  kind                 TEXT NOT NULL DEFAULT 'question',
+  tags                 TEXT NOT NULL DEFAULT '[]',
+  entity_type          TEXT,
+  entity_id            TEXT,
+  upvotes              BIGINT NOT NULL DEFAULT 0,
+  reply_count          BIGINT NOT NULL DEFAULT 0,
+  is_resolved          BIGINT NOT NULL DEFAULT 0,
+  is_locked            BIGINT NOT NULL DEFAULT 0,
+  is_hidden            BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  last_activity_at     BIGINT NOT NULL,
+  PRIMARY KEY (id, user_id)
+) PARTITION BY HASH (user_id);
 
 CREATE TABLE IF NOT EXISTS comments (
-  id            TEXT PRIMARY KEY,
-  thread_id     TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
-  author_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
-  parent_id     TEXT REFERENCES comments(id) ON DELETE CASCADE,
-  body_md       TEXT NOT NULL,
-  is_answer     BOOLEAN NOT NULL DEFAULT FALSE,
-  vote_score    INTEGER NOT NULL DEFAULT 0,
-  created_at    BIGINT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_comments_thread ON comments(thread_id, created_at);
+  id                   TEXT NOT NULL,
+  discussion_id        TEXT NOT NULL REFERENCES discussions(id) ON DELETE CASCADE,
+  parent_id            TEXT REFERENCES comments(id) ON DELETE CASCADE,
+  user_id              TEXT REFERENCES users(id) ON DELETE SET NULL,
+  body                 TEXT NOT NULL,
+  upvotes              BIGINT NOT NULL DEFAULT 0,
+  is_ai                BIGINT NOT NULL DEFAULT 0,
+  is_deleted           BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id, user_id)
+) PARTITION BY HASH (user_id);
 
 CREATE TABLE IF NOT EXISTS votes (
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  entity_type TEXT NOT NULL,
-  entity_id   TEXT NOT NULL,
-  value       SMALLINT NOT NULL,
-  created_at  BIGINT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type          TEXT NOT NULL,
+  entity_id            TEXT NOT NULL,
+  value                BIGINT NOT NULL,
+  created_at           BIGINT NOT NULL,
   PRIMARY KEY (user_id, entity_type, entity_id)
 ) PARTITION BY HASH (user_id);
 
 CREATE TABLE IF NOT EXISTS reports (
-  id          TEXT PRIMARY KEY,
-  reporter_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  entity_type TEXT NOT NULL,
-  entity_id   TEXT NOT NULL,
-  reason      TEXT NOT NULL,
-  status      TEXT NOT NULL DEFAULT 'open',
-  created_at  BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  reporter_id          TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  entity_type          TEXT NOT NULL,
+  entity_id            TEXT NOT NULL,
+  reason               TEXT NOT NULL,
+  detail               TEXT,
+  status               TEXT NOT NULL DEFAULT 'open',
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS notifications (
-  id          TEXT NOT NULL,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  kind        TEXT NOT NULL,
-  title       TEXT NOT NULL,
-  body        TEXT,
-  url         TEXT,
-  read_at     BIGINT,
-  created_at  BIGINT NOT NULL,
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type                 TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  body                 TEXT,
+  url                  TEXT,
+  read_at              BIGINT,
+  created_at           BIGINT NOT NULL,
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
-CREATE INDEX IF NOT EXISTS idx_notifications_unread ON notifications(user_id, read_at, created_at DESC);
-
--- ---------------------------------------------------------------------------
--- 9. CERTIFICATES, BILLING
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS certificates (
-  id           TEXT PRIMARY KEY,
-  user_id      TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  roadmap_id   TEXT REFERENCES roadmaps(id) ON DELETE SET NULL,
-  verify_id    TEXT NOT NULL UNIQUE,   -- public verification URL, no accreditation claim
-  title        TEXT NOT NULL,
-  issued_at    BIGINT NOT NULL,
-  meta         JSONB NOT NULL DEFAULT '{}'::jsonb,
-  tier         TEXT NOT NULL DEFAULT 'bronze'   -- bronze|silver|gold|platinum
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind                 TEXT NOT NULL,
+  entity_type          TEXT NOT NULL,
+  entity_id            TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  verify_id            TEXT NOT NULL UNIQUE,
+  issued_at            BIGINT NOT NULL,
+  meta                 TEXT NOT NULL DEFAULT '{}',
+  tier                 TEXT NOT NULL DEFAULT 'bronze',
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_certificates_user ON certificates(user_id, issued_at DESC);
 
 CREATE TABLE IF NOT EXISTS plans (
-  id          TEXT PRIMARY KEY,
-  slug        TEXT NOT NULL UNIQUE,
-  name        TEXT NOT NULL,
-  price_cents INTEGER NOT NULL DEFAULT 0,
-  currency    TEXT NOT NULL DEFAULT 'INR',
-  interval    TEXT NOT NULL DEFAULT 'month',
-  features    JSONB NOT NULL DEFAULT '[]'::jsonb,
-  is_active   BOOLEAN NOT NULL DEFAULT TRUE
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  name                 TEXT NOT NULL,
+  price_cents          BIGINT NOT NULL DEFAULT 0,
+  currency             TEXT NOT NULL DEFAULT 'USD',
+  interval             TEXT NOT NULL DEFAULT 'month',
+  features             TEXT NOT NULL DEFAULT '[]',
+  is_active            BIGINT NOT NULL DEFAULT 1,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS subscriptions (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  plan_id     TEXT REFERENCES plans(id) ON DELETE SET NULL,
-  status      TEXT NOT NULL DEFAULT 'active',
-  started_at  BIGINT NOT NULL,
-  ends_at     BIGINT
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan_id              TEXT NOT NULL REFERENCES plans(id) ON DELETE RESTRICT,
+  status               TEXT NOT NULL DEFAULT 'active',
+  started_at           BIGINT NOT NULL,
+  expires_at           BIGINT,
+  PRIMARY KEY (id)
 );
-CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id, status);
 
 CREATE TABLE IF NOT EXISTS payments (
-  id          TEXT PRIMARY KEY,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  amount_cents INTEGER NOT NULL,
-  currency    TEXT NOT NULL DEFAULT 'INR',
-  status      TEXT NOT NULL DEFAULT 'pending',
-  reference   TEXT,
-  created_at  BIGINT NOT NULL
+  id                   TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  subscription_id      TEXT REFERENCES subscriptions(id) ON DELETE SET NULL,
+  amount_cents         BIGINT NOT NULL,
+  currency             TEXT NOT NULL DEFAULT 'USD',
+  provider             TEXT NOT NULL,
+  provider_ref         TEXT,
+  status               TEXT NOT NULL,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id)
 );
 
--- ---------------------------------------------------------------------------
--- 10. CONTESTS
--- ---------------------------------------------------------------------------
-
 CREATE TABLE IF NOT EXISTS contests (
-  id         TEXT PRIMARY KEY,
-  slug       TEXT NOT NULL UNIQUE,
-  title      TEXT NOT NULL,
-  starts_at  BIGINT NOT NULL,
-  ends_at    BIGINT NOT NULL,
-  status     TEXT NOT NULL DEFAULT 'scheduled'
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  kind                 TEXT NOT NULL DEFAULT 'weekly',
+  starts_at            BIGINT NOT NULL,
+  ends_at              BIGINT NOT NULL,
+  description          TEXT,
+  published            BIGINT NOT NULL DEFAULT 0,
+  PRIMARY KEY (id)
 );
 
 CREATE TABLE IF NOT EXISTS contest_problems (
-  contest_id  TEXT NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
-  problem_id  TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
-  points      INTEGER NOT NULL DEFAULT 100,
-  order_index INTEGER NOT NULL DEFAULT 0,
-  PRIMARY KEY (contest_id, problem_id)
+  contest_id           TEXT NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  question_id          TEXT REFERENCES questions(id) ON DELETE CASCADE,
+  problem_id           TEXT REFERENCES coding_problems(id) ON DELETE CASCADE,
+  points               BIGINT NOT NULL DEFAULT 10,
+  order_index          BIGINT NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS contest_submissions (
-  id          TEXT NOT NULL,
-  contest_id  TEXT NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
-  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  problem_id  TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
-  score       INTEGER NOT NULL DEFAULT 0,
-  created_at  BIGINT NOT NULL,
-  PRIMARY KEY (id, contest_id)
-) PARTITION BY HASH (contest_id);
-
--- ---------------------------------------------------------------------------
--- 11. PLATFORM CONFIG AND SEARCH
--- ---------------------------------------------------------------------------
+  id                   TEXT NOT NULL,
+  contest_id           TEXT NOT NULL REFERENCES contests(id) ON DELETE CASCADE,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  question_id          TEXT REFERENCES questions(id) ON DELETE CASCADE,
+  problem_id           TEXT REFERENCES coding_problems(id) ON DELETE CASCADE,
+  score                BIGINT NOT NULL DEFAULT 0,
+  created_at           BIGINT NOT NULL,
+  PRIMARY KEY (id, user_id)
+) PARTITION BY HASH (user_id);
 
 CREATE TABLE IF NOT EXISTS site_config (
-  key        TEXT PRIMARY KEY,
-  value      TEXT NOT NULL,
-  updated_at BIGINT NOT NULL
+  key                  TEXT NOT NULL,
+  value                TEXT NOT NULL,
+  updated_at           BIGINT NOT NULL,
+  PRIMARY KEY (key)
 );
 
--- Postgres full-text search replaces SQLite's FTS5. A generated tsvector with a
--- GIN index keeps this fast without a separate search service.
+-- SQLite uses an FTS5 virtual table here. Postgres gets the same columns plus a
+-- generated tsvector, which is what a GIN index can be built on.
+--
+-- NOTE: search.py currently issues FTS5-only SQL (MATCH, bm25()). A Postgres
+-- deployment needs a tsquery branch in search(); the columns below are what
+-- that branch will read.
 CREATE TABLE IF NOT EXISTS search_index (
-  entity_type TEXT NOT NULL,
-  entity_id   TEXT NOT NULL,
-  slug        TEXT,
-  title       TEXT NOT NULL,
-  body        TEXT NOT NULL DEFAULT '',
-  branch_slug TEXT,
-  subject_slug TEXT,
-  weight      INTEGER NOT NULL DEFAULT 1,
-  tsv         TSVECTOR GENERATED ALWAYS AS (
-                setweight(to_tsvector('english', coalesce(title, '')), 'A') ||
-                setweight(to_tsvector('english', coalesce(body, '')), 'B')
-              ) STORED,
+  entity_type  TEXT NOT NULL,
+  entity_id    TEXT NOT NULL,
+  title        TEXT NOT NULL DEFAULT '',
+  body         TEXT NOT NULL DEFAULT '',
+  branch       TEXT NOT NULL DEFAULT '',
+  semester     TEXT NOT NULL DEFAULT '',
+  difficulty   TEXT NOT NULL DEFAULT '',
+  tags         TEXT NOT NULL DEFAULT '',
+  tsv          tsvector GENERATED ALWAYS AS (
+                 setweight(to_tsvector('simple', coalesce(title, '')), 'A') ||
+                 setweight(to_tsvector('simple', coalesce(body, '')), 'B')
+               ) STORED,
   PRIMARY KEY (entity_type, entity_id)
 );
 CREATE INDEX IF NOT EXISTS idx_search_tsv ON search_index USING GIN (tsv);
-CREATE INDEX IF NOT EXISTS idx_search_type ON search_index(entity_type, weight DESC);
+CREATE INDEX IF NOT EXISTS idx_search_branch ON search_index(branch, entity_type);
 
--- ---------------------------------------------------------------------------
--- 12. REMAINING HASH PARTITIONS
--- ---------------------------------------------------------------------------
--- The four profile partitions above are spelled out as documentation of the
--- pattern; every other partitioned table gets its full fan-out here.
-
-DO $$
-DECLARE
-  spec RECORD;
-  n INTEGER;
-  partition_name TEXT;
-BEGIN
-  FOREACH n IN ARRAY ARRAY[4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,
-                           24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,
-                           42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,
-                           60,61,62,63]
-  LOOP
-    partition_name := format('profiles_p%s', n);
-    IF NOT EXISTS (SELECT 1 FROM pg_class WHERE relname = partition_name) THEN
-      EXECUTE format(
-        'CREATE TABLE %I PARTITION OF profiles FOR VALUES WITH (MODULUS 64, REMAINDER %s)',
-        partition_name, n);
-    END IF;
-  END LOOP;
-END $$;
-
--- Helper: create the full set of hash partitions for a table.
+-- Helper: create the full set of hash partitions for a table. Idempotent, so the
+-- schema script can be re-applied to a live database.
 CREATE OR REPLACE FUNCTION engineverse_create_partitions(
   parent_table TEXT, partition_count INTEGER
 ) RETURNS VOID AS $body$
@@ -936,31 +931,85 @@ BEGIN
 END;
 $body$ LANGUAGE plpgsql;
 
--- Fan-out chosen so the largest partition of each table stays in the low tens of
--- millions of rows at 1.5e9 users.
-SELECT engineverse_create_partitions('sessions', 64);
-SELECT engineverse_create_partitions('login_attempts', 32);
-SELECT engineverse_create_partitions('audit_logs', 256);
-SELECT engineverse_create_partitions('submissions', 256);
-SELECT engineverse_create_partitions('mistakes', 64);
-SELECT engineverse_create_partitions('coding_submissions', 128);
-SELECT engineverse_create_partitions('user_flashcards', 128);
-SELECT engineverse_create_partitions('user_progress', 128);
-SELECT engineverse_create_partitions('bookmarks', 64);
-SELECT engineverse_create_partitions('personal_notes', 64);
-SELECT engineverse_create_partitions('xp_events', 128);
+-- ---------------------------------------------------------------------------
+-- Partitions. Fan-out chosen so the largest single partition of each table
+-- stays in the low tens of millions of rows at ~1.5e9 users - small enough
+-- for VACUUM, reindexing and a restore to stay tractable.
+-- ---------------------------------------------------------------------------
+
+SELECT engineverse_create_partitions('profiles', 64);
+SELECT engineverse_create_partitions('streaks', 64);
 SELECT engineverse_create_partitions('activity', 256);
-SELECT engineverse_create_partitions('user_badges', 64);
-SELECT engineverse_create_partitions('votes', 64);
+SELECT engineverse_create_partitions('user_progress', 128);
+SELECT engineverse_create_partitions('user_flashcards', 128);
+SELECT engineverse_create_partitions('submissions', 256);
+SELECT engineverse_create_partitions('xp_events', 128);
 SELECT engineverse_create_partitions('notifications', 128);
+SELECT engineverse_create_partitions('personal_notes', 64);
+SELECT engineverse_create_partitions('comments', 128);
+SELECT engineverse_create_partitions('discussions', 128);
+SELECT engineverse_create_partitions('coding_submissions', 128);
 SELECT engineverse_create_partitions('contest_submissions', 32);
+SELECT engineverse_create_partitions('mistakes', 64);
+SELECT engineverse_create_partitions('bookmarks', 64);
+SELECT engineverse_create_partitions('votes', 64);
+SELECT engineverse_create_partitions('user_badges', 64);
+SELECT engineverse_create_partitions('audit_logs', 256);
+SELECT engineverse_create_partitions('login_attempts', 32);
+SELECT engineverse_create_partitions('api_rate_limits', 16);
 
 -- ---------------------------------------------------------------------------
--- 13. MAINTENANCE
+-- Indexes (translated from db/schema.sql).
 -- ---------------------------------------------------------------------------
+CREATE INDEX IF NOT EXISTS idx_users_status ON users(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
+CREATE INDEX IF NOT EXISTS idx_sessions_expiry ON sessions(expires_at);
+CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
+CREATE INDEX IF NOT EXISTS idx_login_ip ON login_attempts(ip, created_at);
+CREATE INDEX IF NOT EXISTS idx_login_ident ON login_attempts(identifier, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action, created_at);
+CREATE INDEX IF NOT EXISTS idx_uni_country ON universities(country);
+CREATE INDEX IF NOT EXISTS idx_branch_cat ON branches(category);
+CREATE INDEX IF NOT EXISTS idx_subject_branch ON subjects(branch_id);
+CREATE INDEX IF NOT EXISTS idx_subject_sem ON subjects(semester_id);
+CREATE INDEX IF NOT EXISTS idx_topic_subject ON topics(subject_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_topic_module ON topics(module_id);
+CREATE INDEX IF NOT EXISTS idx_section_note ON note_sections(note_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_diagram_topic ON diagrams(topic_id);
+CREATE INDEX IF NOT EXISTS idx_model3d_topic ON models_3d(topic_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_formula_subject ON formulas(subject_id);
+CREATE INDEX IF NOT EXISTS idx_formula_cat ON formulas(category);
+CREATE INDEX IF NOT EXISTS idx_q_topic ON questions(topic_id, difficulty);
+CREATE INDEX IF NOT EXISTS idx_q_subject ON questions(subject_id, kind);
+CREATE INDEX IF NOT EXISTS idx_opt_q ON question_options(question_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_dppq_set ON dpp_questions(set_id, position);
+CREATE INDEX IF NOT EXISTS idx_sub_user ON submissions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_sub_question ON submissions(question_id, is_correct);
+CREATE INDEX IF NOT EXISTS idx_sub_topic ON submissions(user_id, question_id);
+CREATE INDEX IF NOT EXISTS idx_mistake_user ON mistakes(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_cp_difficulty ON coding_problems(difficulty);
+CREATE INDEX IF NOT EXISTS idx_tc_problem ON coding_testcases(problem_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_csub_user ON coding_submissions(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_csub_problem ON coding_submissions(problem_id, is_accepted);
+CREATE INDEX IF NOT EXISTS idx_project_difficulty ON projects(difficulty);
+CREATE INDEX IF NOT EXISTS idx_project_branch ON projects(branch_id);
+CREATE INDEX IF NOT EXISTS idx_pstep ON project_steps(project_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_video_topic ON videos(topic_id);
+CREATE INDEX IF NOT EXISTS idx_res_kind ON resources(kind);
+CREATE INDEX IF NOT EXISTS idx_rnode ON roadmap_nodes(roadmap_id, order_index);
+CREATE INDEX IF NOT EXISTS idx_flash_topic ON flashcards(topic_id);
+CREATE INDEX IF NOT EXISTS idx_uf_due ON user_flashcards(user_id, due_at);
+CREATE INDEX IF NOT EXISTS idx_pnote ON personal_notes(user_id, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_xp_user ON xp_events(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_activity_day ON activity(day);
+CREATE INDEX IF NOT EXISTS idx_disc_recent ON discussions(last_activity_at DESC);
+CREATE INDEX IF NOT EXISTS idx_comment_disc ON comments(discussion_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, created_at DESC);
 
--- Append-only tables grow without bound. Detach and archive a slice rather than
--- letting VACUUM churn over the whole table.
+-- Append-only tables grow without bound. Prune in batches so VACUUM is never
+-- asked to churn over the whole table at once.
 CREATE OR REPLACE FUNCTION engineverse_prune_before(
   parent_table TEXT, cutoff_ms BIGINT
 ) RETURNS BIGINT AS $body$
