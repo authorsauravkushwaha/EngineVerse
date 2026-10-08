@@ -990,6 +990,57 @@ class TestEditorOffersOnlyWhatTheHostCanRun:
         )
 
 
+class TestUnhandledExceptionsBecomeClean500s:
+    """An exception nobody caught must still produce a response.
+
+    Verified against the running server with throwaway routes raising ValueError
+    and KeyError: each came back as 500 with {"ok": false, "error": "Internal
+    server error."} and an app.error row in audit_logs. Before this the behaviour
+    was only ever observed by accident, when a bug happened to raise.
+    """
+
+    def test_an_uncaught_exception_returns_json_for_an_api_path(self, app, client, seeded, monkeypatch):
+        from web import api as api_module
+
+        def explode(*args, **kwargs):
+            raise ValueError("deliberate test failure")
+
+        monkeypatch.setattr(api_module.search_grouped, "__call__", explode, raising=False)
+        monkeypatch.setattr(api_module, "search_grouped", explode)
+
+        response = client.get("/api/search", params={"q": "arrays"})
+        assert response.status_code == 500
+        assert response.json() == {"ok": False, "error": "Internal server error."}
+
+    def test_the_failure_is_written_to_the_audit_log(self, app, client, seeded, monkeypatch):
+        from engineverse import db
+        from web import api as api_module
+
+        def explode(*args, **kwargs):
+            raise KeyError("deliberate test failure")
+
+        monkeypatch.setattr(api_module, "search_grouped", explode)
+        before = db.query_one(
+            "SELECT count(*) AS c FROM audit_logs WHERE action = 'app.error'"
+        )["c"]
+        client.get("/api/search", params={"q": "arrays"})
+        after = db.query_one(
+            "SELECT count(*) AS c FROM audit_logs WHERE action = 'app.error'"
+        )["c"]
+        assert after == before + 1, "an unhandled exception was not recorded"
+
+    def test_an_uncaught_exception_on_a_page_renders_the_error_page(self, app, client, seeded, monkeypatch):
+        from web import pages as pages_module
+
+        def explode(*args, **kwargs):
+            raise RuntimeError("deliberate test failure")
+
+        monkeypatch.setattr(pages_module, "catalog", explode)
+        response = client.get("/explore")
+        assert response.status_code == 500
+        assert "text/html" in response.headers.get("content-type", "")
+
+
 class TestBogusIdsDoNotBecomeServerErrors:
     """A bad id in the request must answer 4xx, not 500.
 
