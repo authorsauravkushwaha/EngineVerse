@@ -249,7 +249,8 @@ async def api_run(request: Request, language: str = Body(...), code: str = Body(
     if viewer:
         db.execute(
             "INSERT INTO activity (user_id,day,coding_submissions) VALUES (?,?,1) "
-            "ON CONFLICT(user_id,day) DO UPDATE SET coding_submissions = coding_submissions + 1",
+            # Qualified: PostgreSQL calls an unqualified column ambiguous here.
+            "ON CONFLICT(user_id,day) DO UPDATE SET coding_submissions = activity.coding_submissions + 1",
             viewer.id, auth.today(),
         )
     return ok(result=result)

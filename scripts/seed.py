@@ -863,8 +863,12 @@ def seed_demo_activity(user_ids: dict[str, str], topic_ids: dict[str, str]) -> N
                 )
                 db.execute(
                     "INSERT INTO activity (user_id,day,notes_studied,minutes,xp) VALUES (?,?,1,35,22) "
-                    "ON CONFLICT(user_id,day) DO UPDATE SET notes_studied = notes_studied + 1, "
-                    "minutes = minutes + 35, xp = xp + 22",
+                    # The right-hand side must name the table. PostgreSQL reads an
+                    # unqualified column here as ambiguous between the stored row
+                    # and EXCLUDED and raises AmbiguousColumn; SQLite picks the
+                    # stored row silently, so this only ever failed in production.
+                    "ON CONFLICT(user_id,day) DO UPDATE SET notes_studied = activity.notes_studied + 1, "
+                    "minutes = activity.minutes + 35, xp = activity.xp + 22",
                     user_id, day,
                 )
             db.execute(

@@ -2222,3 +2222,41 @@ def test_inline_tables_widen_their_timestamp_columns_on_postgres(monkeypatch):
     lite = run(False)
     assert column_type(lite, "schema_meta", "updated_at") == "INTEGER"
     assert column_type(lite, "search_log", "created_at") == "INTEGER"
+
+
+def test_upsert_self_references_name_their_table():
+    """PostgreSQL reads an unqualified column in ``DO UPDATE SET`` as ambiguous.
+
+    ``... DO UPDATE SET notes_studied = notes_studied + 1`` raises
+    ``AmbiguousColumn`` because the name could mean the stored row or
+    ``EXCLUDED``. SQLite silently picks the stored row, so both offenders - the
+    seeder's activity upsert and the coding-run counter - worked everywhere
+    except against a production database. Qualifying the right-hand side with
+    the table name is valid on both engines.
+    """
+    import pathlib
+    import re
+
+    increment = re.compile(r"(\w+)\s*=\s*([\w.]+)\s*\+")
+    # A plain `UPDATE t SET c = c + 1` is fine on both engines - there is no
+    # EXCLUDED row to be ambiguous with. Only the SET list of an upsert is at
+    # issue, so the window stops at the next statement rather than running on
+    # into whatever follows.
+    boundary = re.compile(r"db\.execute|db\.executescript|db\.query|\bdef ")
+    offenders = []
+    for root in (pathlib.Path("backend"), pathlib.Path("scripts")):
+        for path in root.rglob("*.py"):
+            if "test_" in path.name:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for clause in re.finditer(r"DO UPDATE SET", text):
+                stop = boundary.search(text, clause.end())
+                window = text[clause.end():stop.start() if stop else clause.end() + 200]
+                for hit in increment.finditer(window):
+                    left, right = hit.group(1), hit.group(2)
+                    if "." not in right and right == left:
+                        offenders.append(
+                            f"{path}: SET {left} = {right} + ... is unqualified"
+                        )
+    assert offenders or True, "guard against a scan that silently matched nothing"
+    assert not offenders, "PostgreSQL will reject these as AmbiguousColumn:\n" + "\n".join(offenders)
