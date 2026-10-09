@@ -2322,3 +2322,64 @@ def test_sql_greatest_matches_what_both_engines_can_parse():
     assert db.sql_greatest("a", "b") == "CASE WHEN a > b THEN a ELSE b END"
     # A placeholder argument is repeated, so callers must pass it twice.
     assert db.sql_greatest("longest_streak", "?").count("?") == 2
+
+
+# Functions SQLite provides and PostgreSQL does not. Each has a PostgreSQL
+# equivalent with a different name or shape, so none of them can simply be
+# spelled the same way on both.
+SQLITE_ONLY_FUNCTIONS = (
+    "json_extract", "json_group_array", "json_group_object", "json_array_length",
+    "json_quote", "json_type", "json_valid", "json_each", "json_tree",
+    "ifnull", "instr", "group_concat", "typeof", "hex", "unhex", "quote",
+    "soundex", "printf", "likelihood", "unlikely", "last_insert_rowid",
+    "changes", "total_changes", "strftime", "julianday",
+)
+
+
+def test_no_sqlite_only_sql_functions():
+    """The bug class behind several production-only failures, checked as a set.
+
+    ``json_extract`` reached the boot path and raised ``UndefinedFunction``;
+    scalar ``MAX`` did the same before it. Both were found one at a time by CI
+    because each sweep looked for the specific function that had just failed.
+    This checks the whole family at once instead.
+
+    Only string literals that read like SQL are examined, so Python's own
+    ``datetime.strftime(...)`` and prose mentioning a function are ignored.
+    """
+    import ast
+    import pathlib
+    import re
+
+    sqlish = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", re.I)
+    patterns = {name: re.compile(rf"\b{name}\s*\(", re.I) for name in SQLITE_ONLY_FUNCTIONS}
+
+    def literals(tree):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                yield node.value
+            elif isinstance(node, ast.JoinedStr):
+                yield "".join(
+                    str(v.value) if isinstance(v, ast.Constant) else "x" for v in node.values
+                )
+
+    offenders = []
+    for root in (pathlib.Path("backend"), pathlib.Path("scripts")):
+        for path in sorted(root.rglob("*.py")):
+            if "test_" in path.name:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for text in literals(tree):
+                if not sqlish.search(text):
+                    continue
+                for name, pattern in patterns.items():
+                    if pattern.search(text):
+                        offenders.append(f"{path}: {name}() in {' '.join(text.split())[:70]}")
+    assert offenders or SQLITE_ONLY_FUNCTIONS, "the banned list is empty, so nothing is checked"
+    assert not offenders, (
+        "these exist only in SQLite; use db.json_flag / COALESCE / the PostgreSQL "
+        "equivalent:\n" + "\n".join(offenders)
+    )

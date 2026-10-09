@@ -342,6 +342,25 @@ def split_sql(script: str) -> list[str]:
     return statements
 
 
+def json_flag(column: str, key: str, *, default: bool = True) -> str:
+    """A boolean expression for one key inside a TEXT column holding JSON.
+
+    True when the key is absent or truthy, false only when it is explicitly
+    false - which is what ``COALESCE(json_extract(col, '$.k'), 1) = 1`` meant.
+
+    The two engines are not interchangeable here. SQLite's ``json_extract``
+    returns the integers 1 and 0; PostgreSQL has no such function and its
+    ``->>`` operator returns the strings ``'true'`` and ``'false'``, so the
+    comparison has to change shape as well as spelling. ``NULLIF`` keeps an
+    empty string, which is not valid JSON, from raising on the cast.
+    """
+    if get_settings().uses_postgres:
+        expr, yes, no = f"NULLIF({column}, '')::jsonb ->> '{key}'", "'true'", "'false'"
+    else:
+        expr, yes, no = f"json_extract({column}, '$.{key}')", "1", "0"
+    return f"COALESCE({expr}, {yes if default else no}) <> {no}"
+
+
 def sql_greatest(a: str, b: str) -> str:
     """A scalar maximum spelled so that both backends accept it.
 

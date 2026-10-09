@@ -458,8 +458,7 @@ def reindex_all() -> int:
     for row in db.query(
         "SELECT u.username, p.full_name, p.headline, b.slug AS branch FROM users u "
         "JOIN profiles p ON p.user_id = u.id LEFT JOIN branches b ON b.id = p.branch_id "
-        "WHERE u.status='active' AND COALESCE(json_extract(p.privency,'$.searchable'),1) = 1"
-        .replace("privency", "privacy")
+        f"WHERE u.status='active' AND {db.json_flag('p.privacy', 'searchable')}"
     ):
         index_entity(entity_type="user", entity_id=row["username"], title=row["full_name"],
                      body=f"{row['username']}. {row['headline'] or ''}", branch=row["branch"] or "")
