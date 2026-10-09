@@ -327,10 +327,13 @@ def touch_streak(user_id: str) -> int:
         except ValueError:
             consecutive = False
     streak = (int(row["current_streak"] or 0) + 1) if consecutive else 1
+    # sql_greatest repeats its arguments, so the streak placeholder appears
+    # twice in the CASE and is passed twice here.
     db.execute(
-        "UPDATE streaks SET current_streak = ?, longest_streak = MAX(longest_streak, ?), last_active_day = ? "
+        "UPDATE streaks SET current_streak = ?, "
+        f"longest_streak = {db.sql_greatest('longest_streak', '?')}, last_active_day = ? "
         "WHERE user_id = ?",
-        streak, streak, day, user_id,
+        streak, streak, streak, day, user_id,
     )
     return streak
 

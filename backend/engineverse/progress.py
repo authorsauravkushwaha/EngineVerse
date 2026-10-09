@@ -78,7 +78,7 @@ def award_xp(user_id: str, amount: int, reason: str, entity_type: str | None = N
         db.execute(
             "INSERT INTO streaks (user_id,total_xp,level) VALUES (?,?,?) "
             "ON CONFLICT(user_id) DO UPDATE SET total_xp = excluded.total_xp, "
-            "level = MAX(streaks.level, excluded.level)",
+            f"level = {db.sql_greatest('streaks.level', 'excluded.level')}",
             user_id, new_total, level_from_xp(new_total),
         )
     return clean
@@ -114,7 +114,7 @@ def complete_topic(user_id: str, topic_id: str) -> None:
         "INSERT INTO user_progress (user_id,topic_id,status,mastery,completed_at,last_viewed_at) "
         "VALUES (?,?,'completed',60,?,?) "
         "ON CONFLICT(user_id,topic_id) DO UPDATE SET status='completed', "
-        "mastery = MAX(user_progress.mastery, 60), "
+        f"mastery = {db.sql_greatest('user_progress.mastery', '60')}, "
         "completed_at = COALESCE(user_progress.completed_at, excluded.completed_at), "
         "last_viewed_at = excluded.last_viewed_at",
         user_id, topic_id, now_ms(), now_ms(),
@@ -159,7 +159,7 @@ def update_topic_mastery(user_id: str, topic_id: str) -> None:
     status = "mastered" if mastery >= 85 else ("completed" if mastery >= 50 else "in_progress")
     db.execute(
         "INSERT INTO user_progress (user_id,topic_id,status,mastery,last_viewed_at) VALUES (?,?,?,?,?) "
-        "ON CONFLICT(user_id,topic_id) DO UPDATE SET mastery = MAX(user_progress.mastery, excluded.mastery), "
+        f"ON CONFLICT(user_id,topic_id) DO UPDATE SET mastery = {db.sql_greatest('user_progress.mastery', 'excluded.mastery')}, "
         "status = excluded.status, last_viewed_at = excluded.last_viewed_at",
         user_id, topic_id, status, mastery, now_ms(),
     )

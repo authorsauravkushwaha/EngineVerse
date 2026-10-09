@@ -185,7 +185,10 @@ def delete_comment(actor_id: str, actor_role: str, comment_id: str) -> None:
 
         raise Forbidden("You can only delete your own comments.")
     db.execute("UPDATE comments SET is_deleted = 1 WHERE id = ?", comment_id)
-    db.execute("UPDATE discussions SET reply_count = MAX(0, reply_count - 1) WHERE id = ?", row["discussion_id"])
+    db.execute(
+        f"UPDATE discussions SET reply_count = {db.sql_greatest('0', 'reply_count - 1')} WHERE id = ?",
+        row["discussion_id"],
+    )
 
 
 def tags() -> list[dict]:

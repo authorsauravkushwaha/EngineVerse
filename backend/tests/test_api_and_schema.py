@@ -2260,3 +2260,65 @@ def test_upsert_self_references_name_their_table():
                         )
     assert offenders or True, "guard against a scan that silently matched nothing"
     assert not offenders, "PostgreSQL will reject these as AmbiguousColumn:\n" + "\n".join(offenders)
+
+
+def test_no_sqlite_only_scalar_max_or_min_in_sql():
+    """SQLite's ``MAX(a, b)`` returns the larger of two values; PostgreSQL's
+    ``MAX`` is aggregate-only and the scalar form is ``GREATEST``.
+
+    Calling it with two arguments raised
+    ``UndefinedFunction: function max(bigint, bigint) does not exist``. The name
+    exists on both engines, which is why a sweep for SQLite-only *functions*
+    walked straight past it - only the two-argument form is SQLite-specific.
+    ``db.sql_greatest`` emits a CASE expression both accept, since neither engine
+    has the other's spelling.
+
+    Docstrings are excluded by only looking at strings that read like SQL.
+    """
+    import ast
+    import pathlib
+    import re
+
+    call = re.compile(r"\b(MAX|MIN)\s*\(", re.I)
+    sqlish = re.compile(r"\b(SELECT|INSERT|UPDATE|DELETE)\b", re.I)
+
+    def literals(tree):
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                yield node.value
+            elif isinstance(node, ast.JoinedStr):
+                yield "".join(
+                    str(v.value) if isinstance(v, ast.Constant) else "x" for v in node.values
+                )
+
+    offenders = []
+    for root in (pathlib.Path("backend"), pathlib.Path("scripts")):
+        for path in sorted(root.rglob("*.py")):
+            if "test_" in path.name:
+                continue
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+            except SyntaxError:
+                continue
+            for text in literals(tree):
+                if not sqlish.search(text):
+                    continue
+                for match in call.finditer(text):
+                    i, depth, commas = match.end(), 1, 0
+                    while i < len(text) and depth:
+                        depth += (text[i] == "(") - (text[i] == ")")
+                        commas += text[i] == "," and depth == 1
+                        i += 1
+                    if commas:
+                        offenders.append(f"{path}: {' '.join(text[match.start():i].split())}")
+    assert not offenders, (
+        "PostgreSQL has no scalar MAX/MIN; use db.sql_greatest:\n" + "\n".join(offenders)
+    )
+
+
+def test_sql_greatest_matches_what_both_engines_can_parse():
+    from engineverse import db
+
+    assert db.sql_greatest("a", "b") == "CASE WHEN a > b THEN a ELSE b END"
+    # A placeholder argument is repeated, so callers must pass it twice.
+    assert db.sql_greatest("longest_streak", "?").count("?") == 2

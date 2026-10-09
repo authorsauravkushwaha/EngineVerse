@@ -342,6 +342,21 @@ def split_sql(script: str) -> list[str]:
     return statements
 
 
+def sql_greatest(a: str, b: str) -> str:
+    """A scalar maximum spelled so that both backends accept it.
+
+    SQLite's ``MAX(a, b)`` returns the larger of two values. PostgreSQL's
+    ``MAX`` is aggregate-only - its scalar equivalent is ``GREATEST``, which
+    SQLite does not have. Neither engine accepts the other's spelling, so this
+    emits a ``CASE`` expression that is valid on both rather than branching at
+    every call site.
+
+    A ``?`` passed as an argument appears twice in the result and therefore has
+    to be supplied twice by the caller.
+    """
+    return f"CASE WHEN {a} > {b} THEN {a} ELSE {b} END"
+
+
 def epoch_ms_column_type() -> str:
     """The column type for an epoch-millisecond timestamp on the active backend.
 
