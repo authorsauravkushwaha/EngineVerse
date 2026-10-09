@@ -411,10 +411,26 @@ async def api_notifications(request: Request, limit: int = 30):
 
 
 @router.post("/notifications/read")
-async def api_notifications_read(request: Request, notificationId: str | None = Body(None)):
+async def api_notifications_read(request: Request):
+    """Marks one notification read, or all of them when no id is given.
+
+    Reads the body the way every sibling handler does. This one declared
+    ``notificationId: str | None = Body(None)``, which without ``embed=True``
+    means the *entire* body must be a bare JSON string. So the object
+    ``{"notificationId": "..."}`` that ``app.js`` produces was rejected with a
+    422, and so was the natural no-argument body ``{}``.
+
+    No learner saw a symptom, because nothing in the UI called this endpoint and
+    ``/notifications`` marks everything read on load - which is exactly how a
+    broken endpoint stays broken.
+
+    Going through ``payload`` also accepts form fields, so a no-JS form works.
+    """
     viewer = require_user(request)
-    progress.mark_notifications_read(viewer.id, notificationId)
-    return ok()
+    data = await payload(request)
+    notification_id = (data.get("notificationId") or "").strip() or None
+    progress.mark_notifications_read(viewer.id, notification_id)
+    return ok(unread=len(progress.notifications(viewer.id, unread_only=True)))
 
 
 # ---------------------------------------------------------------------------

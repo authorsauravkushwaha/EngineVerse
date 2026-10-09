@@ -1855,3 +1855,62 @@ def test_health_reports_what_its_keys_say(client):
     assert body["tables"] == db.schema_table_count()
     assert body["tables"] > 50, "the schema has far more tables than this"
     assert body["users"] == db.row_count("users")
+
+
+class TestNotificationsRead:
+    """/api/notifications/read rejected every body a client would actually send.
+
+    It declared ``notificationId: str | None = Body(None)``. Without
+    ``embed=True`` that means the *entire* request body must be a bare JSON
+    string, so ``{"notificationId": "..."}`` - the object ``app.js`` produces -
+    was a 422, and so was the natural no-argument body ``{}``. Nothing in the UI
+    called it, which is why it went unnoticed: the /notifications page marks
+    everything read on load, so the header dot did clear and no learner saw a
+    symptom.
+    """
+
+    @staticmethod
+    def _token(signed_in) -> str:
+        # Not /notifications: that page marks everything read on load, which
+        # would silently satisfy the "one id only" case before it was tested.
+        return _csrf(signed_in.get("/practice").text)
+
+    @staticmethod
+    def _unread(user_id: str) -> int:
+        return int(db.scalar(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL", user_id
+        ))
+
+    def test_an_empty_body_marks_everything_read(self, signed_in, demo_user):
+        user = demo_user["id"]
+        assert db.scalar("SELECT COUNT(*) FROM notifications WHERE user_id = ?", user), (
+            "the seeder must leave this user notifications, or the test proves nothing")
+        db.execute("UPDATE notifications SET read_at = NULL WHERE user_id = ?", user)
+        assert self._unread(user) > 0
+        response = signed_in.post("/api/notifications/read", json={},
+                                  headers={"x-csrf-token": self._token(signed_in)})
+        assert response.status_code == 200, response.text
+        assert self._unread(user) == 0
+        assert response.json()["unread"] == 0
+
+    def test_naming_one_id_leaves_the_others_alone(self, signed_in, demo_user):
+        user = demo_user["id"]
+        rows = db.query("SELECT id FROM notifications WHERE user_id = ? LIMIT 2", user)
+        assert len(rows) >= 2, "the seeder must leave this user at least two notifications"
+        db.execute("UPDATE notifications SET read_at = NULL WHERE user_id = ?", user)
+        response = signed_in.post(
+            "/api/notifications/read", json={"notificationId": rows[0]["id"]},
+            headers={"x-csrf-token": self._token(signed_in)})
+        assert response.status_code == 200, response.text
+        assert self._unread(user) == int(db.scalar(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ?", user)) - 1
+
+    def test_a_plain_form_post_works_too(self, signed_in, demo_user):
+        """The no-JS path: a form posts urlencoded, not JSON."""
+        user = demo_user["id"]
+        db.execute("UPDATE notifications SET read_at = NULL WHERE user_id = ?", user)
+        assert self._unread(user) > 0
+        response = signed_in.post("/api/notifications/read", data={},
+                                  headers={"x-csrf-token": self._token(signed_in)})
+        assert response.status_code == 200, response.text
+        assert self._unread(user) == 0
