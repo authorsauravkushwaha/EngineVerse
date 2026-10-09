@@ -1,0 +1,14 @@
+<a class="card subject-card" href="/subjects/{{ subject.slug }}">
+  <div class="tags">
+    {% if subject.branch_name %}<span class="chip">{{ subject.branch_name }}</span>{% endif %}
+    {% if subject.semester_id %}<span class="chip">Sem {{ subject.semester_id }}</span>{% endif %}
+    {% if subject.difficulty %}<span class="chip diff-{{ subject.difficulty }}">{{ subject.difficulty }}</span>{% endif %}
+  </div>
+  <span class="title">{{ subject.name }}</span>
+  {% if subject.description %}<span class="desc">{{ subject.description | excerpt(120) }}</span>{% endif %}
+  <div class="meta">
+    <span><b>{{ subject.topic_count or 0 }}</b> topics</span>
+    <span><b>{{ subject.note_count or 0 }}</b> notes</span>
+    <span><b>{{ subject.question_count or 0 }}</b> questions</span>
+  </div>
+</a>

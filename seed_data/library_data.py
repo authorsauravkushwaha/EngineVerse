@@ -1531,14 +1531,14 @@ LANGUAGE_MODULES = {
 
 SITE_CONFIG = {
     "site_name": "EngineVerse",
-    "tagline": "Learn every engineering branch. Build real projects. Get placed.",
+    "tagline": "Learn Engineering. Practice Everything. Build the Real World.",
     "description": (
         "EngineVerse is a structured learning platform for engineering students and working professionals. "
         "Interactive notes with derivations, daily practice problems, a coding judge, guided real-world projects, "
         "spaced-repetition revision and a placement preparation path - across every engineering branch."
     ),
     "support_email": "support@engineverse.local",
-    "theme": "dark",
+    "theme": "light",
     "free_tier_note": (
         "All core learning content - notes, practice problems, coding problems, projects, flashcards and formulas "
         "- is free and always will be. Premium covers optional extras such as certificates and unlimited AI tutor "

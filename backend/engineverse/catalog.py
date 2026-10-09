@@ -44,13 +44,67 @@ def branch_by_id(branch_id: str) -> dict | None:
     return db.query_one("SELECT * FROM branches WHERE id = ?", branch_id)
 
 
+# Display names for the category keys stored on ``branches.category``. An unknown
+# key still renders — admins can add a category without a code change — it just
+# falls back to a title-cased key instead of a curated label.
+CATEGORY_LABELS = {
+    "cse": "Computer Science & IT",
+    "electronics": "Electronics & Electrical",
+    "mechanical": "Mechanical & Manufacturing",
+    "civil": "Civil & Infrastructure",
+    "chemical": "Chemical & Materials",
+    "bio": "Bio & Other Engineering",
+    "other": "Other Engineering Branches",
+    "core": "First Year",
+}
+
+# Homepage path order. Short labels are presentation only; the rows themselves
+# come from the branches table, so a deactivated branch disappears on its own.
+FEATURED_PATHS = (
+    ("computer-science", "CSE"),
+    ("electronics-communication", "ECE"),
+    ("electrical-engineering", "EEE"),
+    ("mechanical-engineering", "ME"),
+    ("civil-engineering", "CE"),
+    ("chemical-engineering", "Chem"),
+    ("aerospace", "Aero"),
+    ("robotics", "Robotics"),
+    ("ai-ml", "AI/ML"),
+    ("data-science", "DS"),
+    ("cyber-security", "Cyber"),
+)
+
+
+def category_name(key: str) -> str:
+    if key in CATEGORY_LABELS:
+        return CATEGORY_LABELS[key]
+    return str(key or "Other").replace("_", " ").replace("-", " ").title()
+
+
 def branch_groups() -> list[dict]:
     """Branches grouped by category, for the explore page."""
     branches = list_branches()
     grouped: dict[str, list[dict]] = {}
     for branch in branches:
         grouped.setdefault(branch["category"], []).append(branch)
-    return [{"category": key, "branches": value} for key, value in grouped.items()]
+    return [
+        {"category": key, "name": category_name(key), "branches": value}
+        for key, value in grouped.items()
+    ]
+
+
+def featured_paths() -> list[dict]:
+    """The homepage engineering-path tiles, in a stable order."""
+    by_slug = {branch["slug"]: branch for branch in list_branches()}
+    featured = []
+    for slug, short in FEATURED_PATHS:
+        branch = by_slug.get(slug)
+        if not branch:
+            continue
+        row = dict(branch)
+        row["short"] = short
+        featured.append(row)
+    return featured
 
 
 def list_universities() -> list[dict]:
@@ -111,6 +165,8 @@ def list_subjects(
     rows = db.query(
         "SELECT s.*, b.name AS branch_name, b.slug AS branch_slug, b.color AS branch_color, "
         "(SELECT count(*) FROM topics t WHERE t.subject_id = s.id AND t.status='published') AS topic_count, "
+        "(SELECT count(*) FROM notes n JOIN topics t ON t.id = n.topic_id "
+        "WHERE t.subject_id = s.id AND n.status='published') AS note_count, "
         "(SELECT count(*) FROM questions qn WHERE qn.subject_id = s.id AND qn.is_active = 1) AS question_count "
         f"FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id WHERE {' AND '.join(clauses)} "
         "ORDER BY s.is_first_year DESC, s.order_index, s.name LIMIT ?",
@@ -134,7 +190,10 @@ def subject_by_id(subject_id: str) -> dict | None:
 def popular_subjects(limit: int = 8) -> list[dict]:
     return db.query(
         "SELECT s.*, b.slug AS branch_slug, b.name AS branch_name, "
-        "(SELECT count(*) FROM topics t WHERE t.subject_id = s.id AND t.status='published') AS topic_count "
+        "(SELECT count(*) FROM topics t WHERE t.subject_id = s.id AND t.status='published') AS topic_count, "
+        "(SELECT count(*) FROM notes n JOIN topics t ON t.id = n.topic_id "
+        "WHERE t.subject_id = s.id AND n.status='published') AS note_count, "
+        "(SELECT count(*) FROM questions qn WHERE qn.subject_id = s.id AND qn.is_active = 1) AS question_count "
         "FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id "
         "WHERE s.status='published' AND s.is_first_year = 0 ORDER BY s.order_index LIMIT ?",
         limit,

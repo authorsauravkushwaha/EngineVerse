@@ -55,19 +55,35 @@ async def home(request: Request):
     )
     context["sample_problems"] = coding.list_problems(limit=6)
     context["sample_projects"] = projects.list_projects(limit=3)
+    context["paths"] = catalog.featured_paths()
+    context["first_year"] = catalog.list_subjects(first_year=True, limit=8)
     return render(request, "home.html", **context)
 
 
 @router.get("/explore")
-async def explore(request: Request, branch: str | None = None, semester: str | None = None, q: str | None = None):
+async def explore(
+    request: Request,
+    branch: str | None = None,
+    semester: str | None = None,
+    q: str | None = None,
+    year: str | None = None,
+):
+    first_year = year == "1"
     return render(
         request, "explore.html",
         branches=catalog.branch_groups(),
-        subjects=catalog.list_subjects(branch=branch, semester=int(semester) if semester and semester.isdigit() else None, q=q, limit=200),
+        subjects=catalog.list_subjects(
+            branch=branch,
+            semester=int(semester) if semester and semester.isdigit() else None,
+            first_year=first_year,
+            q=q,
+            limit=200,
+        ),
         semesters=catalog.list_semesters(),
         active_branch=branch,
         active_semester=semester,
         active_q=q,
+        active_year="1" if first_year else "",
     )
 
 
