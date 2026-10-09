@@ -9,9 +9,11 @@ providers exist and are selected by ``ENGINEVERSE_JUDGE``:
 ``python``  the built-in runner: a fresh OS process per submission inside a
             new network+user namespace (``unshare -rn``), with rlimits and a
             wall-clock kill.
-``judge0``  forwards to a self-hosted Judge0 API.
+``judge0``  forwards to a self-hosted Judge0 API. Isolation is whatever that
+            host provides; this process does not verify it.
+``disabled`` refuses every submission. This is the production default.
 ``auto``    Java sandbox when a JDK+jar are present, otherwise the built-in
-            runner.
+            runner. Refused in production: it executes code on this host.
 """
 from __future__ import annotations
 
@@ -73,20 +75,56 @@ class Provider(Protocol):
     def run(self, language: str, code: str, stdin: str = "", *, timeout_ms: int | None = None) -> RunResult: ...
 
 
+class DisabledProvider:
+    """Refuses every submission.
+
+    Production uses this unless the operator has pointed ``ENGINEVERSE_JUDGE``
+    at a separately deployed Judge0. A subprocess runner in this container is
+    not a second machine, so the safe default is to run nothing.
+    """
+
+    name = "disabled"
+    available = False
+
+    def supports(self, language: str) -> bool:
+        return False
+
+    def run(self, language: str, code: str, stdin: str = "", *, timeout_ms: int | None = None) -> RunResult:
+        return RunResult(
+            status="unsupported_language",
+            stderr=(
+                "Code execution is disabled on this server. Submitted code is not run here. "
+                "An administrator can point ENGINEVERSE_JUDGE at a separately deployed Judge0 "
+                "instance; this process will not execute it locally."
+            ),
+        )
+
+
 _provider: Provider | None = None
 
 
 def resolve_provider() -> Provider:
-    """Picks a provider, caching the decision for the process lifetime."""
+    """Picks a provider, caching the decision for the process lifetime.
+
+    In production, ``auto``, ``python`` and ``java`` resolve to the disabled
+    provider even if startup validation was bypassed. Failing open would run
+    learner code on the web server.
+    """
     global _provider
     if _provider is not None:
         return _provider
     settings = get_settings()
-    choice = settings.judge
-    if choice == "judge0":
-        from .judge0 import Judge0Provider
+    choice = (settings.judge or "auto").lower()
+    local = choice in {"", "auto", "python", "java", "local"}
+    if choice == "disabled" or (settings.is_production and local):
+        _provider = DisabledProvider()
+    elif choice == "judge0":
+        if settings.is_production and not settings.judge0_url.strip():
+            _provider = DisabledProvider()
+        else:
+            from .judge0 import Judge0Provider
 
-        _provider = Judge0Provider()
+            _provider = Judge0Provider()
     elif choice == "java":
         from .java_bridge import JavaSandboxProvider
 
@@ -95,7 +133,7 @@ def resolve_provider() -> Provider:
         from .local import LocalSandboxProvider
 
         _provider = LocalSandboxProvider()
-    else:  # auto
+    else:  # auto, development and test only
         from .java_bridge import JavaSandboxProvider
         from .local import LocalSandboxProvider
 
@@ -125,6 +163,18 @@ def provider_info() -> dict:
     if hasattr(provider, "_have_namespace"):
         info["network_isolated"] = bool(provider._have_namespace)
         info["filesystem_isolated"] = bool(getattr(provider, "_have_mount_ns", False))
+    if provider.name == "disabled":
+        info["runs_on_this_server"] = False
+        info["isolation"] = "execution refused; this process does not run submitted code"
+    elif provider.name == "judge0":
+        info["runs_on_this_server"] = False
+        info["isolation_verified"] = False
+        info["isolation"] = (
+            "delegated to ENGINEVERSE_JUDGE0_URL; this process does not verify that host's isolation"
+        )
+    else:
+        info["runs_on_this_server"] = True
+        info["isolation"] = "subprocess on this host; not a separate container"
     return info
 
 
@@ -153,6 +203,8 @@ def as_dict(result) -> dict:
 
 def run_custom(language: str, code: str, stdin: str = "") -> RunResult:
     provider = resolve_provider()
+    if provider.name == "disabled":
+        return provider.run(language, code, stdin)
     if not provider.supports(language):
         return RunResult(
             status="unsupported_language",

@@ -135,11 +135,31 @@ def list_user_sessions(user_id: str) -> list[dict]:
     )
 
 
-def cookie_options(max_age_seconds: int) -> dict:
+def cookies_are_secure() -> bool:
+    """True when the browser should reject the cookie over plain HTTP.
+
+    Production startup already requires an https site URL. This follows that
+    URL (or an explicit override) so a cookie set behind the proxy is Secure.
+    """
     settings = get_settings()
+    return bool(settings.is_https or settings.cookie_secure)
+
+
+def cookie_options(max_age_seconds: int) -> dict:
     return {
         "httponly": True,
-        "secure": settings.is_https or settings.cookie_secure,
+        "secure": cookies_are_secure(),
+        "samesite": "lax",
+        "path": "/",
+        "max_age": max_age_seconds,
+    }
+
+
+def public_cookie_kwargs(max_age_seconds: int) -> dict:
+    """Flags for cookies JavaScript must be able to read (CSRF, flash)."""
+    return {
+        "httponly": False,
+        "secure": cookies_are_secure(),
         "samesite": "lax",
         "path": "/",
         "max_age": max_age_seconds,
@@ -152,7 +172,7 @@ def attach_session_cookie(response: Response, cookie_value: str) -> None:
 
 
 def clear_session_cookie(response: Response) -> None:
-    response.delete_cookie(SESSION_COOKIE, path="/")
+    response.delete_cookie(SESSION_COOKIE, path="/", secure=cookies_are_secure(), samesite="lax")
 
 
 def session_from_request(request: Request) -> Session | None:

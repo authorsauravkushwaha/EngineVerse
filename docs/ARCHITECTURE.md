@@ -193,7 +193,7 @@ cannot make a phone build a ten-million-vertex mesh.
 
 The bounds are enforced on both sides, because a bound on one side is not a
 bound. `test_models3d.py` reads the mesh names straight out of the JavaScript
-and fails if the two vocabularies drift; `scripts/check_scenes.js` builds all 48
+and fails if the two vocabularies drift; `scripts/check_scenes.js` builds all 56
 shipped scenes with the browser's own code.
 
 One lesson is encoded as a permanent test. `validate_scene()` drops objects it
@@ -210,7 +210,7 @@ the canvas carries the intuition.
 
 ## Data layer
 
-`db/schema.sql` is the development schema (SQLite, 65 tables; a migrated
+`db/schema.sql` is the development schema (SQLite, 66 tables; a migrated
 database holds 73, because `db.migrate()` adds `schema_meta`, `search_log`,
 `search_index` and that table's five FTS shadow tables) and
 `db/postgres/schema.pg.sql` mirrors it for production. They share the model

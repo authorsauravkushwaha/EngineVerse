@@ -401,7 +401,13 @@ def migrate(schema_file: str | Path | None = None) -> int:
     boot of the production container, where ``docker-compose.yml`` points
     ``ENGINEVERSE_DB_URL`` at PostgreSQL. The generated ``schema.pg.sql`` is the
     Postgres equivalent and is kept in step by ``scripts/gen_pg_schema.py``.
+
+    The web process must not call this in production. ``scripts/release.py``
+    does, using the bootstrap connection. The runtime role is refused here as
+    well as by its missing ``CREATE`` privilege, so a mis-pointed app URL
+    cannot apply DDL.
     """
+    _refuse_runtime_role_ddl()
     if schema_file:
         path = Path(schema_file)
     elif get_settings().uses_postgres:
@@ -420,6 +426,14 @@ def migrate(schema_file: str | Path | None = None) -> int:
     # Columns added after the table was first created. Kept here so a database
     # that was seeded by an older build picks them up on the next migrate().
     ensure_column("certificates", "tier", "TEXT NOT NULL DEFAULT 'bronze'")
+    # search_log is created on demand by the search module. Creating it here,
+    # on the migration connection, means the runtime role only needs INSERT.
+    execute(
+        "CREATE TABLE IF NOT EXISTS search_log ("
+        "id TEXT PRIMARY KEY, query TEXT NOT NULL, results INTEGER NOT NULL, "
+        f"created_at {epoch_ms_column_type()} NOT NULL)"
+    )
+    execute("CREATE INDEX IF NOT EXISTS idx_search_log_query ON search_log(query)")
     import time
 
     execute(
@@ -482,10 +496,36 @@ def row_count(name: str) -> int:
     return int(scalar(f"SELECT count(*) AS c FROM {name}"))
 
 
+def _refuse_runtime_role_ddl() -> None:
+    """The application login must not be able to change the schema.
+
+    Checked by role name because that is the login ``deploy/`` creates. A
+    different runtime role is still blocked if it lacks ``CREATE``; this check
+    is the application-level half of that boundary.
+    """
+    settings = get_settings()
+    if not settings.uses_postgres:
+        return
+    # Tests can mark the settings as Postgres while the live connection is still
+    # SQLite. The role check is a Postgres query; do not send it at a SQLite file.
+    if isinstance(connection(), sqlite3.Connection):
+        return
+    from .config import RUNTIME_DB_ROLE
+
+    role = scalar("SELECT current_user AS role", default="")
+    if str(role) == RUNTIME_DB_ROLE:
+        raise DatabaseError(
+            f"The runtime role {RUNTIME_DB_ROLE} cannot migrate. "
+            "Run scripts/release.py with the bootstrap connection."
+        )
+
+
 def reset_database() -> None:
     """Deletes the local SQLite file. Never call this against production."""
     close_connection()
     settings = get_settings()
+    if settings.is_production:
+        raise DatabaseError("refusing to reset a database when ENGINEVERSE_ENV is production")
     if settings.uses_postgres:
         raise DatabaseError("refusing to reset a PostgreSQL database automatically")
     for suffix in ("", "-wal", "-shm"):

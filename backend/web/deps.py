@@ -12,6 +12,7 @@ from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
 from engineverse import auth, brand, db, markdown, progress
+from engineverse.config import get_settings
 from engineverse.security import csrf
 from engineverse.security.rbac import is_staff
 from engineverse.security.sessions import SESSION_COOKIE, session_from_request
@@ -46,6 +47,7 @@ class Viewer:
     current_streak: int
     total_xp: int
     level: int
+    email_verified: int = 0
 
     @property
     def is_staff(self) -> bool:
@@ -73,6 +75,7 @@ def _viewer(current: auth.CurrentUser) -> Viewer:
         current_streak=int(current.streak.get("current_streak") or 0),
         total_xp=int(current.streak.get("total_xp") or 0),
         level=int(current.streak.get("level") or 1),
+        email_verified=int(current.user.email_verified or 0),
     )
 
 
@@ -165,6 +168,8 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "path": request.url.path,
         "query": dict(request.query_params),
         "flash": read_flash(request),
+        "show_demo_accounts": get_settings().allows_demo_accounts,
+        "mail_configured": bool(get_settings().smtp_url),
         "due_cards": 0,
         "unread": 0,
         "stats": None,
@@ -216,8 +221,10 @@ def flash(response, message: str) -> None:
     Without that, an em dash or any non-ASCII glyph raises UnicodeEncodeError
     from inside set_cookie and turns the response into a 500.
     """
+    from engineverse.security.sessions import public_cookie_kwargs
+
     encoded = quote(message[:200], safe="")
-    response.set_cookie("ev_flash", encoded, max_age=8, path="/", httponly=False, samesite="lax")
+    response.set_cookie("ev_flash", encoded, **public_cookie_kwargs(8))
 
 
 def read_flash(request) -> str:

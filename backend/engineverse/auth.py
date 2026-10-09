@@ -23,6 +23,15 @@ from .security.sessions import create_session
 DAY = 86_400_000
 
 
+class MfaRequired(Exception):
+    """Password matched and a second factor is enrolled. No session exists yet."""
+
+    def __init__(self, token: str, message: str = "Enter the code from your authenticator.") -> None:
+        super().__init__(message)
+        self.token = token
+        self.message = message
+
+
 class AuthError(Exception):
     """A refused authentication or admin operation.
 
@@ -92,7 +101,7 @@ def find_by_id(user_id: str) -> dict | None:
 def find_by_email_or_username(identifier: str) -> dict | None:
     value = identifier.strip().lower()
     return db.query_one(
-        f"SELECT {_USER_COLUMNS}, password_hash, locked_until FROM users "
+        f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret FROM users "
         "WHERE (email = ? OR username = ?) AND deleted_at IS NULL",
         value,
         value,
@@ -193,13 +202,78 @@ def register(
 # Login
 # --------------------------------------------------------------------------
 
-def login(*, identifier: str, password: str, ip: str = "", user_agent: str = "") -> tuple[dict, str, str]:
+def _finish_login(row: dict, identifier: str, ip: str, user_agent: str) -> tuple[dict, str, str]:
+    ts = now_ms()
+    db.execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?", ts, row["id"])
+    register_login_attempt(identifier, ip, True)
+    cookie_value, session_id = create_session(row["id"], ip=ip, user_agent=user_agent)
+    touch_streak(row["id"])
+    record("auth.login", actor_id=row["id"], entity_type="user", entity_id=row["id"], ip=ip)
+    user = {k: row[k] for k in ("id", "email", "username", "role", "status", "email_verified", "created_at")}
+    return user, cookie_value, session_id
+
+
+def _reject_factor(row: dict, identifier: str, ip: str) -> None:
+    ts = now_ms()
+    failures = int(db.scalar("SELECT failed_login_count AS c FROM users WHERE id = ?", row["id"]) or 0) + 1
+    db.execute(
+        "UPDATE users SET failed_login_count = ?, locked_until = ?, updated_at = ? WHERE id = ?",
+        failures,
+        ts + 15 * 60_000 if failures >= 8 else None,
+        ts,
+        row["id"],
+    )
+    register_login_attempt(identifier, ip, False, "bad_mfa")
+    record("auth.login_failed", actor_id=row["id"], ip=ip, meta={"reason": "bad_mfa", "failures": failures})
+    if failures >= 8:
+        raise AuthError("Too many failed attempts. The account is locked for 15 minutes.", 423)
+    raise AuthError("That authenticator code was not accepted.", 401, code="mfa_invalid")
+
+
+def login(
+    *,
+    identifier: str,
+    password: str,
+    ip: str = "",
+    user_agent: str = "",
+    otp: str = "",
+    mfa_token: str = "",
+) -> tuple[dict, str, str]:
     """Verifies credentials. Returns ``(user_row, cookie_value, session_id)``.
 
     Raises AuthError with a deliberately generic message so the response cannot
     be used to enumerate accounts.
     """
+    from .security import totp
+
     identifier = (identifier or "").strip().lower()
+    if mfa_token:
+        user_id = totp.read_login_token(mfa_token)
+        if not user_id:
+            raise AuthError("That sign-in step expired. Start again.", 401, code="mfa_expired")
+        row = db.query_one(
+            f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret FROM users "
+            "WHERE id = ? AND deleted_at IS NULL",
+            user_id,
+        )
+        if row is None or not row.get("totp_secret"):
+            raise AuthError("That sign-in step expired. Start again.", 401, code="mfa_expired")
+        if row["status"] != "active":
+            raise AuthError("This account is suspended. Contact support.", 403)
+        identifier = row["email"]
+        locked_until = row.get("locked_until")
+        if locked_until and locked_until > now_ms():
+            raise AuthError("Account temporarily locked after repeated failures. Try again shortly.", 423)
+        blocked, retry_after = auth_blocked(identifier, ip)
+        if blocked:
+            raise AuthError(f"Too many failed attempts. Try again in {retry_after // 60 + 1} minute(s).", 429)
+        accepted, replacement = totp.verify_factor(row["totp_secret"], otp)
+        if not accepted:
+            _reject_factor(row, identifier, ip)
+        if replacement:
+            db.execute("UPDATE users SET totp_secret = ? WHERE id = ?", replacement, row["id"])
+        return _finish_login(row, identifier, ip, user_agent)
+
     blocked, retry_after = auth_blocked(identifier, ip)
     if blocked:
         record("auth.login_failed", ip=ip, meta={"identifier": identifier, "reason": "rate_limited"})
@@ -241,18 +315,18 @@ def login(*, identifier: str, password: str, ip: str = "", user_agent: str = "")
             raise AuthError("Too many failed attempts. The account is locked for 15 minutes.", 423)
         raise AuthError("Incorrect email or password.", 401)
 
-    ts = now_ms()
-    db.execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?", ts, row["id"])
     if needs_rehash(row["password_hash"]):
         db.execute("UPDATE users SET password_hash = ? WHERE id = ?", hash_password(password), row["id"])
-
-    register_login_attempt(identifier, ip, True)
-    cookie_value, session_id = create_session(row["id"], ip=ip, user_agent=user_agent)
-    touch_streak(row["id"])
-    record("auth.login", actor_id=row["id"], entity_type="user", entity_id=row["id"], ip=ip)
-
-    user = {k: row[k] for k in ("id", "email", "username", "role", "status", "email_verified", "created_at")}
-    return user, cookie_value, session_id
+    if row.get("totp_secret"):
+        if otp:
+            accepted, replacement = totp.verify_factor(row["totp_secret"], otp)
+            if not accepted:
+                _reject_factor(row, identifier, ip)
+            if replacement:
+                db.execute("UPDATE users SET totp_secret = ? WHERE id = ?", replacement, row["id"])
+        else:
+            raise MfaRequired(totp.issue_login_token(row["id"]))
+    return _finish_login(row, identifier, ip, user_agent)
 
 
 def logout(session_id: str, user_id: str, ip: str | None = None) -> None:
@@ -518,6 +592,93 @@ def consume_password_reset(token: str) -> str | None:
 def prune_password_resets() -> int:
     """Deletes expired rows; called opportunistically rather than by a cron job."""
     return db.execute("DELETE FROM password_resets WHERE expires_at < ?", now_ms() - DAY)
+
+
+# ---------------------------------------------------------------------------
+# Email confirmation
+# ---------------------------------------------------------------------------
+
+VERIFY_TOKEN_TTL_MS = 24 * 60 * 60_000
+
+
+def issue_email_verification(user_id: str, ip: str | None = None) -> str:
+    """Creates a confirmation token and returns the plaintext, once."""
+    token = secrets.token_urlsafe(32)
+    ts = now_ms()
+    db.execute("DELETE FROM email_verifications WHERE user_id = ?", user_id)
+    db.execute(
+        "INSERT INTO email_verifications (token_hash, user_id, created_at, expires_at, ip) "
+        "VALUES (?,?,?,?,?)",
+        _hash_reset_token(token), user_id, ts, ts + VERIFY_TOKEN_TTL_MS, ip,
+    )
+    record("auth.verification_issued", actor_id=user_id, ip=ip)
+    return token
+
+
+def revoke_email_verification(token: str) -> None:
+    """Drops a token that was never delivered. Does not confirm the address."""
+    if not token:
+        return
+    db.execute("DELETE FROM email_verifications WHERE token_hash = ?", _hash_reset_token(token))
+
+
+def consume_email_verification(token: str) -> str | None:
+    """Marks the address confirmed. Returns the user id, or None.
+
+    A wildcard such as ``%`` cannot match a row: the lookup is the SHA-256 of
+    the submitted token, compared exactly.
+    """
+    if not token or len(token) > 200:
+        return None
+    digest = _hash_reset_token(token)
+    with db.transaction():
+        row = db.query_one(
+            "SELECT user_id, expires_at FROM email_verifications "
+            "WHERE token_hash = ? AND used_at IS NULL",
+            digest,
+        )
+        if not row:
+            return None
+        if int(row["expires_at"]) < now_ms():
+            db.execute("DELETE FROM email_verifications WHERE token_hash = ?", digest)
+            return None
+        ts = now_ms()
+        db.execute("UPDATE email_verifications SET used_at = ? WHERE token_hash = ?", ts, digest)
+        db.execute(
+            "UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?",
+            ts, row["user_id"],
+        )
+    record("auth.email_verified", actor_id=row["user_id"], entity_type="user", entity_id=row["user_id"])
+    return row["user_id"]
+
+
+def deliver_email_verification(user_id: str, email: str, ip: str | None = None) -> tuple[str, str]:
+    """Send a confirmation link, or refuse to invent one.
+
+    Returns ``(status, dev_token)``. ``dev_token`` is non-empty only when this
+    process is not production, mail is not configured, and
+    ``ENGINEVERSE_REVEAL_RESET_TOKEN`` is on. A failed send deletes the token.
+    The token is never returned on the sent path.
+    """
+    from . import notify
+
+    row = db.query_one("SELECT email_verified FROM users WHERE id = ?", user_id)
+    if row is None:
+        return "unavailable", ""
+    if int(row["email_verified"] or 0):
+        return "verified", ""
+    settings = get_settings()
+    reveal = bool(settings.reveal_reset_token and not settings.is_production and not notify.is_configured())
+    if not notify.is_configured() and not reveal:
+        return "unavailable", ""
+    token = issue_email_verification(user_id, ip=ip)
+    if notify.is_configured():
+        url = f"{settings.site_url}/verify-email?token={token}"
+        if notify.send_email_verification(email=email, verify_url=url):
+            return "sent", ""
+        revoke_email_verification(token)
+        return "unavailable", ""
+    return "reveal", token
 
 
 def site_url() -> str:

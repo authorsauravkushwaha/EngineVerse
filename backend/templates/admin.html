@@ -67,7 +67,11 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <input type="hidden" name="user_id" value="{{ u.id }}">
           <input type="hidden" name="status" value="{{ 'suspended' if u.status == 'active' else 'active' }}">
-          <button class="btn btn-ghost btn-sm">{{ 'Suspend' if u.status == 'active' else 'Restore' }}</button></form></td>
+          <button class="btn btn-ghost btn-sm">{{ 'Suspend' if u.status == 'active' else 'Restore' }}</button></form>
+          {% if u.mfa_enrolled %}<form method="post" action="/admin/users/mfa/clear">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="user_id" value="{{ u.id }}">
+            <button class="btn btn-ghost btn-sm">Clear authenticator</button></form>{% endif %}</td>
       </tr>{% endfor %}</tbody></table></div></section>
 
     {% if pending_topics %}<section class="panel"><h2>Content awaiting review</h2>

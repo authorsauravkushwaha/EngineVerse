@@ -266,10 +266,13 @@ def test_formula_sections_render_a_variable_table(seeded):
 
 def test_notes_extra_has_no_stale_topic_keys(seeded):
     """Content keyed to a topic that no longer exists must fail the seed."""
-    from seed_data import notes_extra, topics_core, topics_cse
+    from seed_data import foundations, notes_extra, topics_core, topics_cse
     from engineverse.security.sanitize import slugify
 
-    known = {slugify(t["title"]) for t in list(topics_core.TOPICS) + list(topics_cse.TOPICS)}
+    known = {
+        slugify(t["title"])
+        for t in list(topics_core.TOPICS) + list(topics_cse.TOPICS) + list(foundations.TOPICS)
+    }
     assert notes_extra.unknown_keys(known) == {}
 
 

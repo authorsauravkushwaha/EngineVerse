@@ -1,45 +1,71 @@
 # EngineVerse production topology.
 #
+#   cp deploy/.env.example deploy/.env
 #   docker compose -f deploy/docker-compose.yml up -d --build
 #
-# Two services: the web app and PostgreSQL.
+# Requires Docker Compose v2 (the release service uses
+# service_completed_successfully).
 #
-# This file used to define a third - a `sandbox` container, hardened with
-# network_mode "none", cap_drop ALL and a read-only root filesystem. It could
-# never have worked. The judge bridge invokes the sandbox with subprocess.run,
-# which cannot cross a container boundary, and the service had no network and no
-# published port, so nothing could reach it either way. Its ENTRYPOINT reads one
-# JSON request from stdin, so with no stdin attached it would exit at once and
-# `restart: unless-stopped` would loop it forever. It was removed rather than
-# left as decoration implying a boundary that does not exist.
+# Four services: a one-shot release step, the web app, PostgreSQL, and a
+# backup client. The backup service has not been executed in this workspace.
+# The web process does not migrate or seed. It connects as engineverse_app,
+# which has DML and no CREATE. release connects as the image superuser, applies
+# the schema, and seeds the catalogue only when it is empty.
 #
-# Learner code therefore runs inside the web container, where the toolchains are.
-# deploy/Dockerfile.sandbox still builds a standalone sandbox image for anyone
-# who wants to run the judge as a separate host process, but wiring it up needs a
-# socket protocol in the bridge, not just a container.
+# There is no sandbox service. A subprocess judge cannot cross a container
+# boundary, and production refuses the local judge. ENGINEVERSE_JUDGE defaults
+# to disabled. judge0 is accepted only when ENGINEVERSE_JUDGE0_URL is set, and
+# this file does not claim that remote host is isolated.
+#
+# docker-entrypoint-initdb.d runs only on an empty data volume. scripts/release.py
+# repeats the runtime-role grants so an existing volume still gets them.
 
 services:
-  web:
+  release:
     build:
       context: ..
       dockerfile: deploy/Dockerfile.web
+    image: engineverse-web
+    restart: "no"
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "scripts/release.py"]
+    environment:
+      ENGINEVERSE_SECRET: ${ENGINEVERSE_SECRET:?set ENGINEVERSE_SECRET in deploy/.env}
+      ENGINEVERSE_DB_URL: postgresql://engineverse:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@db:5432/engineverse
+      ENGINEVERSE_ENV: production
+      ENGINEVERSE_SITE_URL: ${ENGINEVERSE_SITE_URL:-${SITE_URL:?set ENGINEVERSE_SITE_URL or SITE_URL to the public https origin}}
+      ENGINEVERSE_JUDGE: disabled
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    networks: [internal]
+
+  web:
     image: engineverse-web
     restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
+      release:
+        condition: service_completed_successfully
     environment:
-      # Set these in deploy/.env (git-ignored). ENGINEVERSE_SECRET keys the
-      # session digests and the CSRF HMAC - rotating it signs everyone out.
       ENGINEVERSE_SECRET: ${ENGINEVERSE_SECRET:?set ENGINEVERSE_SECRET in deploy/.env}
-      ENGINEVERSE_DB_URL: postgresql://engineverse:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}@db:5432/engineverse
+      ENGINEVERSE_DB_URL: postgresql://engineverse_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}@db:5432/engineverse
       ENGINEVERSE_ENV: production
-      SITE_URL: ${SITE_URL:-https://engineverse.local}
-      # Route Java submissions to the sandbox rather than the local runner.
-      JUDGE: ${JUDGE:-auto}
-      JAVA_SANDBOX_JAR: /app/engineverse-sandbox.jar
+      ENGINEVERSE_SITE_URL: ${ENGINEVERSE_SITE_URL:-${SITE_URL:?set ENGINEVERSE_SITE_URL or SITE_URL to the public https origin}}
+      ENGINEVERSE_JUDGE: ${ENGINEVERSE_JUDGE:-${JUDGE:-disabled}}
+      ENGINEVERSE_JUDGE0_URL: ${ENGINEVERSE_JUDGE0_URL:-}
+      ENGINEVERSE_JAVA_SANDBOX_JAR: /app/engineverse-sandbox.jar
     ports:
-      - "8000:8000"
+      # Bound to loopback. Put a TLS reverse proxy in front and publish that,
+      # not this port, on a public interface. See docs/DEPLOYMENT.md.
+      - "127.0.0.1:8000:8000"
     volumes:
       - app-data:/app/data
     read_only: true
@@ -48,7 +74,6 @@ services:
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
-    # The web app does not need to reach the internet; it only talks to db.
     networks: [internal]
 
   db:
@@ -58,23 +83,53 @@ services:
       POSTGRES_USER: engineverse
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
       POSTGRES_DB: engineverse
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}
     volumes:
       - pg-data:/var/lib/postgresql/data
-      # The production schema is applied on first boot.
       - ../db/postgres/schema.pg.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+      - ../deploy/postgres/20-runtime-role.sh:/docker-entrypoint-initdb.d/20-runtime-role.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U engineverse -d engineverse"]
       interval: 10s
       timeout: 5s
       retries: 10
-    # Not published to the host: only the web service can reach it.
     expose:
       - "5432"
+    networks: [internal]
+
+  backup:
+    image: postgres:16
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      release:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/backup_loop.sh"]
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: engineverse
+      PGDATABASE: engineverse
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      BACKUP_DIR: /backups
+      BACKUP_KEEP_DAYS: "14"
+      BACKUP_INTERVAL_SECONDS: "86400"
+    volumes:
+      - pg-backups:/backups
+      - ../scripts/backup_loop.sh:/backup_loop.sh:ro
+    read_only: true
+    tmpfs:
+      - /tmp:size=256M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     networks: [internal]
 
 volumes:
   pg-data:
   app-data:
+  pg-backups:
 
 networks:
   internal:

@@ -1726,9 +1726,20 @@ class TestDeployTopologyIsCoherent:
         compose = yaml.safe_load(
             pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8")
         )
-        assert set(compose["services"]) == {"web", "db"}, (
+        # `release` is a one-shot migration job, not a sandbox. A sandbox service
+        # would imply a boundary the subprocess judge does not have.
+        assert "sandbox" not in compose["services"]
+        assert set(compose["services"]) == {"web", "db", "release", "backup"}, (
             f"unexpected services: {sorted(compose['services'])}"
         )
+        backup = compose["services"]["backup"]
+        assert "ports" not in backup
+        assert backup["networks"] == ["internal"]
+        assert "pg-backups" not in str(compose["services"]["web"].get("volumes") or [])
+        assert "ENGINEVERSE_TRUST_PROXY" not in str(compose)
+        release = compose["services"]["release"]
+        assert release.get("restart") == "no"
+        assert "release.py" in " ".join(release.get("command") or [])
 
     def test_the_jar_path_the_app_is_given_actually_exists_in_the_image(self):
         """JAVA_SANDBOX_JAR pointed at a file Dockerfile.web never created."""
@@ -1740,10 +1751,10 @@ class TestDeployTopologyIsCoherent:
         compose = yaml.safe_load(
             pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8")
         )
-        jar = compose["services"]["web"]["environment"]["JAVA_SANDBOX_JAR"]
+        jar = compose["services"]["web"]["environment"]["ENGINEVERSE_JAVA_SANDBOX_JAR"]
         dockerfile = pathlib.Path("deploy/Dockerfile.web").read_text(encoding="utf-8")
         assert re.search(rf"COPY\s+--from=\S+\s+\S+\s+{re.escape(jar)}\b", dockerfile), (
-            f"compose sets JAVA_SANDBOX_JAR={jar} but Dockerfile.web never copies a jar there"
+            f"compose sets ENGINEVERSE_JAVA_SANDBOX_JAR={jar} but Dockerfile.web never copies a jar there"
         )
 
     def test_the_web_image_provides_the_toolchains_the_judge_invokes(self):
@@ -2208,10 +2219,14 @@ def test_inline_tables_widen_their_timestamp_columns_on_postgres(monkeypatch):
 
     def column_type(statements: list[str], table: str, column: str) -> str:
         ddl = [s for s in statements if f"CREATE TABLE IF NOT EXISTS {table}" in s]
-        assert len(ddl) == 1, f"no inline DDL captured for {table}"
-        match = re.search(rf"{column}\s+(\w+)\s+NOT NULL", ddl[0])
-        assert match, f"{table}.{column} not found in: {ddl[0]}"
-        return match.group(1)
+        assert ddl, f"no inline DDL captured for {table}"
+        types = []
+        for statement in ddl:
+            match = re.search(rf"{column}\s+(\w+)\s+NOT NULL", statement)
+            assert match, f"{table}.{column} not found in: {statement}"
+            types.append(match.group(1))
+        assert len(set(types)) == 1, types
+        return types[0]
 
     pg = run(True)
     assert column_type(pg, "schema_meta", "updated_at") == "BIGINT"

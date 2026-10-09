@@ -15,6 +15,7 @@ from engineverse.security.audit import record
 from engineverse.security.passwords import check_password_strength
 from engineverse.security.rbac import assert_can
 from engineverse.security.sanitize import is_safe_url
+from engineverse.security.clientip import client_ip
 from engineverse.security.sessions import (
     attach_session_cookie,
     clear_session_cookie,
@@ -48,29 +49,45 @@ async def login_page(request: Request, next: str | None = None, error: str | Non
 @router.post("/login")
 async def login_submit(
     request: Request,
-    identifier: str = Form(...),
-    password: str = Form(...),
+    identifier: str = Form(""),
+    password: str = Form(""),
     next: str = Form("/"),
     remember: str = Form(""),
+    otp: str = Form(""),
+    mfa_token: str = Form(""),
 ):
     target = _next_url(next)
+    if not mfa_token and not password:
+        return render(request, "login.html", next=target, error="Enter your password.", mode="login",
+                      identifier=identifier, status_code=422)
     try:
         user, cookie_value, session_id = auth.login(
             identifier=identifier.strip(),
             password=password,
-            ip=request.client.host if request.client else "",
+            ip=client_ip(request),
             user_agent=request.headers.get("user-agent", ""),
+            otp=otp,
+            mfa_token=mfa_token,
+        )
+    except auth.MfaRequired as exc:
+        return render(
+            request, "login.html", next=target, error=exc.message, mode="login",
+            identifier=identifier, mfa_token=exc.token, status_code=401,
         )
     except auth.AuthError as exc:
         return render(request, "login.html", next=target, error=exc.message, mode="login",
-                      identifier=identifier, status_code=exc.status_code)
+                      identifier=identifier, mfa_token=mfa_token, status_code=exc.status_code)
 
     progress.touch_streak(user["id"])
     response = RedirectResponse(target, status_code=303)
     attach_session_cookie(response, cookie_value)
-    response.set_cookie("ev_csrf", __import__("engineverse.security.csrf", fromlist=["issue_token"])
-                        .issue_token(session_id), httponly=False, samesite="lax", path="/",
-                        max_age=30 * 86400)
+    from engineverse.security.sessions import public_cookie_kwargs
+
+    response.set_cookie(
+        "ev_csrf",
+        __import__("engineverse.security.csrf", fromlist=["issue_token"]).issue_token(session_id),
+        **public_cookie_kwargs(30 * 86400),
+    )
     flash(response, f"Welcome back, {user['username']}.")
     return response
 
@@ -118,7 +135,7 @@ async def register_submit(
     try:
         user = auth.register(
             email=email.strip(), username=username.strip(), password=password, full_name=full_name.strip(),
-            ip=request.client.host if request.client else None,
+            ip=client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
     except validators.ValidationError as exc:
@@ -134,7 +151,7 @@ async def register_submit(
         # would get, with the same status code and no field hint, so the two are
         # indistinguishable. The real reason is logged, not shown.
         if exc.code == "email_taken":
-            record("auth.register_email_taken", ip=request.client.host if request.client else None,
+            record("auth.register_email_taken", ip=client_ip(request),
                    meta={"email": email.strip()})
             return render(request, "register.html", next=target, mode="register",
                           error=(
@@ -157,16 +174,23 @@ async def register_submit(
         auth.update_onboarding(user["id"], {"semester": int(semester)})
 
     cookie_value, session_id = create_session(
-        user["id"], ip=request.client.host if request.client else None,
+        user["id"], ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
+    )
+    mail_status, _dev_token = auth.deliver_email_verification(
+        user["id"], user["email"], ip=client_ip(request),
     )
     response = RedirectResponse("/onboarding" if not (branch or semester) else target, status_code=303)
     attach_session_cookie(response, cookie_value)
     from engineverse.security.csrf import issue_token
 
-    response.set_cookie("ev_csrf", issue_token(session_id), httponly=False, samesite="lax", path="/",
-                        max_age=30 * 86400)
-    flash(response, "Account created. Let's set up your path.")
+    from engineverse.security.sessions import public_cookie_kwargs
+
+    response.set_cookie("ev_csrf", issue_token(session_id), **public_cookie_kwargs(30 * 86400))
+    if mail_status == "sent":
+        flash(response, "Account created. A confirmation link was sent. It is not shown on this page.")
+    else:
+        flash(response, "Account created. Let's set up your path.")
     return response
 
 
@@ -174,7 +198,7 @@ async def register_submit(
 async def logout_submit(request: Request):
     viewer = current_user(request)
     if viewer:
-        auth.logout(viewer.session_id, viewer.id, ip=request.client.host if request.client else None)
+        auth.logout(viewer.session_id, viewer.id, ip=client_ip(request))
     response = RedirectResponse("/", status_code=303)
     clear_session_cookie(response)
     response.delete_cookie("ev_csrf", path="/")
@@ -212,7 +236,7 @@ async def forgot_submit(request: Request, email: str = Form(...)):
     # takeover endpoint.
     reveal = settings.reveal_reset_token and not settings.is_production
     if row:
-        ip = request.client.host if request.client else None
+        ip = client_ip(request)
         token = auth.issue_password_reset(row["id"], ip=ip)
         record("auth.reset_requested", actor_id=row["id"], ip=ip,
                entity_type="user", entity_id=row["id"])
@@ -251,7 +275,7 @@ async def reset_submit(request: Request, token: str = Form(...), password: str =
     # an oracle for which links are live.
     user_id = auth.consume_password_reset(token)
     if not user_id:
-        record("auth.reset_rejected", ip=request.client.host if request.client else None)
+        record("auth.reset_rejected", ip=client_ip(request))
         return render(request, "reset.html", token="", error="That reset link is not valid or has expired.",
                       status_code=400)
 
@@ -270,7 +294,7 @@ async def reset_submit(request: Request, token: str = Form(...), password: str =
     from engineverse.security.sessions import revoke_all_sessions
 
     revoke_all_sessions(user_id)
-    record("auth.password_reset", actor_id=user_id, ip=request.client.host if request.client else None)
+    record("auth.password_reset", actor_id=user_id, ip=client_ip(request))
     return RedirectResponse("/login?error=reset", status_code=303)
 
 
@@ -375,6 +399,136 @@ async def update_preferences_submit(
     return response
 
 
+@router.get("/verify-email")
+async def verify_email_page(request: Request, token: str = ""):
+    user_id = auth.consume_email_verification(token) if token else None
+    if not user_id:
+        return render(
+            request, "verify.html",
+            error="That confirmation link is not valid or has expired.",
+            status_code=400,
+        )
+    target = "/settings#email" if current_user(request) else "/login?next=/settings"
+    response = RedirectResponse(target, status_code=303)
+    flash(response, "Email address confirmed.")
+    return response
+
+
+@router.post("/settings/email/verify")
+async def send_email_verification(request: Request):
+    from engineverse import notify
+    from engineverse.security import ratelimit
+
+    viewer = require_user(request)
+    if viewer.email_verified:
+        response = RedirectResponse("/settings#email", status_code=303)
+        flash(response, "This address is already confirmed.")
+        return response
+    limited = ratelimit.shared_check(f"verify:{viewer.id}", 5, 3600)
+    if not limited.allowed:
+        response = RedirectResponse("/settings#email", status_code=303)
+        flash(response, "Too many confirmation emails. Try again later.")
+        return response
+    status, dev_token = auth.deliver_email_verification(viewer.id, viewer.email, ip=client_ip(request))
+    if status == "sent":
+        response = RedirectResponse("/settings#email", status_code=303)
+        flash(response, "Confirmation link sent. It is not shown on this page.")
+        return response
+    if status == "reveal" and dev_token and not notify.is_configured():
+        from web.pages import settings_context
+
+        return render(
+            request, "settings.html",
+            **settings_context(viewer),
+            verify_link=f"/verify-email?token={dev_token}",
+        )
+    response = RedirectResponse("/settings#email", status_code=303)
+    flash(response, "This instance has no mail transport, so the address cannot be confirmed from here.")
+    return response
+
+
+@router.post("/settings/mfa/start")
+async def mfa_start(request: Request, current_password: str = Form(...)):
+    from engineverse import brand
+    from engineverse.security import totp
+    from web.pages import settings_context
+
+    viewer = require_user(request)
+    row = db.query_one("SELECT password_hash, totp_secret FROM users WHERE id = ?", viewer.id)
+    if row is None or not auth.verify_password(current_password, row["password_hash"]):
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "That password was not accepted.")
+        return response
+    if row.get("totp_secret"):
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "An authenticator is already enrolled. Disable it before starting again.")
+        return response
+    secret = totp.random_secret()
+    codes = totp.recovery_codes()
+    issuer = brand.get("site_name", "EngineVerse") or "EngineVerse"
+    return render(
+        request, "settings.html",
+        **settings_context(viewer),
+        mfa_pending={
+            "secret": secret,
+            "uri": totp.provisioning_uri(secret, viewer.email, issuer),
+            "token": totp.issue_enroll_token(viewer.id, secret, codes),
+            "codes": codes,
+        },
+    )
+
+
+@router.post("/settings/mfa/confirm")
+async def mfa_confirm(request: Request, token: str = Form(...), otp: str = Form(...)):
+    from engineverse.security import totp
+    from web.pages import settings_context
+
+    viewer = require_user(request)
+    pending = totp.read_enroll_token(token, viewer.id)
+    if pending is None:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "That enrollment step expired. Start again.")
+        return response
+    if not totp.verify_totp(pending["s"], otp):
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "That authenticator code was not accepted. Start enrollment again.")
+        return response
+    db.execute(
+        "UPDATE users SET totp_secret = ?, updated_at = ? WHERE id = ?",
+        totp.pack(pending["s"], pending["c"]),
+        auth.now_ms(),
+        viewer.id,
+    )
+    record("auth.mfa_enrolled", actor_id=viewer.id, ip=client_ip(request))
+    return render(
+        request, "settings.html",
+        **settings_context(viewer),
+        recovery_codes=pending["c"],
+    )
+
+
+@router.post("/settings/mfa/disable")
+async def mfa_disable(request: Request, current_password: str = Form(...), otp: str = Form(...)):
+    from engineverse.security import totp
+
+    viewer = require_user(request)
+    row = db.query_one("SELECT password_hash, totp_secret FROM users WHERE id = ?", viewer.id)
+    if row is None or not row.get("totp_secret") or not auth.verify_password(current_password, row["password_hash"]):
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "Could not disable the authenticator.")
+        return response
+    accepted, _replacement = totp.verify_factor(row["totp_secret"], otp)
+    if not accepted:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "That authenticator code was not accepted.")
+        return response
+    db.execute("UPDATE users SET totp_secret = NULL, updated_at = ? WHERE id = ?", auth.now_ms(), viewer.id)
+    record("auth.mfa_disabled", actor_id=viewer.id, ip=client_ip(request))
+    response = RedirectResponse("/settings#mfa", status_code=303)
+    flash(response, "Authenticator removed. Sign-in is password-only again.")
+    return response
+
+
 @router.post("/settings/password")
 async def change_password_submit(
     request: Request,
@@ -402,7 +556,7 @@ async def change_password_submit(
 async def revoke_session_submit(request: Request, session_id: str = Form(...)):
     viewer = require_user(request)
     revoke_session(session_id)
-    record("auth.session_revoked_self", actor_id=viewer.id, ip=request.client.host if request.client else None)
+    record("auth.session_revoked_self", actor_id=viewer.id, ip=client_ip(request))
     response = RedirectResponse("/settings", status_code=303)
     flash(response, "That session was signed out.")
     return response
@@ -416,7 +570,7 @@ async def delete_account_submit(request: Request, confirm: str = Form("")):
         flash(response, "Type DELETE to confirm account removal.")
         return response
     db.execute("DELETE FROM users WHERE id = ?", viewer.id)
-    record("auth.account_deleted", actor_id=viewer.id, ip=request.client.host if request.client else None)
+    record("auth.account_deleted", actor_id=viewer.id, ip=client_ip(request))
     response = RedirectResponse("/", status_code=303)
     clear_session_cookie(response)
     # Accurate rather than reassuring. Personal data cascades away, but a reply
@@ -437,6 +591,33 @@ async def set_user_role(request: Request, user_id: str = Form(...), role: str = 
     assert_can(viewer.role, "users.roles")
     auth.set_role(viewer.id, user_id, role)
     return RedirectResponse("/admin", status_code=303)
+
+
+@router.post("/admin/users/mfa/clear")
+async def clear_user_mfa(request: Request, user_id: str = Form(...)):
+    from engineverse.security.sessions import revoke_all_sessions
+
+    viewer = require_user(request)
+    assert_can(viewer.role, "users.manage")
+    if user_id == viewer.id:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "Disable your own authenticator from Settings. That step asks for a code.")
+        return response
+    row = db.query_one(
+        "SELECT id, CASE WHEN totp_secret IS NULL OR totp_secret = '' THEN 0 ELSE 1 END AS enrolled "
+        "FROM users WHERE id = ? AND deleted_at IS NULL",
+        user_id,
+    )
+    if row is None or not int(row["enrolled"]):
+        response = RedirectResponse("/admin", status_code=303)
+        flash(response, "That account has no authenticator to clear.")
+        return response
+    db.execute("UPDATE users SET totp_secret = NULL, updated_at = ? WHERE id = ?", auth.now_ms(), user_id)
+    revoke_all_sessions(user_id)
+    record("auth.mfa_cleared", actor_id=viewer.id, entity_type="user", entity_id=user_id, ip=client_ip(request))
+    response = RedirectResponse("/admin", status_code=303)
+    flash(response, "Authenticator cleared. That account can sign in with a password until they enrol again.")
+    return response
 
 
 @router.post("/admin/users/status")

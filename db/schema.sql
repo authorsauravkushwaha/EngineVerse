@@ -106,6 +106,20 @@ CREATE TABLE IF NOT EXISTS password_resets (
 CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
 
+-- Email confirmation tokens. Same rules as password resets: hashed, exact
+-- match, single use, and a new request invalidates the previous one. The
+-- plaintext is emailed or, in development only, shown once. It is never stored.
+CREATE TABLE IF NOT EXISTS email_verifications (
+  token_hash    TEXT PRIMARY KEY,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  created_at    INTEGER NOT NULL,
+  expires_at    INTEGER NOT NULL,
+  used_at       INTEGER,
+  ip            TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_email_verifications_expiry ON email_verifications(expires_at);
+
 CREATE TABLE IF NOT EXISTS login_attempts (
   id           TEXT PRIMARY KEY,
   identifier   TEXT NOT NULL,   -- normalised email or username

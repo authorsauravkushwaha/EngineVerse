@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Confirm email — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="form-panel panel">
+  <h1>Confirm email</h1>
+  {% if error %}<div class="callout warning"><span class="label">Link not accepted</span>{{ error }}</div>{% endif %}
+  <p class="small"><a href="/login">Sign in</a></p>
+</div>
+{% endblock %}

@@ -22,6 +22,15 @@ data/
 .env
 .env.local
 .env.*.local
+deploy/.env
+
+# Backups and signing material. Never commit these.
+backups/
+*.dump
+*.sql.gz
+*.keystore
+*.jks
+*.p12
 
 # Toolchains fetched locally (never committed)
 .toolchain/

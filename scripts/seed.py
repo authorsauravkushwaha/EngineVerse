@@ -25,6 +25,7 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
         sys.path.insert(0, path)
 
 from engineverse import auth, brand, community, db, diagrams, models3d, progress, search  # noqa: E402
+from engineverse.config import get_settings  # noqa: E402
 from engineverse.judge import local as judge_local  # noqa: E402
 from engineverse.security.ids import ulid  # noqa: E402
 from engineverse.security.sanitize import slugify  # noqa: E402
@@ -40,6 +41,7 @@ from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
+from seed_data import foundations as topics_foundations  # noqa: E402
 from seed_data import community_data  # noqa: E402
 
 
@@ -286,7 +288,7 @@ def seed_curricula(subject_ids: dict[str, str], branch_ids: dict[str, str], univ
 
 def seed_topics(subject_ids: dict[str, str]) -> dict[str, str]:
     """Returns slug -> topic id for every seeded topic."""
-    all_topics = list(topics_cse.TOPICS) + list(topics_core.TOPICS)
+    all_topics = list(topics_cse.TOPICS) + list(topics_core.TOPICS) + list(topics_foundations.TOPICS)
     topic_ids: dict[str, str] = {}
     module_ids: dict[str, str] = {}
     per_subject_index: dict[str, int] = {}
@@ -335,7 +337,10 @@ def seed_topics(subject_ids: dict[str, str]) -> dict[str, str]:
 
 
 def seed_notes(topic_ids: dict[str, str]) -> int:
-    all_topics = {slugify(entry["title"]): entry for entry in list(topics_cse.TOPICS) + list(topics_core.TOPICS)}
+    all_topics = {
+        slugify(entry["title"]): entry
+        for entry in list(topics_cse.TOPICS) + list(topics_core.TOPICS) + list(topics_foundations.TOPICS)
+    }
     # Content keyed to a topic that no longer exists would simply stop rendering,
     # so fail on it rather than letting a rename silently orphan the material.
     stale = notes_extra.unknown_keys(set(all_topics))
@@ -788,6 +793,10 @@ def seed_plans() -> None:
 # Demo accounts
 # ---------------------------------------------------------------------------
 
+class SeedRefused(RuntimeError):
+    """A destructive or demo-account operation the current environment forbids."""
+
+
 DEMO_USERS = [
     ("admin@engineverse.local", "evadmin", "EngineVerse Admin", "Str0ngPassphrase#42!", "super_admin"),
     # subject_expert is the authored-content role: create, update and publish.
@@ -1084,8 +1093,50 @@ def print_stats() -> None:
     print(f"{'search index':<26}{search.indexed_count():>8}\n")
 
 
-def run(fresh: bool) -> None:
+def _demo_enabled(explicit: bool | None) -> bool:
+    settings = get_settings()
+    if settings.is_production:
+        if explicit is True:
+            raise SeedRefused("refusing to create demo accounts when ENGINEVERSE_ENV is production")
+        return False
+    if explicit is not None:
+        return explicit
+    return settings.allows_demo_accounts
+
+
+def _has_non_demo_users() -> bool:
+    """True when the database already holds an account this seeder did not define."""
+    settings = get_settings()
+    if not settings.uses_postgres and not settings.sqlite_path.exists():
+        return False
+    try:
+        if not db.table_exists("users"):
+            return False
+    except db.DatabaseError:
+        return False
+    emails = [email.lower() for email, *_rest in DEMO_USERS]
+    placeholders = ",".join("?" for _ in emails)
+    count = db.scalar(
+        "SELECT count(*) AS c FROM users WHERE deleted_at IS NULL "
+        f"AND lower(email) NOT IN ({placeholders})",
+        *emails,
+    )
+    return int(count or 0) > 0
+
+
+def run(fresh: bool, *, demo: bool | None = None, destroy_users: bool = False) -> None:
     started = datetime.now()
+    settings = get_settings()
+    if settings.is_production and fresh:
+        raise SeedRefused("refusing --fresh when ENGINEVERSE_ENV is production")
+    if settings.is_production and demo is True:
+        raise SeedRefused("refusing to create demo accounts when ENGINEVERSE_ENV is production")
+    if fresh and _has_non_demo_users() and not destroy_users:
+        raise SeedRefused(
+            "refusing --fresh: this database has users that are not the development demo accounts. "
+            "Pass --destroy-users only when deleting those accounts is intentional. "
+            "Production refuses --fresh even with that flag."
+        )
     if fresh:
         print("Resetting database ...")
         db.reset_database()
@@ -1138,22 +1189,28 @@ def run(fresh: bool) -> None:
     seed_flashcards(subject_ids)
     seed_plans()
 
-    print("Creating demo accounts ...")
-    user_ids = seed_users()
-    seed_demo_activity(user_ids, topic_ids)
+    print("Catalogue rows are upserted. Re-running overwrites CMS edits to those seeded ids.")
 
-    print("Seeding community, certificates and badges ...")
-    answers, runs = seed_demo_practice(user_ids)
-    threads, replies = seed_community(user_ids, topic_ids)
-    certificates = seed_certificates(user_ids)
+    want_demo = _demo_enabled(demo)
     progress.ensure_badges()
-    # Badges are evaluated against real progress, so this has to run after the
-    # demo activity is in - and the seeder writes progress with raw SQL, which
-    # never reaches the code path that awards them.
-    badges = {u: progress.evaluate_badges(uid) for u, uid in user_ids.items()}
-    print(f"  {answers} practice answers, {runs} coding runs, {threads} threads, "
-          f"{replies} replies, {certificates} certificates, "
-          f"{sum(len(v) for v in badges.values())} badges awarded")
+    if want_demo:
+        print("Creating demo accounts ...")
+        user_ids = seed_users()
+        seed_demo_activity(user_ids, topic_ids)
+        print("Seeding community, certificates and badges ...")
+        answers, runs = seed_demo_practice(user_ids)
+        threads, replies = seed_community(user_ids, topic_ids)
+        certificates = seed_certificates(user_ids)
+        # Badges are evaluated against real progress, so this has to run after the
+        # demo activity is in - and the seeder writes progress with raw SQL, which
+        # never reaches the code path that awards them.
+        badges = {user: progress.evaluate_badges(uid) for user, uid in user_ids.items()}
+        print(f"  {answers} practice answers, {runs} coding runs, {threads} threads, "
+              f"{replies} replies, {certificates} certificates, "
+              f"{sum(len(v) for v in badges.values())} badges awarded")
+    else:
+        print("Skipping demo accounts.")
+        user_ids = {}
 
     print("Building the search index ...")
     indexed = search.reindex_all()
@@ -1161,23 +1218,47 @@ def run(fresh: bool) -> None:
     print_stats()
     elapsed = (datetime.now() - started).total_seconds()
     print(f"Done in {elapsed:.1f}s. {indexed} searchable entities indexed.")
-    print("\nDemo accounts (change these passwords before any real deployment):")
-    for email, username, _name, password, role in DEMO_USERS:
-        print(f"  {role:<12} {email:<28} {password}")
+    if want_demo:
+        print("\nDemo accounts (development and test only; never created in production):")
+        for email, username, _name, password, role in DEMO_USERS:
+            print(f"  {role:<12} {email:<28} {password}")
+    else:
+        print("\nNo demo accounts were created and no passwords were printed.")
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Seed the EngineVerse database.")
-    parser.add_argument("--fresh", action="store_true", help="drop all data before seeding")
+    parser.add_argument("--fresh", action="store_true", help="drop the local SQLite file before seeding")
+    parser.add_argument(
+        "--destroy-users",
+        action="store_true",
+        help="allow --fresh to delete a database that contains non-demo users (never honoured in production)",
+    )
+    parser.add_argument("--demo", action="store_true", help="create development demo accounts (refused in production)")
+    parser.add_argument("--no-demo", action="store_true", help="do not create demo accounts")
     parser.add_argument("--stats", action="store_true", help="print row counts and exit")
     args = parser.parse_args()
+    if args.demo and args.no_demo:
+        print("pass only one of --demo and --no-demo", file=sys.stderr)
+        return 2
+    demo: bool | None
+    if args.demo:
+        demo = True
+    elif args.no_demo:
+        demo = False
+    else:
+        demo = None
 
     # --stats used to return here, before run(). That made `seed.py --fresh
     # --stats` migrate an empty schema, print a table of zeros and exit 0 - so
     # CI's "Seed a throwaway database" step looked like it had seeded and had
     # not, and --fresh was silently dropped on the floor.
     if args.fresh or not args.stats:
-        run(args.fresh)
+        try:
+            run(args.fresh, demo=demo, destroy_users=args.destroy_users)
+        except SeedRefused as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
     if args.stats:
         print_stats()
     return 0

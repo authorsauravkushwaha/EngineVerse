@@ -1227,3 +1227,7 @@ MODELS_3D: dict[str, dict] = {
             distance=8.0, pitch=18, spin=0.12),
     },
 }
+
+from seed_data.foundations import MODELS as _FOUNDATION_MODELS  # noqa: E402
+
+MODELS_3D.update(_FOUNDATION_MODELS)

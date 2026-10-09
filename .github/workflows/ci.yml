@@ -1,5 +1,8 @@
 name: CI
 
+permissions:
+  contents: read
+
 on:
   push:
     branches: ["**"]
@@ -194,53 +197,82 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: The container's first-boot sequence must work
+      - name: The release step must migrate and seed without demo accounts
         env:
           PGPASSWORD: engineverse
           ENGINEVERSE_DB_URL: postgresql://engineverse:engineverse@localhost:5432/bootcheck
           ENGINEVERSE_SECRET: ci-boot-check-only-not-a-real-secret
           ENGINEVERSE_ENV: production
+          ENGINEVERSE_SITE_URL: https://ci.example.test
+          ENGINEVERSE_JUDGE: disabled
         run: |
-          # Reproduces the CMD of deploy/Dockerfile.web against a real, empty
-          # database. Everything above runs the schema through psql, which proves
-          # the SQL is valid but not that the *application* can start. Starting
-          # needs three more things, all of which were broken and none of which
-          # any other job could catch, because every other job runs on SQLite:
+          # The web image no longer migrates or seeds on start. This step is
+          # what deploy/docker-compose.yml runs as the release service, against
+          # a real empty database. It still has to prove:
           #
-          #   1. psycopg must be installed. It was commented out in
-          #      requirements.txt, and the image installs only that file, so
-          #      db._pg_connect raised DatabaseError on first contact.
-          #   2. db.migrate() must pick schema.pg.sql. It hardcoded the SQLite
-          #      schema, whose line 927 is CREATE VIRTUAL TABLE ... USING fts5.
-          #   3. The seeder must not emit SQLite-only DML. Three INSERT OR IGNORE
-          #      statements are a syntax error on PostgreSQL.
+          #   1. psycopg is installed (requirements.txt leaves it commented out).
+          #   2. db.migrate() picks schema.pg.sql, not the SQLite fts5 schema.
+          #   3. The seeder does not emit SQLite-only DML.
+          #   4. Production seeding does not create the published demo accounts.
+          #   5. The runtime role cannot CREATE TABLE.
           #
-          # A separate database is used so this measures a genuine first boot
-          # rather than reusing the tables psql already created above.
+          # A separate database is used so this is a genuine first boot rather
+          # than the tables psql already created above.
           psql -h localhost -U engineverse -d postgres -c 'CREATE DATABASE bootcheck'
           pip install --quiet -r requirements.txt 'psycopg[binary]==3.2.6'
-          # Runs only here: it imports psycopg, so in the python job it skips.
-          # It feeds every statement migrate() would send through psycopg's own
-          # placeholder scanner, which is how the %I/%s specifiers inside the
-          # schema's PL/pgSQL helpers were found.
           python -m pytest backend/tests/test_api_and_schema.py -k "psycopg_accepts" -q
-          python -c "import sys; sys.path.insert(0,'backend'); from engineverse import db; print('migrated', db.migrate(), 'statements')"
-          python scripts/seed.py
+          python scripts/release.py
           python - <<'PY'
           import sys
           sys.path.insert(0, "backend")
           from engineverse import db
 
-          # Assert on seeded volume, not merely on a clean exit: seed.py
-          # returning 0 against a database it wrote nothing to must not pass.
-          for table in ("branches", "subjects", "topics", "notes", "users",
-                        "questions", "dpp_questions", "flashcards", "user_badges"):
+          for table in ("branches", "subjects", "topics", "notes",
+                        "questions", "dpp_questions", "flashcards"):
               rows = db.row_count(table)
-              assert rows > 0, f"{table} is empty after seed.py - the boot produced no data"
+              assert rows > 0, f"{table} is empty after release.py - the boot produced no catalogue"
               print(f"  {table}: {rows}")
+          users = db.row_count("users")
+          assert users == 0, f"production release created {users} users; demo accounts must not be seeded"
           tables = db.schema_table_count()
           assert tables > 50, f"expected a full schema, found {tables} tables"
           print(f"  schema tables: {tables}")
+          PY
+          psql -h localhost -U engineverse -d bootcheck -v ON_ERROR_STOP=1 <<'SQL'
+          CREATE ROLE engineverse_app LOGIN PASSWORD 'apppassapppassappp';
+          GRANT CONNECT ON DATABASE bootcheck TO engineverse_app;
+          GRANT USAGE ON SCHEMA public TO engineverse_app;
+          GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO engineverse_app;
+          REVOKE CREATE ON SCHEMA public FROM engineverse_app;
+          SQL
+          # The role must fail at CREATE TABLE even if the application check is
+          # bypassed. psql exits non-zero; that is the assertion.
+          set +e
+          PGPASSWORD=apppassapppassappp psql -h localhost -U engineverse_app -d bootcheck \
+            -c 'CREATE TABLE engineverse_should_fail (id int);'
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "engineverse_app was allowed to create a table" >&2
+            exit 1
+          fi
+          ENGINEVERSE_DB_URL=postgresql://engineverse_app:apppassapppassappp@localhost:5432/bootcheck \
+            python - <<'PY'
+          import os
+          import sys
+          sys.path.insert(0, "backend")
+          os.environ["ENGINEVERSE_DB_URL"] = "postgresql://engineverse_app:apppassapppassappp@localhost:5432/bootcheck"
+          from engineverse.config import reload_settings
+          reload_settings()
+          from engineverse import db
+          try:
+              db.migrate()
+          except db.DatabaseError as exc:
+              if "engineverse_app" not in str(exc):
+                  raise
+              print("runtime role correctly refused to migrate")
+          else:
+              raise SystemExit("runtime role was allowed to migrate")
           PY
 
   javascript:

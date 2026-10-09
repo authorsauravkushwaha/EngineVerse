@@ -131,6 +131,9 @@
 </header>
 
 {% if flash %}<div class="flash" role="status">{{ flash }}</div>{% endif %}
+{% if user and not user.email_verified and mail_configured %}
+<div class="announce"><a href="/settings#email">Confirm {{ user.email }}</a>. The link is emailed when you ask for it. It is not shown on this page.</div>
+{% endif %}
 
 <main id="main" class="wrap">
   {% block content %}{% endblock %}

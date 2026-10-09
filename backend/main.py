@@ -14,6 +14,7 @@ analytics.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import time
 from contextlib import asynccontextmanager
@@ -32,6 +33,7 @@ for _path in (_ROOT, os.path.dirname(_ROOT)):
 from engineverse import auth, brand, db  # noqa: E402
 from engineverse.config import get_settings  # noqa: E402
 from engineverse.security import csrf, ratelimit  # noqa: E402
+from engineverse.security.clientip import client_ip  # noqa: E402
 from engineverse.security import rbac  # noqa: E402
 from engineverse.security.audit import record  # noqa: E402
 from web import api as api_router  # noqa: E402
@@ -92,7 +94,7 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         if not token:
             token = await csrf.form_csrf(request)
         if not csrf.check(request, session, token):
-            record("security.csrf_rejected", ip=request.client.host if request.client else None,
+            record("security.csrf_rejected", ip=client_ip(request),
                    meta={"path": request.url.path, "method": request.method})
             accepts_html = "text/html" in (request.headers.get("accept") or "")
             if accepts_html:
@@ -106,6 +108,32 @@ def _peek_session(request: Request):
     from engineverse.security.sessions import session_from_request
 
     return auth.current_user_from_session(session_from_request(request))
+
+
+class AdminMfaMiddleware(BaseHTTPMiddleware):
+    """In production, staff cannot mutate /admin until an authenticator is enrolled.
+
+    Students are not redirected. A missing CSRF token is rejected by the
+    middleware outside this one, so this never turns a forged post into a
+    settings change. Enrollment itself lives under /settings, which stays open.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if not get_settings().is_production or request.method != "POST":
+            return await call_next(request)
+        if not request.url.path.startswith("/admin"):
+            return await call_next(request)
+        viewer = _peek_session(request)
+        if viewer is None or not rbac.is_staff(viewer.user.role):
+            return await call_next(request)
+        row = db.query_one("SELECT totp_secret FROM users WHERE id = ?", viewer.user.id)
+        if row and row.get("totp_secret"):
+            return await call_next(request)
+        from web.deps import flash
+
+        response = RedirectResponse("/settings", status_code=303)
+        flash(response, "Enrol an authenticator in Settings before using admin tools.")
+        return response
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
@@ -126,8 +154,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if limit is None:
             return await call_next(request)
         key, count, window = limit
-        ident = request.client.host if request.client else "unknown"
-        result = ratelimit.check(f"{key}:{ident}", count, window)
+        ident = client_ip(request)
+        local = ratelimit.check(f"{key}:{ident}", count, window)
+        shared = ratelimit.shared_check(f"{key}:{ident}", count, window)
+        result = local if not local.allowed else shared
         if not result.allowed:
             return JSONResponse(
                 {"ok": False, "error": "Too many requests. Please slow down."},
@@ -139,14 +169,40 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         return response
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def prepare_runtime() -> None:
+    """Validates production config, or migrates when this is not production.
+
+    Production must not ``CREATE`` or ``ALTER`` on startup. The schema is
+    applied by ``scripts/release.py`` with the bootstrap role before this
+    process starts. Development and the test suite still migrate here so a
+    laptop and CI keep working without a separate release step.
+    """
+    settings = get_settings()
+    if settings.is_production:
+        problems = settings.production_problems()
+        if problems:
+            raise RuntimeError("Refusing to start: " + "; ".join(problems))
+        if not db.table_exists("users"):
+            raise RuntimeError(
+                "Schema is missing. Run scripts/release.py with the migration "
+                "role before starting the web process."
+            )
+        return
     db.migrate()
-    # Derived data: rebuild the search index when this version of the code
-    # indexes more than the stored index holds. Cheap no-op once current.
     from engineverse import search
 
     search.refresh_if_stale()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    prepare_runtime()
+    # Search freshness is data, not DDL. In production the runtime role may
+    # rebuild the index; it must not be able to change the schema to do so.
+    if get_settings().is_production:
+        from engineverse import search
+
+        search.refresh_if_stale()
     app.state.started_at = time.time()
     yield
     db.close_connection()
@@ -166,6 +222,7 @@ def create_app() -> FastAPI:
 
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(AdminMfaMiddleware)
     app.add_middleware(CsrfMiddleware)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
@@ -211,7 +268,7 @@ def create_app() -> FastAPI:
         app.error audit entry.
         """
         record("security.forbidden", actor_id=getattr(request.state, "ev_user_id", None),
-               ip=request.client.host if request.client else None,
+               ip=client_ip(request),
                meta={"path": request.url.path})
         if request.url.path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "You do not have permission to do that."},
@@ -264,7 +321,7 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(500)
     async def server_error(request: Request, exc):
-        record("app.error", ip=request.client.host if request.client else None,
+        record("app.error", ip=client_ip(request),
                meta={"path": request.url.path, "error": f"{type(exc).__name__}: {exc}"[:400]})
         if request.url.path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Internal server error."}, status_code=500)
@@ -279,13 +336,16 @@ def create_app() -> FastAPI:
 
     @app.get("/health", include_in_schema=False)
     async def health() -> dict:
-        return {
+        payload = {
             "ok": True,
             "uptime_s": round(time.time() - app.state.started_at, 1),
-            "tables": db.schema_table_count(),
-            "users": db.row_count("users"),
             "brand": brand.get("site_name", "EngineVerse"),
         }
+        # Row counts are useful on a laptop and noisy on a public health check.
+        if not get_settings().is_production:
+            payload["tables"] = db.schema_table_count()
+            payload["users"] = db.row_count("users")
+        return payload
 
     @app.get("/favicon.ico", include_in_schema=False)
     async def favicon() -> Response:
@@ -306,6 +366,29 @@ def create_app() -> FastAPI:
         return FileResponse(os.path.join(STATIC_DIR, "sw.js"),
                             media_type="application/javascript",
                             headers={"Service-Worker-Allowed": "/"})
+
+    @app.get("/.well-known/assetlinks.json", include_in_schema=False)
+    async def assetlinks() -> Response:
+        """Digital Asset Links for an Android Trusted Web Activity.
+
+        Empty unless the operator sets both variables. Nothing here is a
+        claim that a Play listing exists. An invalid value is a 404 that does
+        not echo the input.
+        """
+        package = os.environ.get("ENGINEVERSE_TWA_PACKAGE", "").strip()
+        fingerprint = os.environ.get("ENGINEVERSE_TWA_SHA256", "").strip().upper()
+        package_ok = bool(re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+", package))
+        fingerprint_ok = bool(re.fullmatch(r"[0-9A-F]{2}(:[0-9A-F]{2}){31}", fingerprint))
+        if not package_ok or not fingerprint_ok:
+            return JSONResponse({"ok": False, "error": "TWA asset links are not configured."}, status_code=404)
+        return JSONResponse([{
+            "relation": ["delegate_permission/common.handle_all_urls"],
+            "target": {
+                "namespace": "android_app",
+                "package_name": package,
+                "sha256_cert_fingerprints": [fingerprint],
+            },
+        }])
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots() -> Response:
