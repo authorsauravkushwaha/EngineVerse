@@ -1822,6 +1822,39 @@ class TestDeployTopologyIsCoherent:
             "read_only root with no writable /tmp would break the judge"
         )
 
+    def test_the_image_ships_a_driver_for_the_database_compose_points_it_at(self):
+        """compose set ENGINEVERSE_DB_URL but the image had no Postgres driver.
+
+        requirements.txt keeps psycopg commented out - development and CI run on
+        SQLite and the list is deliberately minimal - and Dockerfile.web
+        installed only that file. So db._pg_connect raised
+        DatabaseError("...no PostgreSQL driver is installed") on the first query,
+        and `restart: unless-stopped` would have looped the container forever.
+        """
+        import pathlib
+
+        import yaml
+
+        compose = yaml.safe_load(
+            pathlib.Path("deploy/docker-compose.yml").read_text(encoding="utf-8")
+        )
+        url = str(compose["services"]["web"]["environment"]["ENGINEVERSE_DB_URL"])
+        # Asserted rather than branched on: a silently-skipped test is worse than
+        # one that has to be updated when the deployment changes.
+        assert url.startswith("postgresql://"), (
+            f"compose points the web service at {url!r}; this test assumed PostgreSQL"
+        )
+        dockerfile = pathlib.Path("deploy/Dockerfile.web").read_text(encoding="utf-8")
+        # Against install lines only, so a comment merely mentioning the driver
+        # cannot satisfy the assertion.
+        installs = "\n".join(
+            line for line in dockerfile.splitlines() if "pip install" in line
+        )
+        assert "psycopg" in installs, (
+            "compose points ENGINEVERSE_DB_URL at PostgreSQL but Dockerfile.web "
+            "installs no Postgres driver, so the app can never connect"
+        )
+
 
 def test_table_exists_answers_one_question_on_every_backend():
     """``table_count`` meant two different things depending on the backend.
@@ -1914,3 +1947,108 @@ class TestNotificationsRead:
                                   headers={"x-csrf-token": self._token(signed_in)})
         assert response.status_code == 200, response.text
         assert self._unread(user) == 0
+
+
+class TestMigratePicksTheSchemaForTheBackend:
+    """``migrate()`` hardcoded ``db/schema.sql``, which is SQLite.
+
+    Its line 927 is ``CREATE VIRTUAL TABLE ... USING fts5(...)``. Every local run
+    and every CI job except one uses SQLite, so the function looked correct
+    everywhere it was tested and would have failed on the first boot of the
+    production container, where compose points ``ENGINEVERSE_DB_URL`` at
+    PostgreSQL. The generated ``db/postgres/schema.pg.sql`` is the equivalent.
+    """
+
+    @staticmethod
+    def _chosen_file(monkeypatch, *, uses_postgres: bool) -> str:
+        """Runs the real selection logic and records which file it read.
+
+        ``execute`` and ``ensure_column`` are stubbed so the test measures which
+        schema was chosen, not whether a database accepted it - the PostgreSQL
+        job in CI covers the latter against a live server.
+        """
+        import pathlib
+
+        from engineverse import db
+
+        class _Settings:
+            pass
+
+        settings = _Settings()
+        settings.uses_postgres = uses_postgres
+        monkeypatch.setattr(db, "get_settings", lambda: settings)
+        monkeypatch.setattr(db, "execute", lambda *a, **k: 0)
+        monkeypatch.setattr(db, "ensure_column", lambda *a, **k: True)
+
+        chosen = {}
+        real_read_text = pathlib.Path.read_text
+
+        def spy(self, *args, **kwargs):
+            chosen["path"] = str(self)
+            return real_read_text(self, *args, **kwargs)
+
+        monkeypatch.setattr(pathlib.Path, "read_text", spy)
+        db.migrate()
+        return chosen["path"]
+
+    def test_postgres_gets_the_generated_schema(self, monkeypatch):
+        import pathlib
+        import re
+
+        path = self._chosen_file(monkeypatch, uses_postgres=True)
+        assert path.endswith("db/postgres/schema.pg.sql"), path
+        # Comment lines are stripped first: the schema legitimately explains that
+        # the FTS5 virtual table became a real one, so matching the bare word
+        # would fail on its own documentation. What must be absent is the DDL.
+        ddl = "\n".join(
+            line for line in pathlib.Path(path).read_text(encoding="utf-8").splitlines()
+            if not line.strip().startswith("--")
+        )
+        assert not re.search(r"CREATE\s+VIRTUAL\s+TABLE|USING\s+fts5", ddl, re.I), (
+            "the PostgreSQL schema still contains SQLite-only FTS5 syntax"
+        )
+
+    def test_sqlite_still_gets_its_own_schema(self, monkeypatch):
+        path = self._chosen_file(monkeypatch, uses_postgres=False)
+        assert path.endswith("db/schema.sql"), path
+
+    def test_an_explicit_schema_file_still_wins(self, monkeypatch, tmp_path):
+        """The override exists for tests and one-off repairs; it must not be
+        silently ignored now that the default depends on the backend."""
+        from engineverse import db
+
+        custom = tmp_path / "custom.sql"
+        custom.write_text("CREATE TABLE IF NOT EXISTS t (a TEXT);", encoding="utf-8")
+        applied = []
+        monkeypatch.setattr(db, "execute", lambda sql, *a, **k: applied.append(sql) or 0)
+        monkeypatch.setattr(db, "ensure_column", lambda *a, **k: True)
+        db.migrate(custom)
+        assert any("custom" in s or "CREATE TABLE IF NOT EXISTS t" in s for s in applied), applied
+
+
+def test_no_sqlite_only_insert_conflict_clause_survives():
+    """``INSERT OR IGNORE`` is a syntax error on PostgreSQL.
+
+    Three statements used it: two in the seeder and one in
+    ``progress.evaluate_badges``, which runs on ordinary learner activity rather
+    than only at seed time. SQLite accepts the clause, so every run outside the
+    CI PostgreSQL job was blind to it. ``ON CONFLICT DO NOTHING`` means the same
+    thing on both engines (SQLite 3.24+, PostgreSQL 9.5+).
+    """
+    import pathlib
+    import re
+
+    pattern = re.compile(r"INSERT\s+OR\s+(IGNORE|REPLACE|ROLLBACK|ABORT|FAIL)", re.I)
+    offenders = []
+    # The code that runs against a production database. Tests are excluded on
+    # purpose: this test's own docstring names the clause it forbids, and a
+    # scanner that matched documentation would fail on itself forever.
+    roots = [pathlib.Path("backend/engineverse"), pathlib.Path("backend/web"),
+             pathlib.Path("scripts")]
+    for root in roots:
+        for path in root.rglob("*.py"):
+            for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if pattern.search(line):
+                    offenders.append(f"{path}:{lineno}: {line.strip()}")
+    assert offenders or roots, "the scan found nothing to scan"
+    assert not offenders, "SQLite-only INSERT conflict clauses:\n" + "\n".join(offenders)

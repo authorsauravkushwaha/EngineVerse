@@ -441,7 +441,7 @@ def evaluate_badges(user_id: str) -> list[str]:
         if not badge_row:
             continue
         db.execute(
-            "INSERT OR IGNORE INTO user_badges (user_id,badge_id,earned_at) VALUES (?,?,?)",
+            "INSERT INTO user_badges (user_id,badge_id,earned_at) VALUES (?,?,?) ON CONFLICT DO NOTHING",
             user_id, badge_row["id"], now_ms(),
         )
         db.execute(

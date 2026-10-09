@@ -16,7 +16,14 @@
 FROM python:3.11-slim AS build
 WORKDIR /src
 COPY requirements.txt ./
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+# psycopg is installed here rather than added to requirements.txt: development
+# and CI run on SQLite, where the stdlib driver is enough, and requirements.txt
+# is deliberately minimal. But docker-compose.yml sets ENGINEVERSE_DB_URL, and
+# db._pg_connect raises DatabaseError("...no PostgreSQL driver is installed")
+# without it - so an image built straight from requirements.txt could never
+# have connected to the db service it is wired to.
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt \
+ && pip install --no-cache-dir --prefix=/install 'psycopg[binary]==3.2.6'
 
 # --- build stage: compile the Java sandbox jar -------------------------------
 # The bridge needs the jar next to the application, so it is built here rather

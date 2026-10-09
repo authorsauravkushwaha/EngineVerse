@@ -295,8 +295,22 @@ def split_sql(script: str) -> list[str]:
 
 
 def migrate(schema_file: str | Path | None = None) -> int:
-    """Applies the schema (idempotent: everything is CREATE ... IF NOT EXISTS)."""
-    path = Path(schema_file) if schema_file else (REPO_ROOT / "db" / "schema.sql")
+    """Applies the schema (idempotent: everything is CREATE ... IF NOT EXISTS).
+
+    Picks the file matching the backend in use. This used to be unconditionally
+    ``db/schema.sql``, which is SQLite: line 927 is ``CREATE VIRTUAL TABLE ...
+    USING fts5(...)``, and PostgreSQL rejects it. So ``migrate()`` worked in
+    development and in CI - both SQLite - and would have failed on the first
+    boot of the production container, where ``docker-compose.yml`` points
+    ``ENGINEVERSE_DB_URL`` at PostgreSQL. The generated ``schema.pg.sql`` is the
+    Postgres equivalent and is kept in step by ``scripts/gen_pg_schema.py``.
+    """
+    if schema_file:
+        path = Path(schema_file)
+    elif get_settings().uses_postgres:
+        path = REPO_ROOT / "db" / "postgres" / "schema.pg.sql"
+    else:
+        path = REPO_ROOT / "db" / "schema.sql"
     if not path.exists():
         raise DatabaseError(f"schema file not found: {path}")
     statements = split_sql(path.read_text(encoding="utf-8"))

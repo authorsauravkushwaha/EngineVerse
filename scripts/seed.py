@@ -500,7 +500,8 @@ def seed_dpp(question_ids: dict[str, str], subject_ids: dict[str, str]) -> int:
             )
             for position, (_subject, slug) in enumerate(window):
                 db.execute(
-                    "INSERT OR IGNORE INTO dpp_questions (set_id,question_id,position) VALUES (?,?,?)",
+                    "INSERT INTO dpp_questions (set_id,question_id,position) VALUES (?,?,?) "
+                    "ON CONFLICT DO NOTHING",
                     set_id, question_ids[slug], position,
                 )
             sets += 1
@@ -1011,8 +1012,8 @@ def seed_demo_practice(user_ids: dict[str, str]) -> tuple[int, int]:
 
             if project_id and username in ("asha", "ravi"):
                 db.execute(
-                    "INSERT OR IGNORE INTO bookmarks (user_id,entity_type,entity_id,note,created_at) "
-                    "VALUES (?,?,?,?,?)",
+                    "INSERT INTO bookmarks (user_id,entity_type,entity_id,note,created_at) "
+                    "VALUES (?,?,?,?,?) ON CONFLICT DO NOTHING",
                     user_id, "project", project_id, "Want to build this over the break.",
                     ts - 2 * MS_PER_DAY,
                 )
