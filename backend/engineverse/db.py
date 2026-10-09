@@ -342,6 +342,21 @@ def split_sql(script: str) -> list[str]:
     return statements
 
 
+def epoch_ms_column_type() -> str:
+    """The column type for an epoch-millisecond timestamp on the active backend.
+
+    SQLite's ``INTEGER`` is 64-bit. PostgreSQL's is 32-bit and overflows at
+    2147483647, which a millisecond timestamp passed in 2001 - so inserting
+    ``now_ms()`` raised ``NumericValueOutOfRange``.
+
+    ``schema_meta`` and ``search_log`` are created inline in Python rather than
+    by the schema file, so they never reach ``scripts/gen_pg_schema.py``, which
+    is the thing that widens ``INTEGER`` to ``BIGINT`` for precisely this reason.
+    Both worked on SQLite and failed only against PostgreSQL.
+    """
+    return "BIGINT" if get_settings().uses_postgres else "INTEGER"
+
+
 def migrate(schema_file: str | Path | None = None) -> int:
     """Applies the schema (idempotent: everything is CREATE ... IF NOT EXISTS).
 
@@ -365,7 +380,8 @@ def migrate(schema_file: str | Path | None = None) -> int:
     for statement in statements:
         execute(statement)
     execute(
-        "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL)"
+        "CREATE TABLE IF NOT EXISTS schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL, "
+        f"updated_at {epoch_ms_column_type()} NOT NULL)"
     )
     # Columns added after the table was first created. Kept here so a database
     # that was seeded by an older build picks them up on the next migrate().

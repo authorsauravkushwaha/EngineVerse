@@ -2177,3 +2177,48 @@ def test_psycopg_accepts_every_statement_the_boot_path_sends():
         "psycopg's placeholder validation at all"
     )
     assert not rejects(PostgresConnection._convert(like))
+
+
+def test_inline_tables_widen_their_timestamp_columns_on_postgres(monkeypatch):
+    """``schema_meta`` and ``search_log`` are created inline, so they skip the
+    generator that widens ``INTEGER`` to ``BIGINT``.
+
+    PostgreSQL's ``INTEGER`` is 32-bit, so ``migrate()`` inserting
+    ``time.time() * 1000`` raised ``NumericValueOutOfRange`` - the exact failure
+    the CI boot step reported. ``search_log`` had the same column and would have
+    failed the first time anyone ran a search. SQLite's ``INTEGER`` is 64-bit,
+    which is why neither was visible locally.
+    """
+    from engineverse import db, search
+
+    def run(uses_postgres: bool) -> list[str]:
+        captured: list[str] = []
+
+        class _Settings:
+            pass
+
+        settings = _Settings()
+        settings.uses_postgres = uses_postgres
+        monkeypatch.setattr(db, "get_settings", lambda: settings)
+        monkeypatch.setattr(db, "execute", lambda sql, *a, **k: captured.append(sql) or 0)
+        monkeypatch.setattr(db, "ensure_column", lambda *a, **k: True)
+        db.migrate()
+        search.ensure_log_table()
+        return captured
+
+    def column_type(statements: list[str], table: str, column: str) -> str:
+        ddl = [s for s in statements if f"CREATE TABLE IF NOT EXISTS {table}" in s]
+        assert len(ddl) == 1, f"no inline DDL captured for {table}"
+        match = re.search(rf"{column}\s+(\w+)\s+NOT NULL", ddl[0])
+        assert match, f"{table}.{column} not found in: {ddl[0]}"
+        return match.group(1)
+
+    pg = run(True)
+    assert column_type(pg, "schema_meta", "updated_at") == "BIGINT"
+    assert column_type(pg, "search_log", "created_at") == "BIGINT"
+
+    # And the SQLite path must be unchanged, or this "fix" would silently
+    # rewrite the development schema too.
+    lite = run(False)
+    assert column_type(lite, "schema_meta", "updated_at") == "INTEGER"
+    assert column_type(lite, "search_log", "created_at") == "INTEGER"

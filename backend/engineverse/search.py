@@ -210,9 +210,12 @@ def grouped(query: str, **options: Any) -> dict[str, list[dict]]:
 
 
 def ensure_log_table() -> None:
+    # created_at is an epoch-millisecond value, so its type has to follow the
+    # backend: this table is created inline and never passes through the schema
+    # generator that widens INTEGER to BIGINT. See db.epoch_ms_column_type.
     db.execute(
         "CREATE TABLE IF NOT EXISTS search_log (id TEXT PRIMARY KEY, query TEXT NOT NULL, "
-        "results INTEGER NOT NULL, created_at INTEGER NOT NULL)"
+        f"results INTEGER NOT NULL, created_at {db.epoch_ms_column_type()} NOT NULL)"
     )
     db.execute("CREATE INDEX IF NOT EXISTS idx_search_log_query ON search_log(query)")
 
