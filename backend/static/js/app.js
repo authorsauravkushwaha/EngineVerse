@@ -34,9 +34,9 @@
       box = document.createElement("div");
       box.id = "toast";
       box.setAttribute("role", "status");
-      box.style.cssText = "position:fixed;left:50%;bottom:26px;transform:translateX(-50%);" +
-        "background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:10px 20px;" +
-        "box-shadow:var(--shadow-lg);z-index:200;font-size:.9rem;max-width:90vw;transition:opacity .3s";
+      box.style.cssText = "position:fixed;left:50%;bottom:var(--toast-bottom, 26px);transform:translateX(-50%);" +
+        "background:var(--surface);border:1px solid var(--edge);border-radius:999px;padding:10px 20px;" +
+        "box-shadow:var(--neu-lg);z-index:200;font-size:.9rem;max-width:90vw;color:var(--text);transition:opacity .3s";
       document.body.appendChild(box);
     }
     box.textContent = message;
@@ -412,18 +412,7 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
   if (flash) setTimeout(() => { flash.style.transition = "opacity .5s"; flash.style.opacity = "0";
     setTimeout(() => flash.remove(), 500); }, 4200);
 
-  // ----------------------------------------------------- 3D tilt on tiles
-  if (!window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
-    $$(".tile").forEach((tile) => {
-      tile.addEventListener("mousemove", (e) => {
-        const r = tile.getBoundingClientRect();
-        const rx = ((e.clientY - r.top) / r.height - 0.5) * -10;
-        const ry = ((e.clientX - r.left) / r.width - 0.5) * 10;
-        tile.style.transform = `rotateX(${rx}deg) rotateY(${ry}deg) translateY(-5px)`;
-      });
-      tile.addEventListener("mouseleave", () => { tile.style.transform = ""; });
-    });
-  }
+  // Tile lift is CSS. A pointer-driven 3D tilt fights the clay shadow.
 
   // ------------------------------------------------- data-json-form forms
   // Progressive enhancement only. Every one of these forms is a real HTML form
@@ -547,7 +536,7 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
       root.setAttribute("data-theme", next);
       try { localStorage.setItem("ev-theme", next); } catch (e) { /* private mode */ }
       const meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute("content", next === "light" ? "#f5f7fc" : "#070b16");
+      if (meta) meta.setAttribute("content", next === "light" ? "#e4e9f1" : "#222a3a");
     });
   }
 

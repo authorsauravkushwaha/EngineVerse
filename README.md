@@ -59,7 +59,13 @@ browser / PWA ──► FastAPI + Jinja2 SSR ──► SQL (SQLite dev / Postgre
 
 - ~5,800 lines of Python in `backend/engineverse/` — the domain and services
 - ~1,650 lines in `backend/web/` — routing and the JSON API
-- 47 Jinja2 templates, one dependency-free CSS file, one dependency-free JS file
+- Jinja2 templates, one dependency-free CSS file, one dependency-free JS file
+
+The interface is **neumorphic and self-contained**. Surfaces share one clay colour;
+volume is a light shadow from the top-left and a dark shadow to the bottom-right.
+Fields, tracks and the active nav are inset. Nothing is loaded from a CDN, an
+icon font, or a component library — including the LaTeX renderer and the WebGL
+models. Light is the default; dark is the same system with a deeper clay.
 - 63 SQL tables; `db/schema.sql` for development, `db/postgres/schema.pg.sql`
   hash-partitioned for production
 - `sandbox-java/` — a Maven project with zero runtime dependencies

@@ -5,16 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>{% block title %}{{ brand.site_name }}{% endblock %}</title>
   <meta name="description" content="{% block description %}{{ brand.tagline }}{% endblock %}">
-  <meta name="theme-color" content="#070b16">
+  <meta name="theme-color" content="{% if brand.theme == 'light' %}#e4e9f1{% else %}#222a3a{% endif %}">
   <script>
     // Runs before first paint: a stored preference wins over the site default,
     // otherwise switching themes flashes the default for one frame.
     (function () {
       try {
         var saved = localStorage.getItem("ev-theme");
+        var theme = document.documentElement.getAttribute("data-theme") || "light";
         if (saved === "light" || saved === "dark") {
           document.documentElement.setAttribute("data-theme", saved);
+          theme = saved;
         }
+        var meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute("content", theme === "light" ? "#e4e9f1" : "#222a3a");
       } catch (e) { /* storage blocked - fall back to the server default */ }
     })();
   </script>
@@ -41,14 +45,10 @@
   <div class="wrap topbar-inner">
     <a class="logo" href="/" aria-label="{{ brand.site_name }} home">
       <span class="logo-mark" aria-hidden="true">
-        <svg viewBox="0 0 32 32" width="28" height="28"><defs>
-          <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#4f7cff"/><stop offset="1" stop-color="#a78bfa"/>
-          </linearGradient></defs>
-          <path d="M16 2 4 9v14l12 7 12-7V9z" fill="none" stroke="url(#lg)" stroke-width="2.2"
-                stroke-linejoin="round"/>
-          <path d="M11 20V12l5 5 5-5v8" fill="none" stroke="url(#lg)" stroke-width="2.2"
-                stroke-linecap="round" stroke-linejoin="round"/>
+        <svg viewBox="0 0 32 32" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2"
+             stroke-linejoin="round" stroke-linecap="round">
+          <path d="M16 3.5 5.5 9.5v13L16 28.5l10.5-6v-13z"/>
+          <path d="M11.5 20.2V12.2l4.5 4.1 4.5-4.1v8"/>
         </svg>
       </span>
       <span class="logo-text">{{ brand.site_name }}</span>
@@ -68,7 +68,7 @@
 
     <form class="searchbox" action="/search" method="get" role="search">
       <input type="search" name="q" value="{{ query.get('q', '') }}" placeholder="Search topics, problems, formulas..."
-             autocomplete="off" aria-label="Search EngineVerse" id="global-search">
+             autocomplete="off" aria-label="Search {{ brand.site_name }}" id="global-search">
       <button type="submit" aria-label="Search">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
@@ -193,6 +193,29 @@
     <span class="muted">Self-hosted. No trackers. No third-party scripts.</span>
   </div>
 </footer>
+
+<nav class="bottomnav" aria-label="Mobile">
+  <a href="/" class="{{ 'on' if path == '/' }}" {% if path == '/' %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
+    Home
+  </a>
+  <a href="/explore" class="{{ 'on' if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}" {% if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 19.5V6.2A2.2 2.2 0 0 1 6.2 4H20v15.5"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg>
+    Learn
+  </a>
+  <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}" {% if path.startswith('/practice') or path.startswith('/dpp') %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+    Practice
+  </a>
+  <a href="/projects" class="{{ 'on' if path.startswith('/projects') }}" {% if path.startswith('/projects') %}aria-current="page"{% endif %}>
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 7l3-3 4 4-3 3"/><path d="M13 8 4.5 16.5a2 2 0 0 0 0 2.8l.2.2a2 2 0 0 0 2.8 0L16 11"/></svg>
+    Projects
+  </a>
+  <a href="{% if user %}/profile{% else %}/login{% endif %}" class="{{ 'on' if path.startswith('/profile') or path.startswith('/settings') or path.startswith('/login') }}">
+    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 19.2a7 7 0 0 1 14 0"/></svg>
+    Profile
+  </a>
+</nav>
 
 <script nonce="{{ request.state.csp_nonce }}">
   window.EngineVerse = { csrf: "{{ csrf_token }}", user: {{ 'true' if user else 'false' }} };

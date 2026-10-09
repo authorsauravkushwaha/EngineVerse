@@ -1,10 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Explore subjects — {{ brand.site_name }}{% endblock %}
 {% block content %}
-<h1>Explore the catalogue</h1>
-<p class="muted">{{ subjects | length }} subjects across every engineering branch. Filter by branch or semester.</p>
+<h1>{% if active_year == '1' %}First year engineering{% else %}Explore the catalogue{% endif %}</h1>
+<p class="muted">{{ subjects | length }} subjects across every engineering branch. Filter by branch, semester, or the shared first-year core.</p>
+
+<div class="chips-row">
+  <a class="chip {{ 'on' if not active_year }}" href="/explore">All years</a>
+  <a class="chip {{ 'on' if active_year == '1' }}" href="/explore?year=1">First year</a>
+</div>
 
 <form class="panel mb" method="get" action="/explore">
+  {% if active_year %}<input type="hidden" name="year" value="{{ active_year }}">{% endif %}
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;align-items:end">
     <div><label for="q">Search</label><input id="q" name="q" value="{{ active_q or '' }}" placeholder="subject or topic"></div>
     <div><label for="branch">Branch</label>
@@ -22,15 +28,7 @@
 
 <div class="grid g3">
   {% for subject in subjects %}
-    <a class="card" href="/subjects/{{ subject.slug }}">
-      <span class="title">{{ subject.name }}</span>
-      <span class="desc">{{ subject.description | excerpt(130) }}</span>
-      <div class="tags">
-        {% if subject.branch_name %}<span class="chip accent">{{ subject.branch_name }}</span>{% endif %}
-        {% if subject.semester_id %}<span class="chip">Sem {{ subject.semester_id }}</span>{% endif %}
-        {% if subject.code %}<span class="chip">{{ subject.code }}</span>{% endif %}
-      </div>
-    </a>
+    {% include "_subject_card.html" %}
   {% else %}
     <div class="empty"><span class="em">🔍</span>No subjects match that filter.</div>
   {% endfor %}

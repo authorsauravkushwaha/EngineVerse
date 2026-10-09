@@ -33,6 +33,12 @@ the site still reads and still works. That is also what makes the app
 installable on a phone without an app store: `manifest.webmanifest` plus a
 service worker.
 
+The visual system in `backend/static/css/app.css` is neumorphic on purpose, and
+still has no framework. Raised controls and inset wells are painted with paired
+shadows on a single clay colour, in both the light and dark themes. A phone
+gets a fixed bottom nav (Home, Learn, Practice, Projects, Profile) rather than
+a shrunk desktop bar.
+
 **One process, one database.** A learner platform is dominated by reads of
 content that changes rarely. Splitting it into services early would add latency
 and operational surface without relieving a real bottleneck. The seams that

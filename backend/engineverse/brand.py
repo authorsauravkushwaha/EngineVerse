@@ -30,7 +30,7 @@ DEFAULTS = {
     "accent_color": "#4f7cff",
     "accent_color_2": "#38bdf8",
     "accent_color_3": "#a78bfa",
-    "theme": "dark",
+    "theme": "light",
     "maintenance_mode": "0",
     "registration_open": "1",
 }
