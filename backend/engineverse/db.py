@@ -16,6 +16,7 @@ modules that call these helpers, so a driver swap touches one file.
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -75,12 +76,32 @@ class PostgresConnection:
 
     @staticmethod
     def _convert(sql: str) -> str:
+        """Rewrites SQLite-style SQL for psycopg.
+
+        Two translations, both needed because ``db.execute`` always hands
+        psycopg a parameter tuple - even an empty one - which makes psycopg scan
+        the query for placeholders before PostgreSQL ever sees it.
+
+        ``?`` becomes ``%s`` outside string literals.
+
+        Every literal ``%`` is doubled. psycopg's placeholder pattern is ``%``
+        followed by *any* character, and it raises
+        ``ProgrammingError: only '%s', '%b', '%t' are allowed as placeholders``
+        for anything else. Two real statements hit that: ``catalog.py`` builds a
+        pattern with ``LIKE '%' || t.title || '%'``, and the generated schema's
+        PL/pgSQL helpers use PostgreSQL ``format()`` specifiers ``%I`` and
+        ``%s`` inside their bodies. SQLite has no percent escaping, so doubling
+        belongs here rather than at the call sites, which must stay valid on
+        both engines.
+        """
         out = []
         in_string = False
         for ch in sql:
             if ch == "'":
                 in_string = not in_string
                 out.append(ch)
+            elif ch == "%":
+                out.append("%%")
             elif ch == "?" and not in_string:
                 out.append("%s")
             else:
@@ -252,8 +273,22 @@ def executescript(script: str) -> None:
             conn.commit()
 
 
+# A PostgreSQL dollar-quote opener: $$ or $tag$.
+_DOLLAR_QUOTE = re.compile(r"\$(?:[A-Za-z_][A-Za-z0-9_]*)?\$")
+
+
 def split_sql(script: str) -> list[str]:
-    """Splits SQL on `;` while respecting string literals and `--` comments."""
+    """Splits SQL on `;` while respecting string literals, dollar-quoted bodies
+    and ``--`` comments.
+
+    Dollar-quoting matters only for PostgreSQL, whose PL/pgSQL functions wrap
+    their body in ``$body$ ... $body$`` and are full of internal semicolons.
+    Without handling it this splitter cut ``engineverse_create_partitions`` in
+    half at the first one, so ``migrate()`` handed PostgreSQL a CREATE FUNCTION
+    with no body. The schema itself was fine - psql understands dollar-quoting,
+    which is why applying it by hand in CI worked and applying it through the
+    application did not.
+    """
     statements: list[str] = []
     buffer: list[str] = []
     in_string = False
@@ -275,6 +310,19 @@ def split_sql(script: str) -> list[str]:
             buffer.append(ch)
             i += 1
             continue
+        if ch == "$":
+            # A dollar-quote opener: $$ or $tag$. Everything up to the matching
+            # closer is copied verbatim, semicolons included.
+            match = _DOLLAR_QUOTE.match(script, i)
+            if match:
+                tag = match.group(0)
+                end = script.find(tag, match.end())
+                if end == -1:  # unterminated: take the rest rather than loop
+                    buffer.append(script[i:])
+                    break
+                buffer.append(script[i:end + len(tag)])
+                i = end + len(tag)
+                continue
         if ch == "-" and i + 1 < len(script) and script[i + 1] == "-":
             while i < len(script) and script[i] != "\n":
                 i += 1

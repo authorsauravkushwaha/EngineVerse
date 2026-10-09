@@ -219,6 +219,11 @@ jobs:
           # rather than reusing the tables psql already created above.
           psql -h localhost -U engineverse -d postgres -c 'CREATE DATABASE bootcheck'
           pip install --quiet -r requirements.txt 'psycopg[binary]==3.2.6'
+          # Runs only here: it imports psycopg, so in the python job it skips.
+          # It feeds every statement migrate() would send through psycopg's own
+          # placeholder scanner, which is how the %I/%s specifiers inside the
+          # schema's PL/pgSQL helpers were found.
+          python -m pytest backend/tests/test_api_and_schema.py -k "psycopg_accepts" -q
           python -c "import sys; sys.path.insert(0,'backend'); from engineverse import db; print('migrated', db.migrate(), 'statements')"
           python scripts/seed.py
           python - <<'PY'

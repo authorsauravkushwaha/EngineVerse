@@ -2052,3 +2052,128 @@ def test_no_sqlite_only_insert_conflict_clause_survives():
                     offenders.append(f"{path}:{lineno}: {line.strip()}")
     assert offenders or roots, "the scan found nothing to scan"
     assert not offenders, "SQLite-only INSERT conflict clauses:\n" + "\n".join(offenders)
+
+
+def test_split_sql_keeps_dollar_quoted_function_bodies_whole():
+    """``split_sql`` shredded PostgreSQL's PL/pgSQL functions.
+
+    It respected ``'string literals'`` and ``--`` comments but not
+    ``$body$ ... $body$``, so it cut a function body at its first internal
+    semicolon and ``migrate()`` handed PostgreSQL a CREATE FUNCTION with no body.
+    ``psql`` applies the same file fine because it understands dollar-quoting -
+    which is exactly why the schema looked correct while the application could
+    not apply it.
+    """
+    from engineverse import db
+
+    script = (
+        "CREATE TABLE a (x TEXT);\n"
+        "CREATE OR REPLACE FUNCTION f() RETURNS VOID AS $body$\n"
+        "BEGIN\n"
+        "  PERFORM 1;\n"
+        "  PERFORM 2;\n"
+        "END;\n"
+        "$body$ LANGUAGE plpgsql;\n"
+        "SELECT f();\n"
+    )
+    statements = db.split_sql(script)
+    assert len(statements) == 3, statements
+    body = [s for s in statements if "FUNCTION f()" in s]
+    assert len(body) == 1, statements
+    assert body[0].count("$body$") == 2, "the dollar-quote was left unterminated"
+    assert body[0].count("PERFORM") == 2, "the body was cut at an internal semicolon"
+
+
+def test_split_sql_keeps_the_shipped_schema_functions_whole():
+    """The same check against the real file, so a schema edit cannot regress it."""
+    import pathlib
+
+    from engineverse import db
+
+    text = pathlib.Path("db/postgres/schema.pg.sql").read_text(encoding="utf-8")
+    statements = db.split_sql(text)
+    unbalanced = [s for s in statements if s.count("$body$") % 2 or s.count("$$") % 2]
+    assert not unbalanced, (
+        f"{len(unbalanced)} statements end with an unterminated dollar-quote"
+    )
+    for fn in ("engineverse_create_partitions", "engineverse_prune_before"):
+        defs = [
+            s for s in statements
+            if s.lstrip().upper().startswith("CREATE OR REPLACE FUNCTION") and fn in s
+        ]
+        assert len(defs) == 1, f"{fn}: expected one whole definition, found {len(defs)}"
+        assert defs[0].rstrip().endswith("LANGUAGE plpgsql"), f"{fn} was truncated"
+        assert "BEGIN" in defs[0] and "END" in defs[0], f"{fn} lost its body"
+
+
+def test_convert_doubles_literal_percent_and_leaves_placeholders_alone():
+    """``db._convert`` must escape ``%`` while still emitting ``%s`` for ``?``.
+
+    psycopg scans a query for placeholders whenever a parameter tuple is passed,
+    and ``db.execute`` always passes one - even an empty tuple. Its pattern is
+    ``%`` followed by *any* character, so a literal percent is a syntax error
+    unless doubled. SQLite has no such escaping, so the doubling belongs here
+    rather than at the call sites, which must stay valid on both engines.
+    """
+    from engineverse.db import PostgresConnection
+
+    assert PostgresConnection._convert(
+        "SELECT * FROM t WHERE a = ? AND b LIKE '%' || ? || '%'"
+    ) == "SELECT * FROM t WHERE a = %s AND b LIKE '%%' || %s || '%%'"
+    # A ? inside a string literal is data, not a placeholder.
+    assert PostgresConnection._convert("SELECT 'why?' WHERE a = ?") == (
+        "SELECT 'why?' WHERE a = %s"
+    )
+
+
+def test_psycopg_accepts_every_statement_the_boot_path_sends():
+    """The real check: run migrate()'s statements through psycopg's scanner.
+
+    Two faults lived here and neither was reachable from SQLite. The generated
+    schema's PL/pgSQL helpers use PostgreSQL ``format()`` specifiers ``%I`` and
+    ``%s`` inside their bodies, and ``catalog.py`` builds a pattern with
+    ``LIKE '%' || t.title || '%'``. Both raise
+    ``ProgrammingError: only '%s', '%b', '%t' are allowed as placeholders``.
+
+    Asserted against psycopg's own placeholder scanner rather than against its
+    documentation, with a control that the unconverted query does fail - without
+    that control the test would also pass if the scanner never ran.
+    """
+    import pathlib
+
+    pytest.importorskip(
+        "psycopg", reason="the PostgreSQL driver is installed only in the postgres CI job"
+    )
+    from psycopg._queries import _query2pg_client_nocache as scan
+
+    from engineverse.db import PostgresConnection, split_sql
+
+    def rejects(sql: str) -> str | None:
+        try:
+            scan(sql.encode("utf-8"), "utf-8")
+            return None
+        except Exception as exc:
+            return f"{type(exc).__name__}: {exc}"
+
+    schema = pathlib.Path("db/postgres/schema.pg.sql").read_text(encoding="utf-8")
+    statements = split_sql(schema)
+    assert len(statements) > 100, f"split_sql only produced {len(statements)} statements"
+
+    bad = [
+        (i, err)
+        for i, s in enumerate(statements)
+        if (err := rejects(PostgresConnection._convert(s)))
+    ]
+    assert not bad, "psycopg rejects statements migrate() would send:\n" + "\n".join(
+        f"  #{i}: {e}" for i, e in bad[:5]
+    )
+
+    like = (
+        "SELECT count(*) FROM coding_problems cp JOIN topics t ON t.subject_id = ? "
+        "WHERE cp.topics LIKE '%' || t.title || '%'"
+    )
+    assert rejects(like), (
+        "control failed: the raw query is accepted, so this test is not exercising "
+        "psycopg's placeholder validation at all"
+    )
+    assert not rejects(PostgresConnection._convert(like))
