@@ -15,17 +15,22 @@ python scripts/seed.py --fresh             # ~0.4s, builds the whole catalogue
 uvicorn main:app --app-dir backend --reload
 ```
 
-Open <http://127.0.0.1:8000>. Sign in as `asha@example.com` /
-`LearnBuild#2026!`, or `admin@engineverse.local` / `Str0ngPassphrase#42!` for the
-CMS. **Change these before any real deployment** — they are seeded demo
-credentials printed by the seeder on every run.
+Open <http://127.0.0.1:8000>. On a development machine, sign in as
+`asha@example.com` / `LearnBuild#2026!`, or `admin@engineverse.local` /
+`Str0ngPassphrase#42!` for the CMS. Those accounts are created only when
+`ENGINEVERSE_ENV` is `development` or `test`. Production seed does not create
+them, does not print the passwords, and the login page does not show them.
+`python scripts/seed.py --no-demo` builds the catalogue without them.
+
+Production is a separate step, and it has not been claimed as deployed. See
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## What is here
 
 | Area | What it does |
 |---|---|
-| **Notes** | 48 topics across mechanical, civil, electrical, electronics, computer science and the shared first-year core. Every note follows one [13-section template](docs/NOTE_TEMPLATE.md) at four depths, with LaTeX rendered by a dependency-free renderer. |
-| **Diagrams & 3D** | 6 hotspot SVG diagrams plus **48 interactive 3D models — one per topic** — drawn by a dependency-free WebGL renderer (`engine3d.js`, no three.js, no CDN). Drag to orbit, scroll to zoom, labels projected from 3D. Each model is JSON geometry stored in the database, so adding one is an INSERT, not a deploy. |
+| **Notes** | 56 topics across mechanical, civil, electrical, electronics, computer science and the shared first-year core. Every note follows one [13-section template](docs/NOTE_TEMPLATE.md) at four depths, with LaTeX rendered by a dependency-free renderer. |
+| **Diagrams & 3D** | One hotspot SVG diagram and one interactive 3D model per topic (56 of each), drawn by a dependency-free WebGL renderer (`engine3d.js`, no three.js, no CDN). Drag to orbit, scroll to zoom, labels projected from 3D. Each model is JSON geometry stored in the database, so adding one is an INSERT, not a deploy. |
 | **Practice** | 38 questions (MCQ, numerical, conceptual, debug, diagram, case, design, interview) plus 14 Daily Practice Problem sets with a dated archive. |
 | **Coding** | 13 problems with an in-browser editor, real execution in an isolated sandbox, per-test verdicts, and stubs in Python, Java, JavaScript and C++. |
 | **Projects** | 6 end-to-end builds with steps, skills and resources — not "make a todo app". |
@@ -127,8 +132,10 @@ SHA-256 digests, HMAC CSRF tokens bound to the session, an 8-role × 10-capabili
 RBAC that fails closed, parameterised SQL throughout, autoescaped templates, a
 per-request CSP nonce, and an append-only audit log.
 
-Full detail, including the honest limitations — no enforced MFA yet, a small
-password blocklist, in-process rate limits — is in [`docs/SECURITY.md`](docs/SECURITY.md).
+Full detail, including the honest limitations — authenticator enrolment is
+optional for learners, the password blocklist is small, and a proxy hides
+every client behind one address unless you explicitly trust it — is in
+[`docs/SECURITY.md`](docs/SECURITY.md).
 
 ## Testing
 
@@ -143,7 +150,7 @@ python scripts/dump_scenes.py | node scripts/check_scenes.js   # every scene is 
 The last two matter because the 3D layer has no browser in CI. The first runs
 the shipped mesh builders under a DOM stub and asserts finite geometry,
 parameter clamping, the arrow-orientation algebra and the projection maths.
-The second feeds all 48 stored scenes to that same renderer and fails if any
+The second feeds all 56 stored scenes to that same renderer and fails if any
 object cannot be built — which is how a model that validated as JSON but named
 a mesh the renderer does not have gets caught before it ships.
 
@@ -174,7 +181,7 @@ backend/
   static/             one CSS file, two JS files (app.js, engine3d.js), PWA manifest, service worker, icons
   tests/              431 tests
 db/
-  schema.sql          SQLite, 65 tables (development)
+  schema.sql          SQLite, 66 tables (development)
   postgres/           hash-partitioned Postgres schema (production)
 seed_data/            the catalogue as data
 scripts/seed.py       builds the database
@@ -210,13 +217,17 @@ Stated plainly rather than discovered later:
   `docs/SECURITY.md`.
 - **The Postgres schema has not been applied to a live server here.** It is
   parsed with `sqlglot` locally and applied to a real PostgreSQL 16 service in CI.
-- **No enforced MFA.** The schema carries `totp_secret`; enrolment is not built.
-- **Rate limits are in-process**, so they under-count across replicas.
-- **No mail transport**, so email verification does not send.
-- **The seeded catalogue is a foundation, not a library.** 48 topics is enough to
+- **Authenticator enrolment is optional for learners.** Production blocks staff
+  `POST`s to `/admin` until that account has enrolled. A password alone still
+  signs in every account that has not.
+- **API rate limits are shared via the database**, but the client address is the
+  TCP peer unless `ENGINEVERSE_TRUST_PROXY` is on. The compose file leaves it off.
+- **Email confirmation is sent only when `ENGINEVERSE_SMTP_URL` is set.**
+  Without it the address stays unconfirmed and sign-in still works.
+- **The seeded catalogue is a foundation, not a library.** 56 topics is enough to
   prove the model and to study from; a full degree is thousands. The structure is
   built to be filled in without a redesign. Visual coverage is complete for the
-  topics that exist: all 48 carry an interactive 3D model and an SVG diagram with
+  topics that exist: all 56 carry an interactive 3D model and an SVG diagram with
   hotspots. The 3D models are authored by hand one at a time, which is what caps
   how fast that number grows.
 

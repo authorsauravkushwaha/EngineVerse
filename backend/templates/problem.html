@@ -32,6 +32,10 @@
   </section>
 
   <section>
+    {% if not runnable_now %}
+    <div class="callout warning mb"><span class="label">Code execution is off</span>
+      This server is not running submitted code. You can still read the problem, the samples and the editorial.</div>
+    {% endif %}
     <div class="editor-bar">
       <label for="lang-select" style="margin:0">Language</label>
       <select id="lang-select">

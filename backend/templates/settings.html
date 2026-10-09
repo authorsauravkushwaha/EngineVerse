@@ -78,6 +78,65 @@
         <button class="btn btn-primary">Change password</button>
       </form></section>
 
+    <section class="panel" id="email"><h2>Email</h2>
+      <p>{{ user.email }}</p>
+      {% if user.email_verified %}
+      <p class="chip ok">Confirmed</p>
+      {% else %}
+      <p class="muted">Not confirmed. A confirmation link proves this address is yours. It does not change your password, and learning stays available either way.</p>
+      {% if not mail_configured %}<p class="small muted">This instance has no mail transport, so a link cannot be sent. The address stays unconfirmed.</p>{% endif %}
+      {% if verify_link %}<p class="small muted">Development only. This link is not shown when mail is configured, and never in production.</p>
+        <p><a href="{{ verify_link }}">Confirm this address</a></p>{% endif %}
+      <form method="post" action="/settings/email/verify">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <button class="btn btn-soft">Send confirmation link</button>
+      </form>
+      {% endif %}
+    </section>
+
+    <section class="panel" id="mfa"><h2>Authenticator</h2>
+      <p class="muted">Optional for learners. In production, staff must enrol one before admin tools will accept a change. Codes are checked on this server. Nothing is sent to a third party.</p>
+      {% if recovery_codes %}
+      <div class="callout warning"><span class="label">Save these recovery codes</span>
+        Each code works once. They are not shown again.
+        <ul>{% for code in recovery_codes %}<li><code class="recovery-code">{{ code }}</code></li>{% endfor %}</ul>
+      </div>
+      {% endif %}
+      {% if mfa_pending %}
+      <p>Add this secret to your authenticator app, then enter a code to confirm.</p>
+      <p><code id="mfa-secret">{{ mfa_pending.secret }}</code></p>
+      <p class="small mono">{{ mfa_pending.uri }}</p>
+      <p class="small muted">Recovery codes, shown again only if you confirm:</p>
+      <ul>{% for code in mfa_pending.codes %}<li><code>{{ code }}</code></li>{% endfor %}</ul>
+      <form method="post" action="/settings/mfa/confirm">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="token" value="{{ mfa_pending.token }}">
+        <div class="field"><label for="mfa-otp">Code from the app</label>
+          <input id="mfa-otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="8"></div>
+        <button class="btn btn-primary">Enable authenticator</button>
+      </form>
+      {% elif mfa_enabled %}
+      <p class="chip ok">Enrolled</p>
+      <form method="post" action="/settings/mfa/disable">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="grid g2">
+          <div class="field"><label for="mfa-pw">Current password</label>
+            <input id="mfa-pw" name="current_password" type="password" required autocomplete="current-password"></div>
+          <div class="field"><label for="mfa-off">Authenticator or recovery code</label>
+            <input id="mfa-off" name="otp" required maxlength="32" autocomplete="one-time-code"></div>
+        </div>
+        <button class="btn btn-ghost">Disable authenticator</button>
+      </form>
+      {% else %}
+      <form method="post" action="/settings/mfa/start">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field"><label for="mfa-start-pw">Current password</label>
+          <input id="mfa-start-pw" name="current_password" type="password" required autocomplete="current-password"></div>
+        <button class="btn btn-soft">Set up authenticator</button>
+      </form>
+      {% endif %}
+    </section>
+
     <section class="panel"><h2>Active sessions</h2>
       <div class="tablewrap"><table><thead><tr><th>Signed in</th><th>Last seen</th><th>IP</th><th></th></tr></thead>
       <tbody>{% for s in sessions %}<tr><td>{{ s.created_at | ago }}</td><td>{{ s.last_seen_at | ago }}</td>
@@ -124,6 +183,8 @@
         <li>HttpOnly, SameSite cookies</li>
         <li>CSRF token on every state change</li>
         <li>Rate-limited login with lockout</li>
+        <li>Optional authenticator (TOTP) and one-time recovery codes</li>
+        <li>Email confirmation when a mail transport is configured</li>
         <li>No third-party scripts or trackers</li></ul></div>
   </aside>
 </div>

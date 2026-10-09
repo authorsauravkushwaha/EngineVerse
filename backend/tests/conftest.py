@@ -57,13 +57,22 @@ def _clear_rate_limits():
     (5 per hour per IP) exhausted and every later test sees a 403 that has
     nothing to do with what it is asserting. Test order should not matter.
     """
+    from engineverse import db
     from engineverse.security import ratelimit
 
     with ratelimit._lock:
         ratelimit._buckets.clear()
+    try:
+        db.execute("DELETE FROM api_rate_limits")
+    except Exception:
+        pass
     yield
     with ratelimit._lock:
         ratelimit._buckets.clear()
+    try:
+        db.execute("DELETE FROM api_rate_limits")
+    except Exception:
+        pass
 
 
 @pytest.fixture()

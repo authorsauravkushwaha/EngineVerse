@@ -197,7 +197,10 @@ page it just built belongs to somebody.
 ## Rate limiting and lockout
 
 - `security/ratelimit.py` keeps a sliding window per identifier: 30 requests/min
-  for the judge, 300/min for the rest of `/api`. Exceeding it returns 429 with a
+  for the judge, 300/min for the rest of `/api`. The same key is also written to
+  `api_rate_limits`, so a second process on this database sees the count. The
+  stricter of the two windows wins. A missing table falls back to the process
+  window; a malformed statement does not. Exceeding either returns 429 with a
   `Retry-After`.
 - `register_login_attempt()` records every credential check in `login_attempts`
   with the identifier, IP, outcome and reason. `auth_blocked()` consults it to
@@ -298,22 +301,69 @@ platform, so in Postgres it is hash-partitioned 256 ways.
 ## Secrets
 
 `ENGINEVERSE_SECRET` is the root of trust: it keys the session token hashing, the
-CSRF HMAC and the signed flash cookie. It is read only from the environment, never
+CSRF HMAC, the signed flash cookie, and the authenticator seal. It is read only from the environment, never
 from the database or a request, and is stripped from the judge's child
 environment. `.env` is git-ignored; `.env.example` documents the variables and
 holds no real value.
 
+## Production startup
+
+`ENGINEVERSE_ENV=production` refuses to serve until the secret, the Postgres
+URL, the HTTPS origin and the judge mode are acceptable. The web process does
+not migrate and does not seed. `scripts/release.py` does, with the bootstrap
+role. The web role is `engineverse_app`: DML, no `CREATE`. Demo passwords are
+not created and are not shown on the login page.
+
+The local judge is unchanged for development. Production will not select it.
+`judge0` is a URL you operate. This process does not verify that host. See
+`docs/DEPLOYMENT.md`.
+
+## Authenticator
+
+Enrolment is optional for a learner and required, in production, before a staff
+account can `POST` to `/admin`. `GET /admin` still works, so an operator can
+read the page and then enrol under Settings. The check runs after CSRF, so a
+forged admin post is rejected rather than turned into a settings change.
+
+The factor is TOTP (SHA-1, 30 seconds, 6 digits) plus eight one-time recovery
+codes. The secret is sealed with `ENGINEVERSE_SECRET` before it is stored.
+That is application-level encryption, not a hardware module: anyone who can
+read both the database and the secret can open it. Rotating the secret makes
+existing seals unreadable. `scripts/create_admin.py --replace` clears the super
+administrator's seal and says so, without printing it. Other accounts need an
+administrator to clear `users.totp_secret`. No QR code is fetched from a remote
+host. The settings page shows the secret and an `otpauth://` URI.
+
+A matching password does not create a session when a factor is enrolled. The
+second step is a short-lived signed token plus a code. A failed code increments
+`failed_login_count`. A recovery code is removed from the seal when it is used.
+
+## Client address
+
+The address used for limits and the audit log is the TCP peer.
+`X-Forwarded-For` is ignored unless `ENGINEVERSE_TRUST_PROXY` is on, and even
+then only when that peer is loopback or private. A public peer that sends the
+header is still the client. The compose file does not set the flag: its
+published port is `127.0.0.1` and it does not run a proxy. Leave the flag off
+unless the only path to the process is a proxy that overwrites the header.
+
 ## Honest limitations
 
-- **No second factor is enforced yet.** The schema carries `totp_secret` and the
-  login path will accept a code, but enrolment is not built. Do not describe this
-  deployment as MFA-protected.
-- **The password blocklist is small** (22 entries). It catches `password` and
-  `123456`; it is not a substitute for a corpus such as HaveIBeenPwned's.
-- **Rate limits are in-process.** They are correct for a single instance and will
-  under-count across replicas. A multi-instance deployment needs a shared store.
-- **Email verification is not wired to a mail transport.** `email_verified`
-  exists and the flow is present, but no mail is sent.
+- **A second factor is not universal.** Learners can sign in with a password
+  alone until they enrol. Do not describe a deployment as MFA-protected unless
+  the accounts that matter have actually enrolled.
+- **The password blocklist is a local exact-match list** of a few hundred
+  common strings. It catches `password` and `123456`. It is not Have I Been
+  Pwned, and it does not reject a long passphrase that merely contains a
+  common word.
+- **Shared API limits count what reaches this database.** They do not fix a
+  proxy that hides every learner behind one address. Login lockout was already
+  stored in `login_attempts` and still is.
+- **Email confirmation needs a mail transport.** When `ENGINEVERSE_SMTP_URL`
+  is set, Settings can email a one-time link. The link is stored as a hash and
+  is not rendered into the page. With no transport, the address stays
+  unconfirmed and sign-in still works. That is not proof the person controls
+  the address.
 - **The Java sandbox cannot be built in this workspace** — no JDK is installed
   here, and none can be fetched. It is not unverified, though:
   `.github/workflows/java.yml` compiles it, runs its unit tests, and smoke-tests

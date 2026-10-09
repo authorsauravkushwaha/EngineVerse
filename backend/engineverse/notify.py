@@ -105,14 +105,35 @@ def send(message: Message, *, timeout: float = 10.0) -> bool:
     return True
 
 
+def _site_name() -> str:
+    from . import brand
+
+    return brand.get("site_name") or "this site"
+
+
 def send_password_reset(*, email: str, reset_url: str, minutes: int = 30) -> bool:
+    name = _site_name()
     return send(Message(
         to=email,
-        subject="Reset your EngineVerse password",
+        subject=f"Reset your {name} password",
         body=(
-            "A password reset was requested for this address.\n\n"
+            f"A password reset was requested for this address on {name}.\n\n"
             f"Reset your password: {reset_url}\n\n"
             f"The link expires in {minutes} minutes and works once. If you did not "
             "request this, ignore this message and your password will not change."
+        ),
+    ))
+
+
+def send_email_verification(*, email: str, verify_url: str, hours: int = 24) -> bool:
+    name = _site_name()
+    return send(Message(
+        to=email,
+        subject=f"Confirm your {name} email",
+        body=(
+            f"Confirm this address for {name}.\n\n"
+            f"Confirm: {verify_url}\n\n"
+            f"The link expires in {hours} hours and works once. It does not change "
+            "your password. If you did not create this account, ignore this message."
         ),
     ))

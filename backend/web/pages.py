@@ -579,24 +579,29 @@ async def leaderboard_page(request: Request, branch: str | None = None, period: 
     )
 
 
-@router.get("/settings")
-async def settings_page(request: Request):
+def settings_context(viewer) -> dict:
     from engineverse.security.sessions import list_user_sessions
 
-    viewer = require_user(request)
-    return render(
-        request, "settings.html",
-        universities=catalog.list_universities(),
-        colleges=catalog.list_colleges(),
-        branches=catalog.list_branches(),
-        semesters=catalog.list_semesters(),
-        sessions=list_user_sessions(viewer.session_id and viewer.id),
-        plans=db.query("SELECT * FROM plans WHERE is_active = 1 ORDER BY price_cents"),
-        subscription=db.query_one(
+    enrolled = db.query_one("SELECT totp_secret FROM users WHERE id = ?", viewer.id)
+    return {
+        "universities": catalog.list_universities(),
+        "colleges": catalog.list_colleges(),
+        "branches": catalog.list_branches(),
+        "semesters": catalog.list_semesters(),
+        "sessions": list_user_sessions(viewer.session_id and viewer.id),
+        "plans": db.query("SELECT * FROM plans WHERE is_active = 1 ORDER BY price_cents"),
+        "subscription": db.query_one(
             "SELECT s.*, p.name AS plan_name FROM subscriptions s JOIN plans p ON p.id = s.plan_id "
             "WHERE s.user_id = ? ORDER BY s.started_at DESC LIMIT 1", viewer.id,
         ),
-    )
+        "mfa_enabled": bool(enrolled and enrolled.get("totp_secret")),
+    }
+
+
+@router.get("/settings")
+async def settings_page(request: Request):
+    viewer = require_user(request)
+    return render(request, "settings.html", **settings_context(viewer))
 
 
 @router.get("/certificates/{verify_id}")
@@ -630,7 +635,8 @@ async def admin_page(request: Request):
         request, "admin.html",
         stats=catalog.site_stats(),
         users=db.query(
-            "SELECT u.id, u.email, u.username, u.role, u.status, u.created_at, p.full_name "
+            "SELECT u.id, u.email, u.username, u.role, u.status, u.created_at, p.full_name, "
+            "CASE WHEN u.totp_secret IS NULL OR u.totp_secret = '' THEN 0 ELSE 1 END AS mfa_enrolled "
             "FROM users u LEFT JOIN profiles p ON p.user_id = u.id ORDER BY u.created_at DESC LIMIT 100"
         ),
         reports=community.open_reports(30),

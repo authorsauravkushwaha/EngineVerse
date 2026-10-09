@@ -28,6 +28,7 @@ from engineverse import (
     tutor,
 )
 from engineverse.security.audit import record
+from engineverse.security.clientip import client_ip
 
 from .deps import current_user, require_user
 
@@ -332,7 +333,7 @@ async def api_tutor_ask(request: Request):
 
     result = tutor.answer(question, user_id=viewer.id if viewer else None)
     record("tutor.asked", actor_id=viewer.id if viewer else None,
-           ip=request.client.host if request.client else None,
+           ip=client_ip(request),
            meta={"question": question[:200], "grounded": result["grounded"],
                  "sources": len(result["sources"])})
     return ok(question=question, answer=result["answer"], sources=result["sources"],
@@ -683,3 +684,23 @@ async def api_feedback(request: Request):
         flash(response, message)
         return response
     return ok(message=message)
+
+
+@router.get("/ops/judge")
+async def judge_status(request: Request):
+    """What this process will do with submitted code. Staff only.
+
+    The payload names the provider and the isolation claim. It does not include
+    the Judge0 URL or key. ``isolation`` is a description, not a verification
+    that a remote judge is sandboxed.
+    """
+    viewer = current_user(request)
+    if viewer is None or not viewer.is_staff:
+        return JSONResponse({"ok": False, "error": "Staff only."}, status_code=403)
+    info = judge.provider_info()
+    return ok(
+        judge=info.get("name"),
+        available=bool(info.get("available")),
+        runs_on_this_server=bool(info.get("runs_on_this_server")),
+        isolation=info.get("isolation") or "",
+    )

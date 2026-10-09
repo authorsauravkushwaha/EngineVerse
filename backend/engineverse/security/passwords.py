@@ -14,6 +14,7 @@ import os
 import re
 import unicodedata
 from dataclasses import dataclass
+from pathlib import Path
 
 # Current cost. Raise over time; older hashes still verify.
 N = 1 << 14  # 16384
@@ -23,12 +24,24 @@ KEY_LENGTH = 64
 PREFIX = "scrypt"
 MAX_PASSWORD_LENGTH = 256
 
-COMMON_PASSWORDS = {
-    "password", "password1", "password123", "123456", "12345678", "123456789",
-    "qwerty", "qwerty123", "letmein", "welcome", "admin", "iloveyou",
-    "engineer", "engineering", "engineverse", "monkey", "dragon", "abc123",
-    "qwertyuiop", "1q2w3e4r", "sunshine", "princess",
-}
+def _load_common_passwords() -> frozenset[str]:
+    """Exact-match blocklist shipped with the app. Not a remote lookup."""
+    path = Path(__file__).with_name("common_passwords.txt")
+    words = {
+        "password", "password1", "password123", "123456", "12345678", "123456789",
+        "qwerty", "qwerty123", "letmein", "welcome", "admin", "iloveyou",
+        "engineer", "engineering", "engineverse", "monkey", "dragon", "abc123",
+        "qwertyuiop", "1q2w3e4r", "sunshine", "princess",
+    }
+    if path.is_file():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            word = line.split("#", 1)[0].strip().lower()
+            if word:
+                words.add(word)
+    return frozenset(words)
+
+
+COMMON_PASSWORDS = _load_common_passwords()
 
 
 @dataclass(frozen=True)

@@ -61,6 +61,50 @@ def reset(key: str) -> None:
         _buckets.pop(key, None)
 
 
+_shared_calls = 0
+
+
+def shared_check(key: str, limit: int, window_seconds: int) -> RateLimitResult:
+    """A counter in ``api_rate_limits``, shared by every process on this database.
+
+    The in-process window still applies. This one is what survives a second
+    replica and a restart. A missing table falls back to the in-process window
+    rather than failing the request; a malformed statement does not.
+    """
+    global _shared_calls
+    now = int(time.time())
+    window_start = now - (now % max(1, window_seconds))
+    bucket = key[:180]
+    _shared_calls += 1
+    try:
+        if _shared_calls % 200 == 0:
+            db.execute("DELETE FROM api_rate_limits WHERE window_start < ?", now - 86_400)
+        db.execute(
+            "INSERT INTO api_rate_limits (bucket, count, window_start) VALUES (?, 1, ?) "
+            "ON CONFLICT(bucket) DO UPDATE SET "
+            "count = CASE WHEN api_rate_limits.window_start < ? THEN 1 ELSE api_rate_limits.count + 1 END, "
+            "window_start = CASE WHEN api_rate_limits.window_start < ? THEN ? ELSE api_rate_limits.window_start END",
+            bucket,
+            window_start,
+            window_start,
+            window_start,
+            window_start,
+        )
+        row = db.query_one("SELECT count, window_start FROM api_rate_limits WHERE bucket = ?", bucket)
+    except db.DatabaseError:
+        return check(key, limit, window_seconds)
+    except Exception as exc:
+        message = str(exc).lower()
+        if "no such table" in message or "does not exist" in message:
+            return check(key, limit, window_seconds)
+        raise
+    count = int(row["count"]) if row else limit + 1
+    if count > limit:
+        retry = max(1, window_seconds - (now - window_start))
+        return RateLimitResult(False, 0, retry, limit)
+    return RateLimitResult(True, max(0, limit - count), 0, limit)
+
+
 # --------------------------------------------------------------------------
 # Persisted authentication limiter
 # --------------------------------------------------------------------------

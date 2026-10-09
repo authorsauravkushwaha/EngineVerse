@@ -1857,3 +1857,7 @@ DIAGRAMS.update({
     "material-energy-balances": _material_energy,
     "convolution-lti-systems": _convolution,
 })
+
+from seed_data.foundations import DIAGRAMS as _FOUNDATION_DIAGRAMS  # noqa: E402
+
+DIAGRAMS.update(_FOUNDATION_DIAGRAMS)

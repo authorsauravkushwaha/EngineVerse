@@ -6,6 +6,18 @@
   <p class="muted">First-party authentication only. We never hand your credentials to a third party.</p>
   {% if error %}<div class="callout warning"><span class="label">Could not sign you in</span>{{ error }}
     {% if error == 'reset' %}Your password was changed — sign in with the new one.{% endif %}</div>{% endif %}
+  {% if mfa_token %}
+  <form method="post" action="/login">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="next" value="{{ next or '/' }}">
+    <input type="hidden" name="identifier" value="{{ identifier or '' }}">
+    <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
+    <div class="field"><label for="otp">Authenticator code</label>
+      <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="32" autofocus></div>
+    <p class="small muted">A recovery code works here too. It can be used once.</p>
+    <button class="btn btn-primary btn-block" type="submit">Verify and sign in</button>
+  </form>
+  {% else %}
   <form method="post" action="/login">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="next" value="{{ next or '/' }}">
@@ -17,9 +29,10 @@
     <label class="checkbox"><input type="checkbox" name="remember" value="1" checked> Keep me signed in</label>
     <button class="btn btn-primary btn-block" type="submit">Sign in</button>
   </form>
+  {% endif %}
   <p class="small center mt"><a href="/forgot-password">Forgot your password?</a></p>
   <p class="small center">New here? <a href="/register{{ '?next=' + next if next else '' }}">Create a free account</a></p>
-  <details class="mt"><summary class="small muted">Demo accounts on this instance</summary>
+  {% if show_demo_accounts %}<details class="mt"><summary class="small muted">Demo accounts on this development instance</summary>
     <table class="mt"><tbody>
       <tr><td>asha@example.com</td><td class="mono">LearnBuild#2026!</td></tr>
       <tr><td>ravi@example.com</td><td class="mono">LearnBuild#2026!</td></tr>
@@ -27,6 +40,6 @@
       <tr><td>faculty@engineverse.local</td><td class="mono">TeachLearn#2026!</td></tr>
       <tr><td>admin@engineverse.local</td><td class="mono">Str0ngPassphrase#42!</td></tr>
     </tbody></table>
-    <p class="tiny muted">Change these before any real deployment.</p></details>
+    <p class="tiny muted">These accounts are created only when ENGINEVERSE_ENV is development or test. They are not created in production.</p></details>{% endif %}
 </div>
 {% endblock %}

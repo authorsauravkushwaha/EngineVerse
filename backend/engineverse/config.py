@@ -31,6 +31,41 @@ def _load_dotenv() -> None:
 
 _load_dotenv()
 
+#: The value ``effective_secret()`` invents when nothing is configured. It is
+#: fine for a laptop. It must never be accepted as a production signing key.
+DEV_SECRET = "engineverse-development-secret-not-for-production"
+MIN_SECRET_LENGTH = 32
+
+#: Judges that execute learner code inside this process's machine. Production
+#: refuses them. ``disabled`` runs nothing. ``judge0`` delegates to a URL the
+#: operator deployed separately; this process does not verify that host.
+LOCAL_JUDGES = frozenset({"", "auto", "python", "java", "local"})
+
+#: The login role the web process uses. It must not own the schema. The
+#: official Postgres image makes the first user a superuser, so that user is
+#: the migration role and this one is created beside it.
+RUNTIME_DB_ROLE = "engineverse_app"
+
+# Older deploy files used these names. They are copied into the names the
+# application actually reads, and only when the canonical variable is unset,
+# so an explicit ENGINEVERSE_* value always wins.
+_ENV_ALIASES = {
+    "ENGINEVERSE_SITE_URL": ("SITE_URL",),
+    "ENGINEVERSE_JUDGE": ("JUDGE",),
+    "ENGINEVERSE_JAVA_SANDBOX_JAR": ("JAVA_SANDBOX_JAR",),
+}
+
+
+def _apply_env_aliases() -> None:
+    for canonical, aliases in _ENV_ALIASES.items():
+        if os.environ.get(canonical, "").strip():
+            continue
+        for alias in aliases:
+            value = os.environ.get(alias, "").strip()
+            if value:
+                os.environ[canonical] = value
+                break
+
 
 def _bool(name: str, default: bool = False) -> bool:
     raw = os.environ.get(name)
@@ -54,6 +89,8 @@ class Settings:
     session_max_age_days: int = field(default_factory=lambda: int(os.environ.get("ENGINEVERSE_SESSION_DAYS", "30")))
     session_idle_days: int = field(default_factory=lambda: int(os.environ.get("ENGINEVERSE_SESSION_IDLE_DAYS", "7")))
     cookie_secure: bool = field(default_factory=lambda: _bool("ENGINEVERSE_COOKIE_SECURE", False))
+    #: Trust X-Forwarded-For only from a private or loopback peer. Default off.
+    trust_proxy: bool = field(default_factory=lambda: _bool("ENGINEVERSE_TRUST_PROXY", False))
 
     # --- code execution ---------------------------------------------------
     judge: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_JUDGE", "auto").lower())
@@ -118,15 +155,62 @@ class Settings:
                     "ENGINEVERSE_SECRET must be set in production. "
                     'Generate one with: python3 -c "import secrets;print(secrets.token_hex(32))"'
                 )
-            secret = "engineverse-development-secret-not-for-production"
+            secret = DEV_SECRET
         return secret.encode("utf-8")
 
     def new_secret_hint(self) -> str:
         return secrets.token_hex(32)
 
+    @property
+    def allows_demo_accounts(self) -> bool:
+        """Development and the test suite only. Never production, never staging."""
+        return self.env.lower() in {"development", "test", "dev", ""}
+
+    def production_problems(self) -> list[str]:
+        """Reasons this process must not serve production traffic.
+
+        The messages name the variable, never the secret itself. An empty list
+        means the checks in this method passed. It does not mean the deployment
+        has been reviewed, backed up, or isolated.
+        """
+        if not self.is_production:
+            return []
+        problems: list[str] = []
+        secret = self.secret.strip()
+        if not secret:
+            problems.append("ENGINEVERSE_SECRET is empty")
+        elif secret == DEV_SECRET:
+            problems.append("ENGINEVERSE_SECRET is the development fallback")
+        elif len(secret) < MIN_SECRET_LENGTH:
+            problems.append(f"ENGINEVERSE_SECRET is shorter than {MIN_SECRET_LENGTH} characters")
+        if not self.db_url:
+            problems.append("ENGINEVERSE_DB_URL is required in production; SQLite is not a production database")
+        elif not self.uses_postgres:
+            problems.append("ENGINEVERSE_DB_URL must be a postgresql:// URL in production")
+        from urllib.parse import urlparse
+
+        parsed = urlparse(self.site_url)
+        if parsed.scheme != "https" or not parsed.hostname:
+            problems.append("ENGINEVERSE_SITE_URL must be an https:// origin in production")
+        if self.reveal_reset_token:
+            problems.append("ENGINEVERSE_REVEAL_RESET_TOKEN must not be set in production")
+        judge = (self.judge or "").lower()
+        if judge in LOCAL_JUDGES:
+            shown = judge or "auto"
+            problems.append(
+                f"ENGINEVERSE_JUDGE={shown} would run learner code on this server; "
+                "production requires 'disabled' or 'judge0' with ENGINEVERSE_JUDGE0_URL"
+            )
+        elif judge == "judge0" and not self.judge0_url.strip():
+            problems.append("ENGINEVERSE_JUDGE=judge0 requires ENGINEVERSE_JUDGE0_URL")
+        elif judge not in {"disabled", "judge0"}:
+            problems.append(f"ENGINEVERSE_JUDGE={judge} is not a known production mode")
+        return problems
+
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
+    _apply_env_aliases()
     return Settings()
 
 
