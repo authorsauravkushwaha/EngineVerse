@@ -322,6 +322,38 @@ def notes_for_topic(topic_id: str) -> list[dict]:
     return rows
 
 
+DEPTH_BLURB = {
+    "beginner": "Plain language. Start here if this subject is new.",
+    "standard": "The working explanation: definition, intuition, a worked example, and the mistakes people make.",
+    "advanced": "For someone who already uses this. More of the derivation and the exam form.",
+    "industry": "How this shows up in a job, including what an interviewer will ask. Not a placement guarantee.",
+}
+
+
+def notes_by_depth(topic_id: str) -> list[dict]:
+    """Every published depth of one topic, beginner first.
+
+    The reading copy has no server to switch `?depth=`, so it prints them all.
+    """
+    rows = db.query(
+        "SELECT quality_level FROM notes WHERE topic_id = ? AND status = 'published'",
+        topic_id,
+    )
+    order = {name: index for index, name in enumerate(NOTE_ORDER)}
+    rows.sort(key=lambda row: order.get(row["quality_level"], 9))
+    found: list[dict] = []
+    for row in rows:
+        note = get_note(topic_id, row["quality_level"])
+        if not note:
+            continue
+        found.append({
+            "quality": row["quality_level"],
+            "blurb": DEPTH_BLURB.get(row["quality_level"], ""),
+            "sections": sections_for_note(note["id"]),
+        })
+    return found
+
+
 def get_note(topic_id: str, quality: str) -> dict | None:
     exact = db.query_one(
         "SELECT * FROM notes WHERE topic_id = ? AND quality_level = ? AND status='published'", topic_id, quality

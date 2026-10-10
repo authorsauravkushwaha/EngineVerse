@@ -4,6 +4,7 @@
 <nav class="crumbs"><a href="/programming">Learn to code</a> › <span>{{ language.name }}</span></nav>
 <h1 style="color:{{ language.color }}">{{ language.name }}</h1>
 <p class="muted">{{ language.blurb }}</p>
+<p class="muted">The modules are in order. The first ones are the first week. The last one is the habit a professional keeps: tests, checks, or queries you can explain. Copy each example and run it. This page is not a complete reference, and reading it is not the same as being able to build with it.</p>
 {% if not language.runnable %}
   <div class="callout warning"><span class="label">Runtime not available on this host</span>
     You can still read every module and copy the examples. Submissions in this language run only when the
@@ -15,6 +16,7 @@
   <section class="panel" id="{{ module.slug }}">
     <h2>{{ loop.index }}. {{ module.title }}</h2>
     <p class="muted">{{ module.summary }}</p>
+    <p><span class="chip">{% if loop.index <= 2 %}First week{% elif loop.last and modules|length > 2 %}Professional habit{% else %}Working practice{% endif %}</span></p>
     <div class="prose">{{ module.body | md | safe }}</div>
     <h3>Example</h3><pre class="console">{{ module.example }}</pre>
     <div class="callout exam"><span class="label">Exercise</span>{{ module.exercise }}</div>

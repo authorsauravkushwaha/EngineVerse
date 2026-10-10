@@ -122,20 +122,99 @@ def dpp_questions(set_id: str) -> list[dict]:
     return [public_question(row) for row in rows]
 
 
+def calendar_today():
+    """The app clock. The public reading copy replaces this with the visitor's clock."""
+    from datetime import datetime, timezone
+
+    return datetime.now(timezone.utc).date()
+
+
+def practice_title(day) -> str:
+    return f"Daily Practice - {day.day} {day.strftime('%B %Y')}"
+
+
+def published_sets() -> list[dict]:
+    return db.query("SELECT * FROM dpp_sets WHERE published = 1 ORDER BY date")
+
+
+def set_for_calendar_day(date_str: str) -> tuple[dict | None, bool]:
+    """The set published for that day, or a stable set from the library if none was.
+
+    A visit weeks later still has questions. The caller labels them with the
+    requested calendar day rather than the day the set was seeded.
+    """
+    from datetime import date as date_cls
+
+    try:
+        day = date_cls.fromisoformat(date_str)
+    except ValueError:
+        return None, False
+    exact = dpp_for_date(date_str)
+    if exact:
+        return exact, False
+    sets = published_sets()
+    if not sets:
+        return None, False
+    return sets[day.toordinal() % len(sets)], True
+
+
 def dpp_with_context(date_str: str | None = None) -> dict | None:
-    """Today's DPP, falling back to the most recent published set."""
-    row = dpp_for_date(date_str) if date_str else None
-    row = row or latest_dpp()
+    """The practice set for a calendar day, defaulting to today.
+
+    This used to fall back to the newest seeded set, which is several days
+    ahead of the seed clock. The heading is always the requested day.
+    """
+    if not date_str:
+        date_str = calendar_today().isoformat()
+    row, rotated = set_for_calendar_day(date_str)
     if not row:
         return None
-    subject = db.query_one("SELECT name, slug FROM subjects WHERE id = ?", row["subject_id"]) if row["subject_id"] else None
+    from datetime import date as date_cls
+
+    day = date_cls.fromisoformat(date_str)
+    shown = dict(row)
+    shown["title"] = practice_title(day)
+    shown["date"] = date_str
+    subject = (
+        db.query_one("SELECT name, slug FROM subjects WHERE id = ?", row["subject_id"])
+        if row["subject_id"]
+        else None
+    )
     questions = dpp_questions(row["id"])
     return {
-        "set": row,
+        "set": shown,
         "subject": subject,
         "questions": questions,
         "count": len(questions),
+        "rotated": rotated,
+        "source_date": row["date"],
+        "calendar_date": date_str,
     }
+
+
+def recent_practice_days(count: int = 14) -> list[dict]:
+    """The last `count` calendar days, each with a set a visitor can open."""
+    from datetime import timedelta
+
+    today = calendar_today()
+    days: list[dict] = []
+    for offset in range(max(1, count)):
+        day = today - timedelta(days=offset)
+        iso = day.isoformat()
+        row, rotated = set_for_calendar_day(iso)
+        if not row:
+            continue
+        question_count = int(db.scalar(
+            "SELECT count(*) AS c FROM dpp_questions WHERE set_id = ?", row["id"]
+        ) or 0)
+        days.append({
+            "date": iso,
+            "title": f"{day.day} {day.strftime('%B %Y')}",
+            "question_count": question_count,
+            "duration_minutes": row["duration_minutes"],
+            "rotated": rotated,
+        })
+    return days
 
 
 def list_dpp_sets(limit: int = 30) -> list[dict]:

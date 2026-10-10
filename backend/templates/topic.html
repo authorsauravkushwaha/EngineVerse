@@ -34,10 +34,11 @@
     </header>
 
     {% if available_depths | length > 1 %}
+    <p class="muted">New to this? Start at Beginner. If you already use it, read Advanced and Industry. Same topic, different reader. None of these is a full textbook.</p>
     <nav class="depthbar" aria-label="Reading depth">
       {% for row in available_depths %}
         <a class="chip {{ 'accent' if row.quality_level == quality }}"
-           href="/topics/{{ topic.slug }}?depth={{ row.quality_level }}">{{ row.quality_level | titlecase }}</a>
+           href="{% if all_depths %}#depth-{{ row.quality_level }}{% else %}/topics/{{ topic.slug }}?depth={{ row.quality_level }}{% endif %}">{{ row.quality_level | titlecase }}</a>
       {% endfor %}
     </nav>
     {% endif %}
@@ -66,19 +67,21 @@
       </section>
     {% endfor %}
 
-    {% for section in sections %}
-      <section class="note-section" id="{{ section.kind }}">
-        <h2>{{ section.title }}</h2>
-        {% if section.callout %}
-          <div class="callout {{ section.callout }}">
-            <span class="label">{{ section.callout }}</span>
-            <div class="prose">{{ section.body | md | safe }}</div>
-          </div>
-        {% else %}
-          <div class="prose">{{ section.body | md | safe }}</div>
-        {% endif %}
-      </section>
-    {% endfor %}
+    {% if all_depths %}
+      {% for depth in all_depths %}
+        <section class="note-section" id="depth-{{ depth.quality }}">
+          <h2>{{ depth.quality | titlecase }} reading</h2>
+          <p class="muted">{{ depth.blurb }}</p>
+        </section>
+        {% with sections=depth.sections, id_prefix=depth.quality + "-" %}
+          {% include "_sections.html" %}
+        {% endwith %}
+      {% endfor %}
+    {% else %}
+      {% with id_prefix="" %}
+        {% include "_sections.html" %}
+      {% endwith %}
+    {% endif %}
 
     {% for diagram in diagrams %}
       <section class="note-section">

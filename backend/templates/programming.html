@@ -2,7 +2,8 @@
 {% block title %}Learn to code — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <h1>Learn to code</h1>
-<p class="muted">Pick a language, work through the modules, then apply it on real problems.</p>
+<p class="muted">Pick a language and work the modules in order, from the first program to the habit a working engineer uses. Then do the problems. This is a path through the modules that exist, not a complete language reference.</p>
+{% include "_ladder.html" %}
 
 <section class="section">
   <div class="grid g3">{% for lang in languages %}

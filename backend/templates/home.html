@@ -31,11 +31,11 @@
     <div class="preview-stats" aria-hidden="true">
       <div><b>12</b><span>day streak</span></div>
       <div><b>65%</b><span>progress</span></div>
-      <div><b>0/10</b><span>today's DPP</span></div>
+      <div><b data-local-date>Today</b><span>practice date</span></div>
     </div>
     <a class="preview-item" href="/dpp">
       <div class="between"><strong>Today's DPP</strong><span class="tiny muted">30 min</span></div>
-      <span class="tiny muted">Mixed set · opens the real practice for today</span>
+      <span class="tiny muted">Mixed set · <span data-local-date>today</span> · opens the real practice for your calendar day</span>
       <span class="bar thin" aria-hidden="true"><span style="width:8%"></span></span>
     </a>
     {% for topic in featured_topics[:2] %}
@@ -57,7 +57,7 @@
       <i class="hm l2"></i><i class="hm l1"></i><i class="hm l3"></i><i class="hm l2"></i><i class="hm l1"></i><i class="hm l4"></i><i class="hm l3"></i>
       <i class="hm"></i><i class="hm l2"></i><i class="hm l1"></i><i class="hm l3"></i><i class="hm l2"></i><i class="hm l1"></i><i class="hm l2"></i>
     </div>
-    <p class="tiny muted">Example layout. Your streak, accuracy and weak topics appear after you sign in.</p>
+    <p class="tiny muted">The 12-day figure above is an example layout, not your streak. Your streak is the flame in the header, counted on this browser when you study.</p>
   </aside>
 </section>
 

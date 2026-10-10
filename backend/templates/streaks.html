@@ -2,6 +2,17 @@
 {% block title %}Streaks — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <h1>Your streak</h1>
+<section class="panel mb" id="local-streak">
+  <h2 style="margin-top:0">On this browser</h2>
+  <div class="grid g4 mb">
+    <div class="stat"><div class="n" data-streak="current">–</div><div class="l">Current streak</div></div>
+    <div class="stat"><div class="n" data-streak="longest">–</div><div class="l">Longest streak</div></div>
+    <div class="stat"><div class="n" data-streak="days">–</div><div class="l">Study days</div></div>
+    <div class="stat"><div class="n" data-streak="topics">–</div><div class="l">Topics opened</div></div>
+  </div>
+  <div class="heatmap" data-streak-heat aria-label="Study days on this browser"></div>
+  <p class="small muted mt" data-streak-note>A day counts when you open a topic, a practice set, a language module, or a project on this device. Opening this page alone does not.</p>
+</section>
 {% if stats %}
 <div class="grid g4 mb">
   <div class="stat"><div class="n">{{ stats.currentStreak }}</div><div class="l">Current streak</div></div>
@@ -15,5 +26,7 @@
   {% endfor %}</div>
   <p class="small muted mt">A day counts when you read a topic, answer a question, submit code or review a card.
     One minute is enough — consistency beats intensity.</p></section>
-{% else %}<div class="panel center"><a class="btn btn-primary" href="/login">Sign in to track a streak</a></div>{% endif %}
+{% else %}
+<p class="small muted">A self-hosted account keeps a streak on every device. This page still counts on this browser, and it does not stay at zero after you study.</p>
+{% endif %}
 {% endblock %}

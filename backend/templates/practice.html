@@ -2,18 +2,31 @@
 {% block title %}Practice — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <h1>Daily practice</h1>
-<p class="muted">A fresh set every day, plus a bank of {{ kinds | length }} question types across every subject.</p>
+<p class="muted">A set for this calendar day, plus a bank of {{ kinds | length }} question types across every subject.</p>
 
 {% if dpp %}
 <section class="panel hero mb">
   <div class="between">
     <div><span class="hero-badge">Today's set</span>
-      <h2 style="margin:0">{{ dpp.set.title }}</h2>
-      <p class="muted">{{ dpp.questions | length }} questions · {{ dpp.set.duration_minutes }} minutes</p></div>
-    <a class="btn btn-primary" href="/dpp/{{ dpp.set.date }}">Start practice</a>
+      <h2 style="margin:0" data-practice-title data-practice-today>{{ dpp.set.title }}</h2>
+      <p class="muted">{{ dpp.questions | length }} questions · {{ dpp.set.duration_minutes }} minutes</p>
+      <p class="tiny muted">The date is your calendar day. Open this page next week and the heading moves with you.</p></div>
+    <a class="btn btn-primary" data-practice-start href="/dpp/{{ dpp.set.date }}">Start practice</a>
   </div>
 </section>
 {% endif %}
+
+<section class="panel mb" id="local-streak">
+  <h2 style="margin-top:0">On this browser</h2>
+  <div class="grid g4">
+    <div class="stat"><div class="n" data-streak="current">–</div><div class="l">Current streak</div></div>
+    <div class="stat"><div class="n" data-streak="longest">–</div><div class="l">Longest streak</div></div>
+    <div class="stat"><div class="n" data-streak="days">–</div><div class="l">Study days</div></div>
+    <div class="stat"><div class="n" data-streak="topics">–</div><div class="l">Topics opened</div></div>
+  </div>
+  <p class="small muted" data-streak-note>A day counts when you open a topic, a practice set, a language module, or a project on this device.</p>
+  <a class="small" href="/streaks">Streak details →</a>
+</section>
 
 <div class="row mb">
   <a class="btn btn-ghost" href="/practice/questions">Question bank</a>
@@ -22,8 +35,9 @@
 </div>
 
 <section class="section"><h2>Recent sets</h2>
-  <div class="grid g4">{% for s in sets %}
-    <a class="card" href="/dpp/{{ s.date }}"><span class="title">{{ s.date }}</span>
+  <div class="grid g4" data-recent-sets>{% for s in sets %}
+    <a class="card" href="/dpp/{{ s.date }}"><span class="title">{{ s.title or s.date }}</span>
       <span class="desc">{{ s.question_count }} questions · {{ s.duration_minutes }} min</span></a>{% endfor %}</div>
 </section>
+{% include "_ladder.html" %}
 {% endblock %}

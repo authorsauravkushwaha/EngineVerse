@@ -1,0 +1,13 @@
+{% for section in sections %}
+<section class="note-section" id="{{ id_prefix }}{{ section.kind }}">
+  <h2>{{ section.title }}</h2>
+  {% if section.callout %}
+    <div class="callout {{ section.callout }}">
+      <span class="label">{{ section.callout }}</span>
+      <div class="prose">{{ section.body | md | safe }}</div>
+    </div>
+  {% else %}
+    <div class="prose">{{ section.body | md | safe }}</div>
+  {% endif %}
+</section>
+{% endfor %}

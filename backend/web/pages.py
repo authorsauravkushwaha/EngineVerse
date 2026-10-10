@@ -17,6 +17,7 @@ from engineverse import (
     community,
     db,
     judge,
+    ladders,
     library,
     practice,
     progress,
@@ -144,6 +145,7 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
     viewer = current_user(request)
     quality = depth or (viewer.note_quality if viewer else "standard")
     note = catalog.get_note(topic["id"], quality) or catalog.get_note(topic["id"], "standard")
+    all_depths = catalog.notes_by_depth(topic["id"]) if request.query_params.get("depths") == "all" else []
     if viewer:
         progress.mark_topic_viewed(viewer.id, topic["id"])
     return render(
@@ -170,6 +172,7 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
             if viewer else None
         ),
         quality=quality,
+        all_depths=all_depths,
         available_depths=db.query(
             "SELECT quality_level FROM notes WHERE topic_id = ? ORDER BY quality_level", topic["id"]
         ),
@@ -185,9 +188,13 @@ async def practice_page(request: Request):
     return render(
         request, "practice.html",
         dpp=practice.dpp_with_context(),
-        sets=practice.list_dpp_sets(30),
+        sets=practice.recent_practice_days(14),
         kinds=practice.question_kinds(),
         questions=practice.list_questions(limit=20)[0],
+        ladder=ladders.PRACTICE,
+        ladder_title="From a first look to working practice",
+        ladder_note="A way to use the notes and questions that exist. Not a degree, and not a claim that every subject is fully written.",
+        fields=ladders.field_starts(12),
     )
 
 
@@ -195,7 +202,7 @@ async def practice_page(request: Request):
 async def dpp_today(request: Request):
     return render(
         request, "dpp.html", dpp=practice.dpp_with_context(),
-        sets=practice.list_dpp_sets(14), active_date=None,
+        sets=practice.recent_practice_days(14), active_date=None,
     )
 
 
@@ -204,7 +211,7 @@ async def dpp_day(request: Request, date: str):
     payload = practice.dpp_with_context(date)
     if not payload:
         raise HTTPException(status_code=404, detail="No practice set for that date")
-    return render(request, "dpp.html", dpp=payload, sets=practice.list_dpp_sets(14), active_date=date)
+    return render(request, "dpp.html", dpp=payload, sets=practice.recent_practice_days(14), active_date=date)
 
 
 @router.get("/practice/questions")
@@ -243,6 +250,10 @@ async def programming_home(request: Request):
         topics=coding.problem_topics(),
         solved=coding.solved_problem_ids(viewer.id) if viewer else set(),
         submissions=coding.submissions_for(viewer.id, limit=15) if viewer else [],
+        ladder=ladders.CODE,
+        ladder_title="From scratch to a working habit",
+        ladder_note="Each language is a path you can finish. It is not every feature of that language, and it is not a job offer.",
+        fields=ladders.field_starts(12),
     )
 
 
@@ -307,6 +318,10 @@ async def projects_page(request: Request, difficulty: str | None = None, branch:
         difficulties=projects.difficulties(),
         branches=catalog.list_branches(),
         active_difficulty=difficulty, active_branch=branch,
+        ladder=ladders.PROJECTS,
+        ladder_title="From the notes to a brief you can defend",
+        ladder_note="Build only what you can explain. The briefs are practice, not a claim that the field is fully covered.",
+        fields=ladders.field_starts(12),
     )
 
 

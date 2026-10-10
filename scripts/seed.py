@@ -43,6 +43,7 @@ from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
 from seed_data import foundations as topics_foundations  # noqa: E402
 from seed_data import community_data  # noqa: E402
+from seed_data import language_paths  # noqa: E402
 
 
 def now_ms() -> int:
@@ -534,9 +535,15 @@ def seed_languages() -> dict[str, str]:
                 "judge_slug=excluded.judge_slug, runnable=excluded.runnable",
                 slug, slug, name, icon, color, blurb, judge, runnable, index,
             )
-        for language_slug, modules in library_data.LANGUAGE_MODULES.items():
+        for language_slug in ids:
+            modules = list(library_data.LANGUAGE_MODULES.get(language_slug, []))
+            seen = {row[0] for row in modules}
+            for row in language_paths.EXTRA_MODULES.get(language_slug, []):
+                if row[0] not in seen:
+                    modules.append(row)
+                    seen.add(row[0])
             language_id = ids.get(language_slug)
-            if not language_id:
+            if not language_id or not modules:
                 continue
             for order, (slug, title, summary, body, example, exercise) in enumerate(modules):
                 db.execute(

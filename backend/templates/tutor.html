@@ -16,7 +16,7 @@
   <div class="chips-row mt">
     {% for prompt in prompts %}<button type="button" class="chip" data-tutor-prompt>{{ prompt }}</button>{% endfor %}
   </div>
-  <p class="tiny muted mt">30 questions per hour. Nothing you ask is shown to other users.</p>
+  <p class="tiny muted mt" id="tutor-limit">30 questions per hour on the self-hosted app. Nothing you ask is shown to other users. The tutor answers only from notes on this site.</p>
 </div>
 
 <div id="tutor-result" class="panel" hidden>

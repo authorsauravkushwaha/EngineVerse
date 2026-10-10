@@ -2,9 +2,10 @@
 {% block title %}Daily Practice {{ dpp.set.date }} — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <div class="between mb">
-  <div><h1>{{ dpp.set.title }}</h1>
+  <div><h1 data-practice-title>{{ dpp.set.title }}</h1>
     <p class="muted">{{ dpp.questions | length }} questions · {{ dpp.set.duration_minutes }} minutes ·
-      answer in any order</p></div>
+      answer in any order</p>
+    <p class="tiny muted">The heading follows the calendar day you opened. If that exact day was not published, the questions are the set in rotation for it.</p></div>
   <div class="row">{% if active_date %}<a class="btn btn-ghost" href="/dpp">Today</a>{% endif %}
     <a class="btn btn-soft" href="/practice">All sets</a></div>
 </div>
@@ -32,8 +33,8 @@
     {% endfor %}
   </div>
   <aside class="sidebar">
-    <div class="panel tight"><h3>Other days</h3><div class="stack">
-      {% for s in sets %}<a class="small {{ 'muted' if s.date == active_date }}" href="/dpp/{{ s.date }}">{{ s.date }}</a>{% endfor %}
+    <div class="panel tight"><h3>Other days</h3><div class="stack" data-recent-sets>
+      {% for s in sets %}<a class="small {{ 'muted' if s.date == active_date }}" href="/dpp/{{ s.date }}">{{ s.title or s.date }}</a>{% endfor %}
     </div></div>
     {% if not user %}<div class="panel tight"><h3>Track your progress</h3>
       <p class="small muted">Sign in to record answers, build a streak and get a mistake notebook.</p>

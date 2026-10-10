@@ -45,7 +45,10 @@
         </div>
       </section>
     {% else %}
-      <div class="empty"><span class="em">🚧</span>Topics for this subject are being written.</div>
+      <div class="empty"><span class="em">🚧</span>
+        <p>Detailed notes for {{ subject.name }} are not written yet. This page lists the subject. It does not invent the missing lessons, and it is not a finished course.</p>
+        {% if subject.branch_slug %}<p><a class="btn btn-soft" href="/branches/{{ subject.branch_slug }}">Open {{ subject.branch_name or "this field" }}</a></p>{% endif %}
+      </div>
     {% endfor %}
 
     {% if questions %}

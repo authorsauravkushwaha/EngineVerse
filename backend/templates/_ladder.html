@@ -1,0 +1,33 @@
+{% if ladder %}
+<section class="section" id="study-path">
+  <h2>{{ ladder_title or "How to use this" }}</h2>
+  {% if ladder_note %}<p class="muted">{{ ladder_note }}</p>{% endif %}
+  <div class="stack">
+    {% for step in ladder %}
+    <article class="panel tight">
+      <h3 style="margin-top:0">{{ step.n }}. {{ step.title }}</h3>
+      <p style="margin-bottom:8px">{{ step.body }}</p>
+      {% if step.href %}<a class="small" href="{{ step.href }}">{{ step.label }} →</a>{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+{% if fields %}
+<section class="section">
+  <h2>Fields you can start today</h2>
+  <p class="muted">These branches already have notes. A subject with no topics is still only a catalogue entry. This is not a complete course in mechanical, electrical, computer, or any other field.</p>
+  <div class="grid g3">
+    {% for field in fields %}
+    <article class="panel tight">
+      <h3 style="margin-top:0"><a href="/branches/{{ field.slug }}">{{ field.name }}</a></h3>
+      <div class="stack">
+        {% for topic in field.topics %}
+        <a class="small" href="/topics/{{ topic.slug }}">{{ topic.title }}</a>
+        {% endfor %}
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}

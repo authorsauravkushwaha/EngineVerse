@@ -19,6 +19,7 @@ import re
 import shutil
 import subprocess
 import sys
+from datetime import date as date_cls
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,7 +43,6 @@ SKIP_PREFIXES = (
     "/notifications",
     "/today",
     "/onboarding",
-    "/streaks",
     "/mistakes",
     "/api",
     "/certificates",
@@ -60,7 +60,6 @@ AUTH_TO_HOSTING = (
     "/notifications",
     "/today",
     "/onboarding",
-    "/streaks",
     "/mistakes",
 )
 FILE_SUFFIXES = (
@@ -209,6 +208,7 @@ def public_paths() -> list[str]:
         "/install",
         "/offline",
         "/search",
+        "/streaks",
     ]
     paths += [f"/branches/{row['slug']}" for row in catalog.list_branches()]
     paths += [f"/subjects/{row['slug']}" for row in catalog.list_subjects(limit=500)]
@@ -280,8 +280,8 @@ def banner(base: str) -> str:
     home = html.escape(rewrite_url("/hosting", base), quote=True)
     source = html.escape(REPO, quote=True)
     return (
-        '<div class="announce">This address is a public reading copy on GitHub Pages. '
-        "Sign-in, saved progress and code execution are not running here. "
+        '<div class="announce">This address is a public reading copy. The date, tutor and streak use this browser. '
+        "Sign-in and code execution are not running here. "
         f'<a href="{home}">What this copy is</a> | '
         f'<a href="{source}">Source</a>.</div>'
     )
@@ -294,12 +294,12 @@ def hosting_main() -> str:
 <div class="grid g2">
   <article class="panel">
     <h2>What you can do here</h2>
-    <p>Read the notes, diagrams and catalogue that ship in the repository. Search works in the browser, against that same catalogue. Nothing on this copy is a university degree, and nothing here is a certificate.</p>
+    <p>Read the notes at every depth that was written, use the tutor against those notes, and keep a streak in this browser. The practice date follows your calendar, including a visit weeks later. Search works in the browser. Nothing on this copy is a university degree, and nothing here is a certificate.</p>
     <p><a class="btn btn-primary" href="../explore/">Open the catalogue</a></p>
   </article>
   <article class="panel">
     <h2>What needs the real app</h2>
-    <p>An account, saved progress, the mistake notebook, community posts and code execution all need a self-hosted install. This page does not deploy that install and does not claim one is public.</p>
+    <p>An account, progress that follows you to another device, the mistake notebook, community posts and code execution all need a self-hosted install. The streak on this copy stays in this browser. This page does not deploy that install and does not claim one is public.</p>
     <p>The install steps are in the repository README. Core learning stays free. A certificate from the app, when you run it yourself, is a platform record, not accreditation.</p>
     <p><a class="btn btn-ghost" href="https://github.com/authorsauravkushwaha/EngineVerse">Repository</a></p>
   </article>
@@ -366,7 +366,122 @@ def search_script(base: str) -> str:
 """
 
 
-def inject(text: str, base: str, *, search: bool) -> str:
+def retarget_missing_dpp(text: str, base: str, dates: list[str]) -> str:
+    """Point calendar days that were not exported at a real set, keeping the day in the query."""
+    if not dates:
+        return text
+    known = set(dates)
+    prefix = "" if base == "/" else base.rstrip("/")
+    pattern = re.compile(
+        rf'href=(["\']){re.escape(prefix)}/dpp/(\d{{4}}-\d{{2}}-\d{{2}})/?\1'
+    )
+
+    def repl(match: re.Match[str]) -> str:
+        quote, day = match.group(1), match.group(2)
+        if day in known:
+            return match.group(0)
+        try:
+            index = date_cls.fromisoformat(day).toordinal() % len(dates)
+        except ValueError:
+            index = 0
+        url = rewrite_url(f"/dpp/{dates[index]}", base) + "?day=" + day
+        return f"href={quote}{url}{quote}"
+
+    return pattern.sub(repl, text)
+
+
+def live_boot(base: str, dates: list[str]) -> str:
+    payload = {
+        "base": base if base.endswith("/") else base + "/",
+        "dpp": [rewrite_url(f"/dpp/{day}", base) for day in dates],
+        "tutor": rewrite_url("/tutor-corpus.json", base),
+        "streaks": rewrite_url("/streaks", base),
+    }
+    blob = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
+    return '<script type="application/json" id="ev-live">' + blob + "</script>"
+
+
+def _plain(text: str, limit: int = 650) -> str:
+    text = re.sub(r"```.*?```", " ", text or "", flags=re.S)
+    text = re.sub(r"[#*_`>\[\]]", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit].rsplit(" ", 1)[0] + "…"
+
+
+def write_tutor_corpus(site: Path, base: str) -> None:
+    """Notes the browser tutor is allowed to quote. It must not be asked to invent the rest."""
+    from engineverse import db
+
+    rows = db.query(
+        "SELECT t.slug, t.title, sub.name AS subject, sec.kind, sec.body, n.quality_level "
+        "FROM topics t "
+        "JOIN subjects sub ON sub.id = t.subject_id "
+        "JOIN notes n ON n.topic_id = t.id AND n.status = 'published' "
+        "JOIN note_sections sec ON sec.note_id = n.id "
+        "WHERE n.quality_level IN ('beginner', 'standard') "
+        "AND sec.kind IN ('simple', 'definition', 'intuition', 'example', 'mistakes', 'points') "
+        "ORDER BY t.slug, n.quality_level, sec.order_index"
+    )
+    grouped: dict[str, dict[str, str]] = {}
+    for row in rows:
+        item = grouped.setdefault(row["slug"], {
+            "title": row["title"],
+            "subject": row["subject"] or "",
+            "url": rewrite_url(f"/topics/{row['slug']}", base),
+            "simple": "",
+            "definition": "",
+            "intuition": "",
+            "example": "",
+            "mistakes": "",
+            "points": "",
+        })
+        kind = row["kind"]
+        if kind not in item:
+            continue
+        if kind == "simple" and row["quality_level"] != "beginner" and item["simple"]:
+            continue
+        if kind != "simple" and row["quality_level"] != "standard" and item[kind]:
+            continue
+        item[kind] = _plain(row["body"] or "")
+    modules = db.query(
+        "SELECT m.slug, m.title, m.summary, m.body, m.example, m.exercise, l.slug AS language_slug, l.name AS language "
+        "FROM language_modules m JOIN programming_languages l ON l.id = m.language_id "
+        "ORDER BY l.order_index, m.order_index"
+    )
+    for row in modules:
+        grouped["lang-" + row["slug"]] = {
+            "title": f"{row['language']}: {row['title']}",
+            "subject": row["language"] or "",
+            "url": rewrite_url(f"/programming/{row['language_slug']}", base) + "#" + row["slug"],
+            "simple": _plain(row["summary"] or ""),
+            "definition": _plain(row["body"] or ""),
+            "intuition": "",
+            "example": _plain(row["example"] or "", 500),
+            "mistakes": _plain(row["exercise"] or "", 300),
+            "points": "",
+        }
+    formulas = db.query("SELECT slug, name, meaning, application FROM formulas")
+    for row in formulas:
+        grouped["formula-" + row["slug"]] = {
+            "title": row["name"],
+            "subject": "Formula",
+            "url": rewrite_url("/formulas", base),
+            "simple": _plain(row["meaning"] or ""),
+            "definition": _plain(row["application"] or ""),
+            "intuition": "",
+            "example": "",
+            "mistakes": "",
+            "points": "",
+        }
+    (site / "tutor-corpus.json").write_text(
+        json.dumps(list(grouped.values()), ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def inject(text: str, base: str, *, search: bool, dpp_dates: list[str] | None = None) -> str:
     text = rewrite_html(text, base)
     text = text.replace('href="/explore?year=1"', f'href="{rewrite_url("/explore/first-year", base)}"', 1)
     # The year link may already have been rewritten before this replacement.
@@ -378,8 +493,12 @@ def inject(text: str, base: str, *, search: bool) -> str:
     if search:
         slot = '<div id="pages-results" hidden></div>\n' + search_script(base)
         text = text.replace("</main>", slot + "\n</main>", 1)
+    text = text.replace("Runnable here", "Examples to copy")
+    if dpp_dates:
+        text = retarget_missing_dpp(text, base, dpp_dates)
     if "</body>" in text:
-        text = text.replace("</body>", mirror_script() + "\n</body>", 1)
+        boot = live_boot(base, dpp_dates or [])
+        text = text.replace("</body>", boot + "\n" + mirror_script() + "\n</body>", 1)
     return text
 
 
@@ -546,16 +665,25 @@ def export(site: Path, base: str) -> int:
     written = 0
     failed: list[str] = []
     home_html = ""
+    from engineverse import db as export_db
+
+    dpp_dates = [
+        row["date"]
+        for row in export_db.query("SELECT date FROM dpp_sets WHERE published = 1 ORDER BY date")
+        if row["date"]
+    ]
     for path in public_paths():
         fetch = "/explore" if path == "/explore/first-year" else path
         if path == "/explore/first-year":
             response = client.get("/explore", params={"year": "1"})
+        elif path.startswith("/topics/") and path.count("/") == 2:
+            response = client.get(fetch, params={"depths": "all"})
         else:
             response = client.get(fetch)
         if response.status_code != 200 or "text/html" not in response.headers.get("content-type", ""):
             failed.append(f"{path} -> {response.status_code}")
             continue
-        body = inject(response.text, base, search=(path == "/search"))
+        body = inject(response.text, base, search=(path == "/search"), dpp_dates=dpp_dates)
         # First-year page should not keep a query-string link to itself as the only year view.
         if path == "/explore/first-year":
             body = body.replace("<title>", "<title>First year - ", 1)
@@ -581,6 +709,7 @@ def export(site: Path, base: str) -> int:
 
     index = search_index(base)
     (site / "search-index.json").write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
+    write_tutor_corpus(site, base)
 
     origin = "https://authorsauravkushwaha.github.io" + ("" if base == "/" else base.rstrip("/"))
     locs = [origin + "/"]
