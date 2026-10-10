@@ -78,7 +78,7 @@ jobs:
             | java -Xmx256m -jar target/engineverse-sandbox.jar | tee verdict.json
           grep -q '"status":"unsupported_language"' verdict.json
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         if: matrix.java == '21'
         with:
           name: engineverse-sandbox-jar
