@@ -15,7 +15,7 @@ python scripts/seed.py --fresh             # ~0.4s, builds the whole catalogue
 uvicorn main:app --app-dir backend --reload
 ```
 
-Open <http://127.0.0.1:8000>. On a development machine, sign in as
+Open https://authorsauravkushwaha.github.io/EngineVerse/ . On a development machine, sign in as
 `asha@example.com` / `LearnBuild#2026!`, or `admin@engineverse.local` /
 `Str0ngPassphrase#42!` for the CMS. Those accounts are created only when
 `ENGINEVERSE_ENV` is `development` or `test`. Production seed does not create
