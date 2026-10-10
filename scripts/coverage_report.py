@@ -32,6 +32,34 @@ def render() -> str:
             "No catalogue is loaded. Run `python scripts/seed.py` against a development "
             "database, then run this script again. This file does not invent subjects.\n"
         )
+
+    totals = {
+        "branches": _count("SELECT count(*) AS c FROM branches"),
+        "subjects": _count("SELECT count(*) AS c FROM subjects WHERE status = 'published'"),
+        "topics": _count("SELECT count(*) AS c FROM topics WHERE status = 'published'"),
+        "notes": _count("SELECT count(*) AS c FROM notes WHERE status = 'published'"),
+        "sections": _count("SELECT count(*) AS c FROM note_sections"),
+        "full_notes": _count(
+            "SELECT count(*) AS c FROM notes n WHERE n.status = 'published' "
+            "AND n.quality_level = 'standard' "
+            "AND (SELECT count(*) FROM note_sections ns WHERE ns.note_id = n.id) = 13"
+        ),
+        "diagrams": _count("SELECT count(*) AS c FROM diagrams"),
+        "models": _count("SELECT count(*) AS c FROM models_3d"),
+        "formulas": _count("SELECT count(*) AS c FROM formulas"),
+        "questions": _count("SELECT count(*) AS c FROM questions WHERE is_active = 1"),
+        "dpp_sets": _count("SELECT count(*) AS c FROM dpp_sets WHERE published = 1"),
+        "dpp_slots": _count(
+            "SELECT count(*) AS c FROM dpp_questions dq JOIN dpp_sets d ON d.id = dq.set_id "
+            "WHERE d.published = 1"
+        ),
+        "dpp_subjects": _count(
+            "SELECT count(DISTINCT q.subject_id) AS c FROM dpp_questions dq "
+            "JOIN dpp_sets d ON d.id = dq.set_id JOIN questions q ON q.id = dq.question_id "
+            "WHERE d.published = 1 AND q.is_active = 1"
+        ),
+        "coding_problems": _count("SELECT count(*) AS c FROM coding_problems"),
+    }
     lines = [
         "# Curriculum coverage",
         "",
@@ -46,33 +74,49 @@ def render() -> str:
         "",
         "## Totals",
         "",
-        f"- Branches: {_count('SELECT count(*) AS c FROM branches')}",
-        f"- Subjects: {_count('SELECT count(*) AS c FROM subjects')}",
-        f"- Topics: {_count('SELECT count(*) AS c FROM topics')}",
-        f"- Notes: {_count('SELECT count(*) AS c FROM notes')}",
-        f"- Questions: {_count('SELECT count(*) AS c FROM questions')}",
-        f"- Coding problems: {_count('SELECT count(*) AS c FROM coding_problems')}",
+        f"- Branches: {totals['branches']}",
+        f"- Published subjects: {totals['subjects']}",
+        f"- Published topics: {totals['topics']}",
+        f"- Published notes across all reading depths: {totals['notes']}",
+        f"- Note sections: {totals['sections']}",
+        f"- Standard notes with all 13 sections: {totals['full_notes']}",
+        f"- Diagrams: {totals['diagrams']}",
+        f"- 3D models: {totals['models']}",
+        f"- Formulas: {totals['formulas']}",
+        f"- Active questions: {totals['questions']}",
+        f"- Published DPP sets: {totals['dpp_sets']}",
+        f"- Published DPP question slots: {totals['dpp_slots']}",
+        f"- Subjects represented in published DPPs: {totals['dpp_subjects']}",
+        f"- Coding problems: {totals['coding_problems']}",
         "",
         "## By branch",
         "",
-        "| Branch | Subjects | Topics | Questions |",
-        "|---|---:|---:|---:|",
+        "| Branch | Subjects | Topics | Notes | Questions |",
+        "|---|---:|---:|---:|---:|",
     ]
     branches = db.query("SELECT id, name FROM branches ORDER BY name")
     for branch in branches:
         branch_id = branch["id"]
         lines.append(
-            "| {name} | {subjects} | {topics} | {questions} |".format(
+            "| {name} | {subjects} | {topics} | {notes} | {questions} |".format(
                 name=str(branch["name"]).replace("|", "\\|"),
-                subjects=_count("SELECT count(*) AS c FROM subjects WHERE branch_id = ?", branch_id),
+                subjects=_count(
+                    "SELECT count(*) AS c FROM subjects WHERE branch_id = ? AND status = 'published'", branch_id
+                ),
                 topics=_count(
                     "SELECT count(*) AS c FROM topics t JOIN subjects s ON s.id = t.subject_id "
-                    "WHERE s.branch_id = ?",
+                    "WHERE s.branch_id = ? AND s.status = 'published' AND t.status = 'published'",
+                    branch_id,
+                ),
+                notes=_count(
+                    "SELECT count(*) AS c FROM notes n JOIN topics t ON t.id = n.topic_id "
+                    "JOIN subjects s ON s.id = t.subject_id WHERE s.branch_id = ? "
+                    "AND s.status = 'published' AND t.status = 'published' AND n.status = 'published'",
                     branch_id,
                 ),
                 questions=_count(
                     "SELECT count(*) AS c FROM questions q JOIN subjects s ON s.id = q.subject_id "
-                    "WHERE s.branch_id = ?",
+                    "WHERE s.branch_id = ? AND s.status = 'published' AND q.is_active = 1",
                     branch_id,
                 ),
             )

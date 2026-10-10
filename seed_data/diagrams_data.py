@@ -1861,3 +1861,12 @@ DIAGRAMS.update({
 from seed_data.foundations import DIAGRAMS as _FOUNDATION_DIAGRAMS  # noqa: E402
 
 DIAGRAMS.update(_FOUNDATION_DIAGRAMS)
+
+# Starter topics for catalog subjects that previously had no notes receive a
+# generated-but-topic-specific diagram with the same validated scene format.
+from seed_data.subject_paths import TOPIC_BY_SLUG as _STARTER_TOPICS, diagram_for_topic as _starter_diagram  # noqa: E402
+
+DIAGRAMS.update({
+    slug: (lambda topic_slug=slug: _starter_diagram(topic_slug))
+    for slug in _STARTER_TOPICS
+})

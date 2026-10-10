@@ -94,17 +94,49 @@ def branch_groups() -> list[dict]:
 
 
 def featured_paths() -> list[dict]:
-    """The homepage engineering-path tiles, in a stable order."""
-    by_slug = {branch["slug"]: branch for branch in list_branches()}
-    featured = []
-    for slug, short in FEATURED_PATHS:
-        branch = by_slug.get(slug)
-        if not branch:
-            continue
+    """Return every active branch for the homepage, with familiar paths first."""
+    branches = list_branches()
+    preferred = {slug: (index, short) for index, (slug, short) in enumerate(FEATURED_PATHS)}
+    aliases = {
+        "information-technology": "IT", "software-engineering": "SE",
+        "cloud-computing": "Cloud", "devops": "SRE", "blockchain": "DLT",
+        "iot": "IoT", "robotics": "Robotics", "robotics-automation": "RA",
+        "mechatronics": "MT", "production": "Prod", "industrial": "IE",
+        "manufacturing": "Mfg", "metallurgical": "Met", "polymer": "Poly",
+        "petroleum": "Petro", "mining": "Mine", "biotechnology": "BioTech",
+        "biomedical": "BME", "food-technology": "Food", "agricultural": "Agri",
+        "marine": "Marine", "textile": "Textile", "energy": "Energy",
+        "environmental": "Env", "transportation": "Trans", "construction": "Const",
+        "geotechnical": "Geo", "structural": "Struct", "materials": "Mat",
+        "automobile": "Auto", "embedded-systems": "Embed", "control-systems": "Ctrl",
+        "instrumentation": "Inst", "vlsi": "VLSI", "electronics-engineering": "EE",
+        "electronics-communication": "ECE", "electrical-engineering": "EEE",
+        "computer-science": "CSE", "mechanical-engineering": "ME",
+        "civil-engineering": "CE", "chemical-engineering": "Chem",
+        "aerospace": "Aero", "ai-ml": "AI/ML", "data-science": "DS",
+        "cyber-security": "Cyber",
+    }
+
+    def short_name(branch: dict) -> str:
+        known = aliases.get(branch["slug"])
+        if known:
+            return known
+        words = [word for word in branch["name"].replace("&", " ").split()
+                 if word.lower() not in {"and", "of", "the"}]
+        initials = "".join(word[0].upper() for word in words if word)
+        return initials[:5] or branch["name"][:4].upper()
+
+    ordered = sorted(
+        branches,
+        key=lambda branch: (0, preferred[branch["slug"]][0]) if branch["slug"] in preferred
+        else (1, branch["order_index"], branch["name"].casefold()),
+    )
+    paths = []
+    for branch in ordered:
         row = dict(branch)
-        row["short"] = short
-        featured.append(row)
-    return featured
+        row["short"] = preferred.get(branch["slug"], (0, short_name(branch)))[1]
+        paths.append(row)
+    return paths
 
 
 def list_universities() -> list[dict]:

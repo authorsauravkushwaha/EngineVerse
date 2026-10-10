@@ -41,7 +41,7 @@ async def home(request: Request):
     context = {
         "site": catalog.site_stats(),
         "branches": catalog.branch_groups(),
-        "popular_subjects": catalog.popular_subjects(8),
+        "popular_subjects": catalog.popular_subjects(200),
         "trending": search.trending(8),
     }
     if viewer:
@@ -57,7 +57,7 @@ async def home(request: Request):
     context["sample_problems"] = coding.list_problems(limit=6)
     context["sample_projects"] = projects.list_projects(limit=3)
     context["paths"] = catalog.featured_paths()
-    context["first_year"] = catalog.list_subjects(first_year=True, limit=8)
+    context["first_year"] = catalog.list_subjects(first_year=True, limit=200)
     return render(request, "home.html", **context)
 
 
@@ -188,7 +188,7 @@ async def practice_page(request: Request):
     return render(
         request, "practice.html",
         dpp=practice.dpp_with_context(),
-        sets=practice.recent_practice_days(14),
+        sets=practice.recent_practice_days(30),
         kinds=practice.question_kinds(),
         questions=practice.list_questions(limit=20)[0],
         ladder=ladders.PRACTICE,
@@ -202,7 +202,7 @@ async def practice_page(request: Request):
 async def dpp_today(request: Request):
     return render(
         request, "dpp.html", dpp=practice.dpp_with_context(),
-        sets=practice.recent_practice_days(14), active_date=None,
+        sets=practice.recent_practice_days(30), active_date=None,
     )
 
 
@@ -211,18 +211,25 @@ async def dpp_day(request: Request, date: str):
     payload = practice.dpp_with_context(date)
     if not payload:
         raise HTTPException(status_code=404, detail="No practice set for that date")
-    return render(request, "dpp.html", dpp=payload, sets=practice.recent_practice_days(14), active_date=date)
+    return render(request, "dpp.html", dpp=payload, sets=practice.recent_practice_days(30), active_date=date)
 
 
 @router.get("/practice/questions")
 async def question_bank(request: Request, subject: str | None = None, kind: str | None = None,
                         difficulty: str | None = None):
+    # Keep the full bank reachable as it grows; filter parameters survive paging.
+    filters = {"subject_id": subject, "kind": kind, "difficulty": difficulty}
+    total = practice.list_questions(**filters, limit=1)[1]
+    pager = _pager(request, total)
     return render(
         request, "question_bank.html",
-        questions=practice.list_questions(subject_id=subject, kind=kind, difficulty=difficulty, limit=60)[0],
+        questions=practice.list_questions(
+            **filters, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+        )[0],
         kinds=practice.question_kinds(),
         subjects=catalog.list_subjects(limit=200),
         active_subject=subject, active_kind=kind, active_difficulty=difficulty,
+        pager=pager,
     )
 
 

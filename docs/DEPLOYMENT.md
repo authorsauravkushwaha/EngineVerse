@@ -138,8 +138,10 @@ account's authenticator seal. The password and the seal are not printed.
 - A statement that Judge0 is isolated. `scripts/check_judge0.py` runs a canary.
   With no `ENGINEVERSE_JUDGE0_URL` the canary does not run, and a held canary
   is still not a certification. `GET /ops/judge` keeps `isolation_verified` false.
-- A curriculum that covers a degree. The seeded snapshot is 56 topics. See
-  `docs/CURRICULUM_COVERAGE.md`.
+- A curriculum that covers a degree. The expanded seed snapshot has 93 subjects
+  across 45 branches and 121 published starter topics, but it is not a complete
+  syllabus. Newly generated starter content, including Cyber Security, is marked
+  `needs_review` in editorial metadata. See `docs/CURRICULUM_COVERAGE.md`.
 
 ## GitHub Pages reading copy
 

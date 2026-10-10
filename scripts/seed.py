@@ -42,6 +42,7 @@ from seed_data import practice_data  # noqa: E402
 from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
 from seed_data import foundations as topics_foundations  # noqa: E402
+from seed_data import subject_paths  # noqa: E402
 from seed_data import community_data  # noqa: E402
 from seed_data import language_paths  # noqa: E402
 
@@ -237,7 +238,7 @@ def seed_subjects(branch_ids: dict[str, str]) -> dict[str, str]:
             db.execute(
                 "INSERT INTO subjects (id,slug,name,branch_id,semester_id,code,credits,difficulty,description,icon,"
                 "color,is_first_year,order_index,status) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'published') "
-                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description",
+                "ON CONFLICT(id) DO UPDATE SET name=excluded.name, description=excluded.description, status='published'",
                 subject_id, slug, name, branch_ids.get(branch_slug) if branch_slug else None, semester,
                 code, credits, difficulty, description, icon, color, 1 if first_year else 0, index,
             )
@@ -289,7 +290,8 @@ def seed_curricula(subject_ids: dict[str, str], branch_ids: dict[str, str], univ
 
 def seed_topics(subject_ids: dict[str, str]) -> dict[str, str]:
     """Returns slug -> topic id for every seeded topic."""
-    all_topics = list(topics_cse.TOPICS) + list(topics_core.TOPICS) + list(topics_foundations.TOPICS)
+    all_topics = (list(topics_cse.TOPICS) + list(topics_core.TOPICS)
+                  + list(topics_foundations.TOPICS) + list(subject_paths.TOPICS))
     topic_ids: dict[str, str] = {}
     module_ids: dict[str, str] = {}
     per_subject_index: dict[str, int] = {}
@@ -312,10 +314,12 @@ def seed_topics(subject_ids: dict[str, str]) -> dict[str, str]:
             db.execute(
                 "INSERT INTO topics (id,slug,subject_id,module_id,title,summary,difficulty,est_minutes,order_index,"
                 "prerequisites,tags,status,accuracy_state,version,view_count,created_at,updated_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,'[]',?,'published','reviewed',1,0,?,?) "
-                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, summary=excluded.summary",
+                "VALUES (?,?,?,?,?,?,?,?,?,'[]',?,'published',?,1,0,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, summary=excluded.summary, "
+                "tags=excluded.tags, status='published', accuracy_state=excluded.accuracy_state, "
+                "updated_at=excluded.updated_at",
                 topic_id, slug, subject_id, None, entry["title"], entry["summary"], entry["difficulty"],
-                entry["minutes"], order, jdump(entry["tags"]), ts, ts,
+                entry["minutes"], order, jdump(entry["tags"]), entry.get("accuracy_state", "reviewed"), ts, ts,
             )
 
         # One module per subject so the subject page can group its topics.
@@ -340,7 +344,8 @@ def seed_topics(subject_ids: dict[str, str]) -> dict[str, str]:
 def seed_notes(topic_ids: dict[str, str]) -> int:
     all_topics = {
         slugify(entry["title"]): entry
-        for entry in list(topics_cse.TOPICS) + list(topics_core.TOPICS) + list(topics_foundations.TOPICS)
+        for entry in (list(topics_cse.TOPICS) + list(topics_core.TOPICS)
+                      + list(topics_foundations.TOPICS) + list(subject_paths.TOPICS))
     }
     # Content keyed to a topic that no longer exists would simply stop rendering,
     # so fail on it rather than letting a rename silently orphan the material.
@@ -361,7 +366,8 @@ def seed_notes(topic_ids: dict[str, str]) -> int:
                 note_id = f"{slug}::{depth}"
                 db.execute(
                     "INSERT INTO notes (id,topic_id,quality_level,language,status,version,created_at,updated_at) "
-                    "VALUES (?,?,?,'en','published',1,?,?) ON CONFLICT(id) DO NOTHING",
+                    "VALUES (?,?,?,'en','published',1,?,?) ON CONFLICT(id) DO UPDATE SET "
+                    "status='published', version=excluded.version, updated_at=excluded.updated_at",
                     note_id, topic_id, depth, ts, ts,
                 )
                 for order, kind in enumerate(wanted):
@@ -369,7 +375,8 @@ def seed_notes(topic_ids: dict[str, str]) -> int:
                     callout = next(c for k, _, c in SECTIONS if k == kind)
                     db.execute(
                         "INSERT INTO note_sections (id,note_id,kind,title,body,callout,order_index) VALUES (?,?,?,?,?,?,?) "
-                        "ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                        "ON CONFLICT(id) DO UPDATE SET kind=excluded.kind, title=excluded.title, "
+                        "body=excluded.body, callout=excluded.callout, order_index=excluded.order_index",
                         f"{note_id}::{kind}", note_id, kind, title, section_body(kind, entry, slug), callout, order,
                     )
                 notes += 1
@@ -443,72 +450,135 @@ def seed_formulas(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> Non
                 meaning, application, example, constraints, index,
             )
 
+        for index, entry in enumerate(subject_paths.TOPICS, start=len(library_data.FORMULAS)):
+            topic_slug = slugify(entry["title"])
+            formula_slug = f"{topic_slug}-relation"
+            formula = entry["formula"]
+            subject_name = db.scalar("SELECT name FROM subjects WHERE id = ?", subject_ids[entry["subject"]])
+            category = db.scalar(
+                "SELECT b.category FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id WHERE s.id = ?",
+                subject_ids[entry["subject"]],
+            ) or "core"
+            db.execute(
+                "INSERT INTO formulas (id,slug,subject_id,topic_id,category,name,latex,variables,meaning,application,"
+                "example_latex,constraints,order_index) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(slug) DO UPDATE SET topic_id=excluded.topic_id, name=excluded.name, "
+                "latex=excluded.latex, variables=excluded.variables, meaning=excluded.meaning, "
+                "application=excluded.application, example_latex=excluded.example_latex, constraints=excluded.constraints",
+                formula_slug, formula_slug, subject_ids[entry["subject"]], topic_ids[topic_slug], category,
+                formula["name"], formula["latex"],
+                jdump([{"symbol": v["s"], "name": v["n"], "unit": v["u"]} for v in formula["variables"]]),
+                entry["summary"], f"{subject_name}: {entry['applications'][0]}",
+                entry["example"]["solution"], formula["conditions"], index,
+            )
+
 
 # ---------------------------------------------------------------------------
 # Practice
 # ---------------------------------------------------------------------------
 
-def seed_questions(subject_ids: dict[str, str]) -> dict[str, str]:
+def seed_questions(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> dict[str, str]:
+    """Seed the authored bank and one linked concept-check for every topic."""
+    all_topics = (list(topics_cse.TOPICS) + list(topics_core.TOPICS)
+                  + list(topics_foundations.TOPICS) + list(subject_paths.TOPICS))
+    entries: list[dict] = []
+    for original in practice_data.QUESTIONS:
+        entry = dict(original)
+        entry["topic"] = subject_paths.resolve_question_topic(entry, all_topics)
+        entries.append(entry)
+    entries.extend(subject_paths.questions_for_topics(all_topics))
+
     ids: dict[str, str] = {}
     with db.transaction():
-        for entry in practice_data.QUESTIONS:
+        for entry in entries:
             slug = slugify(entry["title"])
             if slug in ids:
                 continue
             question_id = slug
             ids[slug] = question_id
+            topic_id = topic_ids.get(entry.get("topic")) if entry.get("topic") else None
+            subject_id = subject_ids.get(entry["subject"])
+            tags = list(entry.get("tags") or [])
+            source = entry.get("source") or "EngineVerse Bank"
+            if source not in tags:
+                tags.append(source)
             db.execute(
                 "INSERT INTO questions (id,slug,topic_id,subject_id,kind,difficulty,stem,explanation,answer_index,"
-                "tags,time_weight,is_active,created_at) VALUES (?,?,NULL,?,'mcq',?,?,?,?,?,1,1,?) "
-                "ON CONFLICT(id) DO NOTHING",
-                question_id, slug, subject_ids.get(entry["subject"]), entry["difficulty"], entry["statement"],
-                entry["explanation"], entry["correct"], jdump(entry["tags"] + [entry["source"]]), now_ms(),
+                "tags,time_weight,is_active,created_at) VALUES (?,?,?,?, 'mcq',?,?,?,?,?,1,1,?) "
+                "ON CONFLICT(id) DO UPDATE SET topic_id=COALESCE(excluded.topic_id,questions.topic_id), "
+                "subject_id=excluded.subject_id, difficulty=excluded.difficulty, stem=excluded.stem, "
+                "explanation=excluded.explanation, answer_index=excluded.answer_index, tags=excluded.tags, is_active=1",
+                question_id, slug, topic_id, subject_id, entry["difficulty"],
+                entry.get("statement", entry.get("stem", "")), entry["explanation"],
+                entry["correct"], jdump(tags), now_ms(),
             )
             for position, option in enumerate(entry["options"]):
                 label = chr(ord("A") + position)
                 db.execute(
                     "INSERT INTO question_options (id,question_id,label,body,is_correct,order_index) "
-                    "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
+                    "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body, "
+                    "is_correct=excluded.is_correct, order_index=excluded.order_index",
                     f"{question_id}::{label}", question_id, label, option,
                     1 if position == entry["correct"] else 0, position,
                 )
     return ids
 
 
-def seed_dpp(question_ids: dict[str, str], subject_ids: dict[str, str]) -> int:
-    """Fourteen days of Daily Practice Problem sets, five questions each."""
-    by_subject: dict[str, list[str]] = {}
-    for entry in practice_data.QUESTIONS:
-        slug = slugify(entry["title"])
-        if slug in question_ids:
-            by_subject.setdefault(entry["subject"], []).append(slug)
-    if not by_subject:
+def seed_dpp() -> int:
+    """Publish a five-question daily rotation that reaches every subject.
+
+    One primary question is selected for every published subject. The number
+    of dates grows with the catalogue, so a learner can find every subject in
+    the archive instead of cycling through a tiny fixed sample.
+    """
+    subjects = db.query("SELECT id, slug FROM subjects WHERE status='published' ORDER BY order_index, slug")
+    if not subjects:
         return 0
 
-    ordered: list[tuple[str, str]] = []
-    for subject_slug, slugs in by_subject.items():
-        for slug in slugs:
-            ordered.append((subject_slug, slug))
+    primary: list[tuple[str, str]] = []
+    extras: list[str] = []
+    for subject in subjects:
+        rows = db.query(
+            "SELECT q.id FROM questions q WHERE q.subject_id = ? AND q.is_active = 1 "
+            "ORDER BY CASE WHEN q.topic_id IS NULL THEN 1 ELSE 0 END, q.id",
+            subject["id"],
+        )
+        if not rows:
+            raise RuntimeError(f"subject {subject['slug']!r} has no question for the DPP rotation")
+        primary.append((subject["slug"], rows[0]["id"]))
+        extras.extend(row["id"] for row in rows[1:])
 
-    sets = 0
+    per_set = 5
+    day_count = (len(primary) + per_set - 1) // per_set
+    if len(primary) % per_set:
+        # Keep every set at the standard five-question length without dropping
+        # a subject's primary question from the rotation.
+        needed = per_set - (len(primary) % per_set)
+        extras = [question_id for question_id in extras if question_id not in {q for _, q in primary}]
+        extras = extras[:needed]
+    else:
+        extras = []
+
+    scheduled = [question_id for _, question_id in primary] + extras
     today = datetime.now(timezone.utc).date()
+    sets = 0
     with db.transaction():
-        for day_offset in range(-7, 7):
-            day = today + timedelta(days=day_offset)
-            window = ordered[(day_offset + 7) * 5:(day_offset + 7) * 5 + 5]
-            if not window:
-                window = ordered[:5]
+        for day_index in range(day_count):
+            day = today - timedelta(days=day_count - day_index - 1)
+            window = scheduled[day_index * per_set:(day_index + 1) * per_set]
             set_id = f"dpp-{day.isoformat()}"
             db.execute(
                 "INSERT INTO dpp_sets (id,date,title,subject_id,difficulty,duration_minutes,published,created_at) "
-                "VALUES (?,?,?,NULL,'mixed',30,1,?) ON CONFLICT(id) DO NOTHING",
+                "VALUES (?,?,?,NULL,'mixed',30,1,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, "
+                "published=1, duration_minutes=excluded.duration_minutes",
                 set_id, day.isoformat(), f"Daily Practice - {day.strftime('%d %B %Y')}", now_ms(),
             )
-            for position, (_subject, slug) in enumerate(window):
+            db.execute("DELETE FROM dpp_questions WHERE set_id = ?", set_id)
+            for position, question_id in enumerate(window):
                 db.execute(
                     "INSERT INTO dpp_questions (set_id,question_id,position) VALUES (?,?,?) "
-                    "ON CONFLICT DO NOTHING",
-                    set_id, question_ids[slug], position,
+                    "ON CONFLICT(set_id,question_id) DO UPDATE SET position=excluded.position",
+                    set_id, question_id, position,
                 )
             sets += 1
     return sets
@@ -1172,8 +1242,8 @@ def run(fresh: bool, *, demo: bool | None = None, destroy_users: bool = False) -
     print(f"  {len(topic_ids)} topics, {notes} notes, {diagrams} diagrams, {models} 3D models")
 
     print("Seeding practice questions and DPP sets ...")
-    question_ids = seed_questions(subject_ids)
-    sets = seed_dpp(question_ids, subject_ids)
+    question_ids = seed_questions(subject_ids, topic_ids)
+    sets = seed_dpp()
     print(f"  {len(question_ids)} questions, {sets} daily sets")
 
     print("Seeding programming languages and problems ...")

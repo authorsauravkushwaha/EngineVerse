@@ -1148,11 +1148,30 @@ def build(subjects: list[dict], existing_counts: dict[str, int] | None = None,
         need = target - counts.get(slug, 0)
         if need <= 0:
             continue
-        cards = FLASHCARDS_EXTRA.get(slug) or []
+        cards = list(FLASHCARDS_EXTRA.get(slug) or [])
+        if len(cards) < need:
+            # New branch paths use their lesson as the source of truth rather
+            # than shipping an empty revision deck. The cards test the model,
+            # its assumptions, and the most important failure mode.
+            from seed_data.subject_paths import topics_for_subject
+
+            topics = topics_for_subject(slug)
+            if topics:
+                topic = topics[0]
+                formula = topic["formula"]
+                derived = [
+                    (f"Core idea: {topic['title']}", topic["summary"],
+                     "Recall the system and governing concept.", "easy"),
+                    (f"Which assumptions limit {formula['name']}?", formula["conditions"],
+                     "State when the model is valid before substituting values.", "medium"),
+                    (f"What is a common pitfall in {topic['title']}?", topic["mistakes"][0],
+                     "Check the failure mode, not just the equation.", "medium"),
+                ]
+                cards.extend(derived[:max(0, need - len(cards))])
         if len(cards) < need:
             raise KeyError(
                 f"subject {slug!r} needs {need} flashcards to reach {target} but only "
-                f"{len(cards)} are authored"
+                f"{len(cards)} are authored or derivable"
             )
         for front, back, hint, difficulty in cards[:need]:
             rows.append((slug, name, front, back, hint, difficulty))

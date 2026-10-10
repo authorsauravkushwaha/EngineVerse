@@ -12,61 +12,69 @@ production content unless you just generated it from that database.
 ## Totals
 
 - Branches: 45
-- Subjects: 73
-- Topics: 56
-- Notes: 224
-- Questions: 38
+- Published subjects: 93
+- Published topics: 121
+- Published notes across all reading depths: 484
+- Note sections: 3146
+- Standard notes with all 13 sections: 121
+- Diagrams: 121
+- 3D models: 121
+- Formulas: 80
+- Active questions: 159
+- Published DPP sets: 19
+- Published DPP question slots: 95
+- Subjects represented in published DPPs: 93
 - Coding problems: 13
 
 ## By branch
 
-| Branch | Subjects | Topics | Questions |
-|---|---:|---:|---:|
-| AI & Machine Learning | 2 | 0 | 0 |
-| Aerospace Engineering | 0 | 0 | 0 |
-| Agricultural Engineering | 0 | 0 | 0 |
-| Automobile Engineering | 1 | 0 | 0 |
-| Biomedical Engineering | 0 | 0 | 0 |
-| Biotechnology Engineering | 0 | 0 | 0 |
-| Blockchain Engineering | 0 | 0 | 0 |
-| Chemical Engineering | 6 | 1 | 1 |
-| Civil Engineering | 3 | 2 | 0 |
-| Cloud Computing | 1 | 0 | 0 |
-| Computer Science Engineering | 10 | 31 | 18 |
-| Construction Engineering | 1 | 0 | 0 |
-| Control Systems | 1 | 0 | 0 |
-| Cyber Security | 1 | 0 | 0 |
-| Data Science | 1 | 0 | 0 |
-| DevOps & SRE | 0 | 0 | 0 |
-| Electrical Engineering | 5 | 3 | 3 |
-| Electronics & Communication | 6 | 3 | 2 |
-| Electronics Engineering | 1 | 0 | 0 |
-| Embedded Systems | 1 | 0 | 0 |
-| Energy Engineering | 0 | 0 | 0 |
-| Environmental Engineering | 1 | 0 | 0 |
-| Food Technology | 0 | 0 | 0 |
-| Geotechnical Engineering | 1 | 1 | 1 |
-| Industrial Engineering | 0 | 0 | 0 |
-| Information Technology | 1 | 0 | 0 |
-| Instrumentation Engineering | 1 | 0 | 0 |
-| Internet of Things | 0 | 0 | 0 |
-| Manufacturing Engineering | 1 | 0 | 0 |
-| Marine Engineering | 0 | 0 | 0 |
-| Materials Engineering | 1 | 0 | 0 |
-| Mechanical Engineering | 8 | 6 | 4 |
-| Mechatronics | 0 | 0 | 0 |
-| Metallurgical Engineering | 0 | 0 | 0 |
-| Mining Engineering | 0 | 0 | 0 |
-| Petroleum Engineering | 0 | 0 | 0 |
-| Polymer Engineering | 0 | 0 | 0 |
-| Production Engineering | 0 | 0 | 0 |
-| Robotics | 0 | 0 | 0 |
-| Robotics & Automation | 0 | 0 | 0 |
-| Software Engineering | 1 | 1 | 0 |
-| Structural Engineering | 2 | 0 | 0 |
-| Textile Engineering | 0 | 0 | 0 |
-| Transportation Engineering | 1 | 0 | 0 |
-| VLSI Design | 1 | 0 | 0 |
+| Branch | Subjects | Topics | Notes | Questions |
+|---|---:|---:|---:|---:|
+| AI & Machine Learning | 2 | 2 | 8 | 2 |
+| Aerospace Engineering | 1 | 1 | 4 | 1 |
+| Agricultural Engineering | 1 | 1 | 4 | 1 |
+| Automobile Engineering | 1 | 1 | 4 | 1 |
+| Biomedical Engineering | 1 | 1 | 4 | 1 |
+| Biotechnology Engineering | 1 | 1 | 4 | 1 |
+| Blockchain Engineering | 1 | 1 | 4 | 1 |
+| Chemical Engineering | 6 | 6 | 24 | 7 |
+| Civil Engineering | 3 | 3 | 12 | 3 |
+| Cloud Computing | 1 | 1 | 4 | 1 |
+| Computer Science Engineering | 10 | 31 | 124 | 49 |
+| Construction Engineering | 1 | 1 | 4 | 1 |
+| Control Systems | 1 | 1 | 4 | 1 |
+| Cyber Security | 1 | 5 | 20 | 5 |
+| Data Science | 1 | 1 | 4 | 1 |
+| DevOps & SRE | 1 | 1 | 4 | 1 |
+| Electrical Engineering | 5 | 5 | 20 | 8 |
+| Electronics & Communication | 6 | 6 | 24 | 8 |
+| Electronics Engineering | 1 | 1 | 4 | 1 |
+| Embedded Systems | 1 | 1 | 4 | 1 |
+| Energy Engineering | 1 | 1 | 4 | 1 |
+| Environmental Engineering | 1 | 1 | 4 | 1 |
+| Food Technology | 1 | 1 | 4 | 1 |
+| Geotechnical Engineering | 1 | 1 | 4 | 2 |
+| Industrial Engineering | 1 | 1 | 4 | 1 |
+| Information Technology | 1 | 1 | 4 | 1 |
+| Instrumentation Engineering | 1 | 1 | 4 | 1 |
+| Internet of Things | 1 | 1 | 4 | 1 |
+| Manufacturing Engineering | 1 | 1 | 4 | 1 |
+| Marine Engineering | 1 | 1 | 4 | 1 |
+| Materials Engineering | 1 | 1 | 4 | 1 |
+| Mechanical Engineering | 8 | 10 | 40 | 14 |
+| Mechatronics | 1 | 1 | 4 | 1 |
+| Metallurgical Engineering | 1 | 1 | 4 | 1 |
+| Mining Engineering | 1 | 1 | 4 | 1 |
+| Petroleum Engineering | 1 | 1 | 4 | 1 |
+| Polymer Engineering | 1 | 1 | 4 | 1 |
+| Production Engineering | 1 | 1 | 4 | 1 |
+| Robotics | 1 | 1 | 4 | 1 |
+| Robotics & Automation | 1 | 1 | 4 | 1 |
+| Software Engineering | 1 | 1 | 4 | 1 |
+| Structural Engineering | 2 | 2 | 8 | 2 |
+| Textile Engineering | 1 | 1 | 4 | 1 |
+| Transportation Engineering | 1 | 1 | 4 | 1 |
+| VLSI Design | 1 | 1 | 4 | 1 |
 
 A branch with a handful of subjects is a sample, not a semester. Core learning
 stays free. Certificates issued by this application are not university degrees

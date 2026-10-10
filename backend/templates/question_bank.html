@@ -2,6 +2,7 @@
 {% block title %}Question bank — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <h1>Question bank</h1>
+<p class="muted">{{ pager.total }} questions across the complete subject catalogue.</p>
 <form class="panel mb" method="get">
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px;align-items:end">
     <div><label for="subject">Subject</label><select id="subject" name="subject"><option value="">All</option>
@@ -28,4 +29,5 @@
     </div>
   {% else %}<div class="empty"><span class="em">🔍</span>No questions match that filter.</div>{% endfor %}
 </div>
+{% include "_pager.html" %}
 {% endblock %}

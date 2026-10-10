@@ -1,9 +1,10 @@
 # The 13-section note template
 
-Every topic note in EngineVerse follows the same structure. This is not a style
-preference — it is what makes the platform usable as a study source rather than a
-link farm. A learner who knows that "Common mistakes" is always the ninth section
-can navigate 56 topics without re-learning the layout each time.
+Every full, standard-depth topic note in EngineVerse follows the same structure.
+This is not a style preference — it is what makes the platform usable as a study
+source rather than a link farm. A learner who knows that "Common mistakes" is
+always the ninth section can navigate the catalogue without re-learning the
+layout each time.
 
 The template is defined once, in `scripts/seed.py`, as the `SECTIONS` list.
 Adding or reordering a section is a one-line change there; the renderer, the
