@@ -1,0 +1,63 @@
+name: GitHub Pages
+
+# Publishes a static reading copy. It does not deploy the Python app,
+# a database, or the code judge. The live URL is
+# https://<user>.github.io/<repository>/ once this workflow succeeds.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check the exporter
+        run: python scripts/export_pages.py --self-check
+
+      - name: Export the reading copy
+        run: python scripts/export_pages.py --out site
+
+      - name: Refuse leaked demo passwords
+        run: |
+          if grep -R -n -E 'LearnBuild#2026!|TeachLearn#2026!|Str0ngPassphrase#42!' site; then
+            echo "refusing to publish demo passwords"
+            exit 1
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

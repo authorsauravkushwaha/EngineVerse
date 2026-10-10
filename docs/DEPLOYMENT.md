@@ -140,3 +140,14 @@ account's authenticator seal. The password and the seal are not printed.
   is still not a certification. `GET /ops/judge` keeps `isolation_verified` false.
 - A curriculum that covers a degree. The seeded snapshot is 56 topics. See
   `docs/CURRICULUM_COVERAGE.md`.
+
+## GitHub Pages reading copy
+
+GitHub Pages can serve files only. scripts/export_pages.py writes the public
+catalogue, using the same neumorphic pages as the app.
+.github/workflows/pages.yml publishes that folder. The address is
+https://<github-user>.github.io/<repository>/.
+
+That address is not the application. Sign-in, saved progress and code
+execution are absent there. It is not a production deployment, not a Play
+submission, and not a certificate.
