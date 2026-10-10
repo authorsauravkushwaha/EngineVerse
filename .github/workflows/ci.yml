@@ -22,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
@@ -193,7 +193,7 @@ jobs:
           psql -h localhost -U engineverse -d engineverse -v ON_ERROR_STOP=1 \
             -f db/postgres/schema.pg.sql
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -288,7 +288,7 @@ jobs:
 
       # The 3D scene check runs the shipped scenes through the shipped renderer,
       # which needs the Python that defines them. No third-party packages.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
 
@@ -330,7 +330,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
           cache: pip
