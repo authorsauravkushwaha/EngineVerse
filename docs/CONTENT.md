@@ -77,25 +77,34 @@ the verification URL.
 
 ## Seeding
 
-`scripts/seed.py` builds a real catalogue, not placeholders:
+`scripts/seed.py` builds the public catalogue. The following snapshot was
+regenerated from a fresh `--no-demo` seed; it describes seeded rows, not a claim
+that every branch is a complete syllabus:
 
 ```
 universities 10 · colleges 13 · branches 45 · semesters 9 · curricula 180
-curriculum_subjects 2756 · subjects 73 · modules 32 · topics 56 · notes 224
-note_sections 1456 · diagrams 56 · models_3d 56 · formulas 15 · questions 38
-question_options 152 · dpp_sets 14 · dpp_questions 68 · programming_languages 6
-language_modules 23 · coding_problems 13 · coding_problem_stubs 16
+curriculum_subjects 2836 · subjects 93 · modules 93 · topics 121 · notes 484
+note_sections 3146 · diagrams 121 · models_3d 121 · formulas 80 · questions 159
+question_options 636 · dpp_sets 19 · dpp_questions 95 · programming_languages 6
+language_modules 37 · coding_problems 13 · coding_problem_stubs 16
 coding_testcases 54 · projects 6 · project_steps 32 · project_resources 6
-videos 320 · books 315 · resources 451 · roadmaps 5 · roadmap_nodes 57
-flashcards 221 · plans 3 · site_config 12 · badges 12 · users 5
-user_progress 55 · xp_events 101 · search index 1404
+videos 400 · books 395 · resources 544 · roadmaps 5 · roadmap_nodes 57
+flashcards 281 · plans 3 · site_config 12 · badges 12 · search index 1988
 ```
 
-Every one of the 56 topics carries a full standard note (all thirteen sections),
-an authored interactive diagram and a 3D model. Section bodies that are not part
-of the original topic entry live in `seed_data/notes_extra.py`, keyed by topic
-slug; `seed.py` raises at startup if that file names a topic that no longer
-exists, so a renamed topic cannot silently drop content.
+Every active branch has at least one published subject, every published subject
+has a published lesson and active question, and all 93 subjects appear in the
+19-set DPP rotation. Each of the 121 topics has four published reading-depth
+notes; the standard-depth note contains all thirteen sections. Topic-linked
+questions, a validated diagram and an interactive 3D model are seeded for every
+lesson. Cyber Security has five lessons and is readable without signing in.
+The 65 added starter topics are marked `needs_review` in editorial metadata;
+publication makes them reachable but does not imply expert sign-off.
+
+Section bodies are assembled from the original and expanded topic entries, and
+the coverage tests assert all thirteen sections on every standard note. Notes are
+keyed by topic slug; `seed.py` raises if authored content names a topic that no
+longer exists, so a renamed topic cannot silently drop content.
 
 ```bash
 python scripts/seed.py --fresh    # drop and rebuild

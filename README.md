@@ -1,6 +1,6 @@
 # EngineVerse
 
-**LeetCode for the entire engineering degree.**
+**A complete learning platform for engineering students.**
 
 Structured notes for every branch, daily practice problems, a LeetCode-style
 coding judge, real-world projects, spaced-repetition revision, skill roadmaps, a
@@ -29,12 +29,12 @@ Production is a separate step, and it has not been claimed as deployed. See
 
 | Area | What it does |
 |---|---|
-| **Notes** | 56 topics across mechanical, civil, electrical, electronics, computer science and the shared first-year core. Every note follows one [13-section template](docs/NOTE_TEMPLATE.md) at four depths, with LaTeX rendered by a dependency-free renderer. |
-| **Diagrams & 3D** | One hotspot SVG diagram and one interactive 3D model per topic (56 of each), drawn by a dependency-free WebGL renderer (`engine3d.js`, no three.js, no CDN). Drag to orbit, scroll to zoom, labels projected from 3D. Each model is JSON geometry stored in the database, so adding one is an INSERT, not a deploy. |
-| **Practice** | 38 questions (MCQ, numerical, conceptual, debug, diagram, case, design, interview) plus 14 Daily Practice Problem sets with a dated archive. |
+| **Notes** | 93 published subjects across all 45 branches, with 121 published starter topics in the current seed snapshot. All 121 topics have four public reading depths; each standard note carries the full [13-section template](docs/NOTE_TEMPLATE.md), with LaTeX rendered by a dependency-free renderer. |
+| **Diagrams & 3D** | One topic-linked SVG diagram and one interactive 3D learning model per topic (121 of each in the current snapshot), drawn by a dependency-free WebGL renderer (`engine3d.js`, no three.js, no CDN). Drag to orbit, scroll to zoom, labels projected from 3D. Each model is JSON geometry stored in the database. |
+| **Practice** | 159 active questions plus 19 Daily Practice Problem sets (95 question slots), with every published subject represented in the rotation. The question bank is filterable and paginated so all questions are reachable. |
 | **Coding** | 13 problems with an in-browser editor, real execution in an isolated sandbox, per-test verdicts, and stubs in Python, Java, JavaScript and C++. |
 | **Projects** | 6 end-to-end builds with steps, skills and resources — not "make a todo app". |
-| **Revision** | 34 flashcards on SM-2 spaced repetition, a formula centre, and a mistake notebook that turns wrong answers into a recovery plan. |
+| **Revision** | 281 flashcards in the current seed snapshot, on SM-2 spaced repetition, alongside a formula centre and a mistake notebook that turns wrong answers into a recovery plan. |
 | **Roadmaps** | 5 skill trees with 57 prerequisite-linked nodes. |
 | **Tutor** | A retrieval-grounded AI tutor. It answers only from this platform's own notes, formulas and topics, cites every source it used, is labelled AI-generated, and refuses rather than inventing when the library has nothing on a subject. Self-hosted — no external model call. |
 | **Community** | Threads, comments, votes, answers, moderation. |
@@ -224,12 +224,15 @@ Stated plainly rather than discovered later:
   TCP peer unless `ENGINEVERSE_TRUST_PROXY` is on. The compose file leaves it off.
 - **Email confirmation is sent only when `ENGINEVERSE_SMTP_URL` is set.**
   Without it the address stays unconfirmed and sign-in still works.
-- **The seeded catalogue is a foundation, not a library.** 56 topics is enough to
-  prove the model and to study from; a full degree is thousands. The structure is
-  built to be filled in without a redesign. Visual coverage is complete for the
-  topics that exist: all 56 carry an interactive 3D model and an SVG diagram with
-  hotspots. The 3D models are authored by hand one at a time, which is what caps
-  how fast that number grows.
+- **The seeded catalogue is broad starter coverage, not a complete degree.** The
+  current seed covers 45 active branches and 93 subjects with 121 published
+  starter topics. Sixty-five topics were added to previously uncovered subject
+  paths; generated starter material is marked `needs_review` in editorial
+  metadata, including the five public Cyber Security lessons. Every topic has a
+  standard note with all 13 sections, a linked SVG diagram, a 3D learning model,
+  and a question. Nineteen five-question DPPs represent all 93 subjects across
+  the dated rotation. See the generated [coverage snapshot](docs/CURRICULUM_COVERAGE.md);
+  a full degree is still thousands of carefully reviewed topics.
 
 ## Licence
 

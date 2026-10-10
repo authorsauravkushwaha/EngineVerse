@@ -44,12 +44,141 @@ def _subject_slugs() -> set[str]:
     return {row[0] for row in SUBJECTS}
 
 
+def test_every_active_branch_has_a_published_subject(seeded):
+    """All 45 branch paths must lead to at least one real course, not a blank tile."""
+    missing = db.query(
+        "SELECT b.slug FROM branches b WHERE b.is_active = 1 AND NOT EXISTS "
+        "(SELECT 1 FROM subjects s WHERE s.branch_id = b.id AND s.status = 'published') ORDER BY b.slug"
+    )
+    assert [row["slug"] for row in missing] == []
+
+
+def test_every_published_subject_has_notes_and_a_question(seeded):
+    """A catalogue row is a learning path only when notes and practice reach it."""
+    missing = db.query(
+        "SELECT s.slug FROM subjects s WHERE s.status = 'published' AND ("
+        "NOT EXISTS (SELECT 1 FROM topics t WHERE t.subject_id = s.id AND t.status = 'published') OR "
+        "NOT EXISTS (SELECT 1 FROM topics t JOIN notes n ON n.topic_id = t.id "
+        "  WHERE t.subject_id = s.id AND t.status = 'published' AND n.status = 'published' "
+        "  AND n.quality_level = 'standard') OR "
+        "NOT EXISTS (SELECT 1 FROM questions q WHERE q.subject_id = s.id AND q.is_active = 1)) "
+        "ORDER BY s.slug"
+    )
+    assert [row["slug"] for row in missing] == []
+
+
+def test_every_topic_has_a_linked_question(seeded):
+    """Topic pages must not advertise practice while their question panel is empty."""
+    missing = db.query(
+        "SELECT t.slug FROM topics t WHERE t.status = 'published' AND NOT EXISTS "
+        "(SELECT 1 FROM questions q WHERE q.topic_id = t.id AND q.is_active = 1) ORDER BY t.slug"
+    )
+    assert [row["slug"] for row in missing] == []
+
+
+def test_generated_starters_are_published_and_flagged_for_review(seeded):
+    """New breadth-first material is reachable while its editorial review state stays honest."""
+    from engineverse.security.sanitize import slugify
+    from seed_data import subject_paths
+
+    expected = {slugify(topic["title"]) for topic in subject_paths.TOPICS}
+    assert len(expected) == 65
+    rows = db.query(
+        "SELECT slug, status, accuracy_state FROM topics WHERE slug IN (%s) ORDER BY slug"
+        % ",".join("?" for _ in expected),
+        *sorted(expected),
+    )
+    assert {row["slug"] for row in rows} == expected
+    assert all(row["status"] == "published" and row["accuracy_state"] == "needs_review" for row in rows)
+    topic_ids = [row["id"] for row in db.query(
+        "SELECT id FROM topics WHERE slug IN (%s)" % ",".join("?" for _ in expected), *sorted(expected)
+    )]
+    questions = db.query(
+        "SELECT q.id, q.topic_id, q.answer_index, (SELECT count(*) FROM question_options o WHERE o.question_id = q.id) AS options, "
+        "(SELECT count(*) FROM question_options o WHERE o.question_id = q.id AND o.is_correct = 1) AS correct_options "
+        "FROM questions q WHERE q.topic_id IN (%s)" % ",".join("?" for _ in topic_ids),
+        *topic_ids,
+    )
+    assert len(questions) >= len(expected)
+    assert {row["topic_id"] for row in questions} >= set(topic_ids)
+    assert {row["answer_index"] for row in questions} == {0, 1, 2, 3}
+    assert all(row["options"] == 4 and row["correct_options"] == 1 for row in questions)
+
+
+def test_dpp_rotation_reaches_every_subject_and_keeps_five_questions_per_day(seeded):
+    """The dated archive must rotate through every subject, not repeat a tiny bank."""
+    missing = db.query(
+        "SELECT s.slug FROM subjects s WHERE s.status = 'published' AND NOT EXISTS ("
+        "SELECT 1 FROM questions q JOIN dpp_questions dq ON dq.question_id = q.id "
+        "JOIN dpp_sets d ON d.id = dq.set_id AND d.published = 1 "
+        "WHERE q.subject_id = s.id AND q.is_active = 1) ORDER BY s.slug"
+    )
+    assert [row["slug"] for row in missing] == []
+    thin = db.query(
+        "SELECT d.id, count(dq.question_id) AS n FROM dpp_sets d LEFT JOIN dpp_questions dq ON dq.set_id = d.id "
+        "WHERE d.published = 1 GROUP BY d.id HAVING n <> 5"
+    )
+    assert [dict(row) for row in thin] == []
+
+
+def test_cyber_security_notes_are_published_and_public(client, seeded):
+    """Cyber Security is readable anonymously, with the full note available on every lesson."""
+    subject = db.query_one("SELECT id, status FROM subjects WHERE slug = 'cryptography-security'")
+    assert subject and subject["status"] == "published"
+    topics = db.query(
+        "SELECT id, slug, status FROM topics WHERE subject_id = ? ORDER BY order_index", subject["id"]
+    )
+    assert len(topics) >= 5
+    for topic in topics:
+        assert topic["status"] == "published"
+        note = db.query_one(
+            "SELECT id, status FROM notes WHERE topic_id = ? AND quality_level = 'standard'", topic["id"]
+        )
+        assert note and note["status"] == "published"
+        assert len(db.query("SELECT id FROM note_sections WHERE note_id = ?", note["id"])) == 13
+        response = client.get(f"/topics/{topic['slug']}")
+        assert response.status_code == 200, f"public Cyber Security lesson {topic['slug']} was not readable"
+    assert client.get("/subjects/cryptography-security").status_code == 200
+
+
+def test_homepage_links_every_branch_and_subject(client, seeded):
+    """The homepage must expose the whole catalogue, not only its featured paths."""
+    response = client.get("/")
+    assert response.status_code == 200
+    branches = db.query("SELECT slug FROM branches WHERE is_active = 1")
+    subjects = db.query("SELECT slug FROM subjects WHERE status = 'published'")
+    for row in branches:
+        assert f'href="/branches/{row["slug"]}"' in response.text
+    for row in subjects:
+        assert f'href="/subjects/{row["slug"]}"' in response.text
+    assert len(branches) == 45
+    assert {row["slug"] for row in subjects} == _subject_slugs()
+    assert len(subjects) == 93
+
+
+def test_question_bank_pages_cover_the_entire_question_set(client, seeded):
+    """The bank's page links must make every question reachable, not just the first 60."""
+    total = db.scalar("SELECT count(*) FROM questions WHERE is_active = 1")
+    assert total > 24
+    seen = []
+    for page in range(1, (total + 23) // 24 + 1):
+        response = client.get(f"/practice/questions?page={page}")
+        assert response.status_code == 200
+        seen.extend(re.findall(r'data-quiz="([^"]+)"', response.text))
+        if page == 1:
+            assert f"1–24 of {total}" in response.text
+        else:
+            assert f"Page {page} of {(total + 23) // 24}" in response.text
+    assert len(seen) == total
+    assert len(set(seen)) == total
+
+
 @pytest.mark.parametrize("table", PER_SUBJECT_TABLES)
 def test_every_subject_has_a_usable_shelf(seeded, table):
     """No subject may have a shelf thin enough to look abandoned.
 
-    An empty subject page is the obvious failure; a one-item page is the
-    subtler one, and it was the actual state of 67 of 73 subjects' books.
+    An empty subject page is the obvious failure; a one-item page is subtler.
+    Before the catalogue expansion, 67 of the original 73 subjects had only one book.
     """
     thin = db.query(
         f"SELECT s.slug, (SELECT count(*) FROM {table} t WHERE t.subject_id = s.id) AS n "
@@ -219,14 +348,28 @@ REQUIRED_SECTIONS = [
 ]
 
 
+def test_every_published_topic_has_all_four_published_note_depths(seeded):
+    """Each lesson must have all public reading modes, not just a standard note."""
+    missing = []
+    for depth in ("beginner", "standard", "advanced", "industry"):
+        rows = db.query(
+            "SELECT t.slug FROM topics t WHERE t.status = 'published' AND NOT EXISTS ("
+            "SELECT 1 FROM notes n WHERE n.topic_id = t.id AND n.quality_level = ? "
+            "AND n.status = 'published') ORDER BY t.slug", depth,
+        )
+        missing.extend((depth, row["slug"]) for row in rows)
+    assert missing == []
+
+
 def test_every_standard_note_carries_all_thirteen_sections(seeded):
-    """The template promises thirteen sections; 42 topics were missing several."""
+    """The full reading mode has exactly thirteen sections, including every generated lesson."""
     incomplete = db.query(
-        "SELECT n.id, count(*) AS have FROM notes n "
-        "JOIN note_sections s ON s.note_id = n.id "
-        "WHERE n.quality_level = 'standard' GROUP BY n.id HAVING have < 13"
+        "SELECT n.id, count(s.id) AS have FROM notes n "
+        "LEFT JOIN note_sections s ON s.note_id = n.id "
+        "WHERE n.quality_level = 'standard' AND n.status = 'published' "
+        "GROUP BY n.id HAVING have <> 13"
     )
-    assert [(r["id"], r["have"]) for r in incomplete] == [], "standard notes with fewer than 13 sections"
+    assert [(r["id"], r["have"]) for r in incomplete] == [], "standard notes with other than 13 sections"
 
 
 def test_every_topic_has_the_four_previously_missing_fields(seeded):

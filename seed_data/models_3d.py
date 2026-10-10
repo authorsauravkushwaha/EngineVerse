@@ -1231,3 +1231,10 @@ MODELS_3D: dict[str, dict] = {
 from seed_data.foundations import MODELS as _FOUNDATION_MODELS  # noqa: E402
 
 MODELS_3D.update(_FOUNDATION_MODELS)
+
+# Generate compact workflow models for the all-subject starter lessons. They
+# share the same allowlisted scene constructors and validation as hand-authored
+# scenes, while the caption remains specific to the topic and governing model.
+from seed_data.subject_paths import generated_models as _generated_starter_models  # noqa: E402
+
+MODELS_3D.update(_generated_starter_models())
