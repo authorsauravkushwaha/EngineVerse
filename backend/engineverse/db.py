@@ -462,6 +462,11 @@ def migrate(schema_file: str | Path | None = None) -> int:
     # Columns added after the table was first created. Kept here so a database
     # that was seeded by an older build picks them up on the next migrate().
     ensure_column("certificates", "tier", "TEXT NOT NULL DEFAULT 'bronze'")
+    # Staged language paths: a module that predates staging keeps the honest
+    # default until the seeder restages it from seed_data/language_curriculum.py.
+    ensure_column("language_modules", "stage", "TEXT NOT NULL DEFAULT 'foundations'")
+    # Language-linked capstone projects; NULL simply means "not a capstone".
+    ensure_column("projects", "language_id", "TEXT REFERENCES programming_languages(id) ON DELETE SET NULL")
     # search_log is created on demand by the search module. Creating it here,
     # on the migration connection, means the runtime role only needs INSERT.
     execute(

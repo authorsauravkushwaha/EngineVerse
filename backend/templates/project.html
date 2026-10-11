@@ -11,6 +11,7 @@
         <span class="chip">{{ project.est_hours }} hours</span>
         <span class="chip">{{ project.category }}</span>
         {% if project.branch_slug %}<a class="chip" href="/branches/{{ project.branch_slug }}">{{ project.branch_name }}</a>{% endif %}
+        {% if project.language_slug %}<a class="chip ok" href="/programming/{{ project.language_slug }}">Capstone for the {{ project.language_name }} path</a>{% endif %}
         {% for tech in (project.tech | fromjson([])) %}<span class="chip">{{ tech }}</span>{% endfor %}</div>
       {% if user %}
       <div class="row mt" style="gap:8px;flex-wrap:wrap">
@@ -60,6 +61,14 @@
   </article>
 
   <aside class="sidebar">
+    {% if project.language_slug %}
+    <div class="panel tight"><h3>Part of the {{ project.language_name }} path</h3>
+      <p class="small muted">This brief is the capstone of the staged {{ project.language_name }} learning
+        path: Foundations and Working Practice modules, stage checkpoints, then this build. Finish the
+        checkpoints before starting milestone 1 — the prerequisites section names what the brief assumes.</p>
+      <a class="btn btn-soft btn-sm btn-block" href="/programming/{{ project.language_slug }}">Back to the {{ project.language_name }} path →</a>
+    </div>
+    {% endif %}
     {% if user %}
     <div class="panel tight"><h3>Build log</h3>
       <p class="small muted">{{ project.build_count or 0 }} engineer{{ '' if (project.build_count or 0) == 1 else 's' }} have logged this build.

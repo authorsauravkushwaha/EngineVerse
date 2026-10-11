@@ -300,8 +300,20 @@ CREATE TABLE IF NOT EXISTS language_modules (
   body                 TEXT NOT NULL,
   example              TEXT,
   exercise             TEXT,
+  stage                TEXT NOT NULL DEFAULT 'foundations',
   order_index          BIGINT NOT NULL DEFAULT 0,
   UNIQUE (language_id, slug),
+  PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS language_stages (
+  id                   TEXT NOT NULL,
+  language_id          TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
+  stage                TEXT NOT NULL,
+  title                TEXT NOT NULL,
+  summary              TEXT,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  UNIQUE (language_id, stage),
   PRIMARY KEY (id)
 );
 
@@ -558,6 +570,7 @@ CREATE TABLE IF NOT EXISTS projects (
   title                TEXT NOT NULL,
   branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
   subject_id           TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  language_id          TEXT REFERENCES programming_languages(id) ON DELETE SET NULL,
   difficulty           TEXT NOT NULL DEFAULT 'intermediate',
   category             TEXT NOT NULL DEFAULT 'software',
   est_hours            BIGINT NOT NULL DEFAULT 20,
@@ -883,6 +896,16 @@ CREATE TABLE IF NOT EXISTS mistakes (
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
+CREATE TABLE IF NOT EXISTS language_checkpoints (
+  id                   TEXT NOT NULL,
+  language_id          TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
+  stage                TEXT NOT NULL,
+  question_id          TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  UNIQUE (language_id, stage, question_id),
+  PRIMARY KEY (id)
+);
+
 CREATE TABLE IF NOT EXISTS user_flashcards (
   user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   flashcard_id         TEXT NOT NULL REFERENCES flashcards(id) ON DELETE CASCADE,
@@ -1016,12 +1039,15 @@ CREATE INDEX IF NOT EXISTS idx_sub_user ON submissions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_sub_question ON submissions(question_id, is_correct);
 CREATE INDEX IF NOT EXISTS idx_sub_topic ON submissions(user_id, question_id);
 CREATE INDEX IF NOT EXISTS idx_mistake_user ON mistakes(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_langmod_stage ON language_modules(language_id, stage, order_index);
+CREATE INDEX IF NOT EXISTS idx_langchk_stage ON language_checkpoints(language_id, stage, order_index);
 CREATE INDEX IF NOT EXISTS idx_cp_difficulty ON coding_problems(difficulty);
 CREATE INDEX IF NOT EXISTS idx_tc_problem ON coding_testcases(problem_id, order_index);
 CREATE INDEX IF NOT EXISTS idx_csub_user ON coding_submissions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_csub_problem ON coding_submissions(problem_id, is_accepted);
 CREATE INDEX IF NOT EXISTS idx_project_difficulty ON projects(difficulty);
 CREATE INDEX IF NOT EXISTS idx_project_branch ON projects(branch_id);
+CREATE INDEX IF NOT EXISTS idx_project_language ON projects(language_id);
 CREATE INDEX IF NOT EXISTS idx_pstep ON project_steps(project_id, order_index);
 CREATE INDEX IF NOT EXISTS idx_video_topic ON videos(topic_id);
 CREATE INDEX IF NOT EXISTS idx_res_kind ON resources(kind);

@@ -300,10 +300,22 @@ async def language_page(request: Request, language: str):
     lang = coding.language_by_slug(language)
     if not lang:
         raise HTTPException(status_code=404, detail="Unknown language")
+    stages = coding.stages_for_language(lang["id"])
+    viewer = current_user(request)
+    # Attempt history for the stage checkpoints, so a signed-in learner sees
+    # which gates they have already answered. Read-only; the answer key never
+    # reaches the page - checkpoints are graded by the normal practice API.
+    checkpoint_ids = [q["id"] for stage in stages for q in stage["checkpoints"]]
+    attempts = practice.attempt_summary(viewer.id, checkpoint_ids) if viewer else {}
     return render(
         request, "language.html", language=lang,
+        stages=stages,
         modules=coding.modules_for_language(lang["id"]),
-        problems=coding.list_problems(limit=30)[0],
+        capstone=coding.capstone_for_language(lang["id"]),
+        # Only problems this language has a starter for: a problem without a
+        # stub renders an editor that cannot run in the page's language.
+        problems=coding.problems_with_starter(lang["id"], limit=30),
+        attempts=attempts,
     )
 
 

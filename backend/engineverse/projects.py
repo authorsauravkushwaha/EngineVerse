@@ -52,8 +52,10 @@ def list_projects(
 
 def get_project(slug: str) -> dict | None:
     row = db.query_one(
-        "SELECT p.*, b.name AS branch_name, b.slug AS branch_slug, s.name AS subject_name, s.slug AS subject_slug "
+        "SELECT p.*, b.name AS branch_name, b.slug AS branch_slug, s.name AS subject_name, s.slug AS subject_slug, "
+        "l.name AS language_name, l.slug AS language_slug, l.color AS language_color "
         "FROM projects p LEFT JOIN branches b ON b.id = p.branch_id LEFT JOIN subjects s ON s.id = p.subject_id "
+        "LEFT JOIN programming_languages l ON l.id = p.language_id "
         "WHERE p.slug = ? AND p.status = 'published'",
         slug,
     )

@@ -69,6 +69,11 @@ def collect_from_database() -> dict[str, list[dict]]:
         ("videos", "SELECT id, title, url FROM videos WHERE url IS NOT NULL AND url <> ''"),
         ("books", "SELECT id, title, legal_url AS url FROM books "
                   "WHERE legal_url IS NOT NULL AND legal_url <> ''"),
+        # Project briefs (including the language capstones) link out to real
+        # documentation; those URLs were rendered on project pages while the
+        # checker only ever looked at the library shelves.
+        ("project_resources", "SELECT id, title, url FROM project_resources "
+                              "WHERE url IS NOT NULL AND url <> ''"),
     )
     for label, sql in queries:
         for row in db.query(sql):
@@ -80,12 +85,25 @@ def collect_from_database() -> dict[str, list[dict]]:
 def collect_from_source() -> dict[str, list[dict]]:
     """URLs from the registries, so a link can be checked before it is seeded."""
     sys.path.insert(0, str(REPO_ROOT))
+    found: dict[str, list[dict]] = {}
     try:
         from seed_data import resource_sources
+        for url in resource_sources.all_urls():
+            if url:
+                found.setdefault(url, []).append({"table": "seed_data", "id": "", "title": ""})
     except Exception:
-        return {}
-    return {url: [{"table": "seed_data", "id": "", "title": ""}]
-            for url in resource_sources.all_urls() if url}
+        pass
+    try:
+        from seed_data import language_projects, library_data
+        for entry in list(library_data.PROJECTS) + list(language_projects.CAPSTONES):
+            for _kind, title, url, _note in entry.get("resources", []):
+                if url:
+                    found.setdefault(url, []).append(
+                        {"table": "seed_project", "id": entry.get("slug", ""), "title": title}
+                    )
+    except Exception:
+        pass
+    return found
 
 
 def collect_urls() -> dict[str, list[dict]]:

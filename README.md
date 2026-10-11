@@ -59,10 +59,10 @@ what is seeded today, not a completeness guarantee.
 | **Notes** | 127 published topics, 508 notes across four reading depths, and 3,302 note sections. Standard notes use the [13-section note template](docs/NOTE_TEMPLATE.md). |
 | **Cyber Security** | 11 published starter topics with public notes; learners can read them without signing in. They remain starter material and need expert review. |
 | **Diagrams and models** | 127 topic-linked SVG diagrams and 127 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
-| **Practice** | 165 active questions and 33 published Daily Practice Problem sets (165 slots); every active question and all 93 subjects appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
-| **Programming paths** | 9 learning paths and 68 public, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, Go, Rust and SQL. Paths progress from fundamentals and testing toward building applications, APIs and carefully bounded tool-using agents where appropriate to the language. |
+| **Practice** | 246 active questions and 50 published Daily Practice Problem sets (250 slots); every active question, all 93 subjects and all nine language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
+| **Programming paths** | 9 learning paths and 68 public, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, Go, Rust and SQL. Each path is staged — Foundations, then Working Practice, then Advanced Engineering — across 27 stages, and each stage ends with three checkpoint questions (81 total) answered through the normal practice flow, with feedback, explanation and XP only after submission. |
 | **Coding practice** | 13 problems with language stubs and test cases. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
-| **Projects** | 7 project briefs with steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent. |
+| **Projects** | 16 project briefs with ordered steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent — including a substantial capstone brief linked to each of the nine language paths. |
 | **Revision and roadmaps** | 281 public flashcards are browsable at `/flashcards` and searchable without indexing their answers; personal SM-2 schedules are at `/revision`. The seed also includes 5 roadmaps and 57 roadmap nodes. |
 | **Study helper** | A retrieval-grounded tutor that composes answers from EngineVerse's own indexed material and cites its sources. It does not make an external model call by default and should say when the catalogue has no relevant coverage. |
 
@@ -74,12 +74,23 @@ subject has a complete semester or degree curriculum.
 ## Practical programming
 
 The programming paths are intended to build from syntax toward useful software,
-not stop at isolated language trivia. Depending on the path, modules cover
-collections, functions, object-oriented design, error handling, testing, safe
-input handling, APIs, persistence, concurrency, authorization and project
-structure. Later projects include study tools, services, dashboards and
-allowlisted agent tools. C and C++ paths also emphasize memory/resource safety
-and undefined-behavior avoidance.
+not stop at isolated language trivia. Each path runs through the same three
+stages — **Foundations** (the language and its first programs), **Working
+Practice** (the habits of small correct programs: testing, error handling, safe
+input) and **Advanced Engineering** (structure, concurrency, persistence,
+authorization and the tooling a maintainer relies on). Every stage ends with a
+three-question checkpoint answered through the normal practice flow, and every
+path ends with a capstone project brief: a real problem with prerequisites,
+ordered milestones, testing expectations, resources and a shippable result.
+Depending on the path, modules cover collections, functions, object-oriented
+design, error handling, testing, safe input handling, APIs, persistence,
+concurrency, authorization and project structure. C and C++ paths also emphasize
+memory/resource safety and undefined-behavior avoidance.
+
+The coding problems on a language page are limited to the ones that language has
+a usable editor starter for; where a path has no starter yet the page says so
+rather than opening an editor that cannot run that language. The modules,
+checkpoints and capstone brief are fully usable regardless.
 
 Runnable support is a deployment property, not just a curriculum promise. The
 UI marks a language runnable only when the active provider supports it on that

@@ -193,6 +193,7 @@ def public_paths() -> list[str]:
         "/about",
         "/practice",
         "/dpp",
+        "/dpp/archive",
         "/programming",
         "/projects",
         "/resources",
@@ -220,7 +221,10 @@ def public_paths() -> list[str]:
     problems, _total = coding.list_problems(limit=400)
     paths += [f"/practice/problems/{row['slug']}" for row in problems]
     paths.append("/practice/problems")
-    paths += ["/practice/questions", "/revision", "/tutor"]
+    # /revision (signed-in) and /flashcards (anonymous) are the two faces of the
+    # nav's "Revise" tab; the static copy renders anonymously, so its nav points
+    # at /flashcards and that page has to exist or every nav link dangles.
+    paths += ["/practice/questions", "/revision", "/flashcards", "/tutor"]
     for row in db.query("SELECT date FROM dpp_sets ORDER BY date"):
         if row["date"]:
             paths.append(f"/dpp/{row['date']}")
@@ -536,6 +540,16 @@ def copy_static(site: Path, base: str) -> None:
         sw.unlink()
     app_js = dest / "js" / "app.js"
     app_js.write_text(patch_app_js(app_js.read_text(encoding="utf-8"), base), encoding="utf-8")
+    # Static HTML (the offline fallback page) is copied verbatim from the app,
+    # where its links are root-absolute ("/static/...", "/") and correct at the
+    # app root. Under a Pages base prefix those resolve outside the base and
+    # 404, so rewrite them exactly as rendered pages are rewritten. Only the
+    # exported copy becomes base-aware; the live app keeps its root-absolute
+    # links. This is a no-op when base is "/".
+    for html_file in dest.rglob("*.html"):
+        html_file.write_text(
+            rewrite_html(html_file.read_text(encoding="utf-8"), base), encoding="utf-8"
+        )
     manifest = {
         "name": "EngineVerse",
         "short_name": "EngineVerse",
@@ -557,7 +571,18 @@ def copy_static(site: Path, base: str) -> None:
 
 
 def mirror_script() -> str:
-    """Show a note's explanation without calling the server. Does not grade the answer."""
+    """Reveal a note's explanation without calling the server. Does not grade.
+
+    The reading copy has no server, so it cannot grade a quiz. Note quizzes
+    embed their explanation in the page, so revealing it is honest. A stage
+    checkpoint deliberately does not embed one - the answer and explanation
+    live server-side and are returned only after a real submission - so its
+    ``.explain`` is empty. Rather than fake a "Shown from the note" reveal over
+    an empty box, say plainly that this copy cannot check the answer. The
+    distinction is the empty ``.explain``: every seeded question has a
+    non-empty explanation and the note templates always render it, so only
+    checkpoints arrive here empty.
+    """
     return """
 <script>
 (function () {
@@ -568,10 +593,18 @@ def mirror_script() -> str:
       var card = form.closest("[data-quiz]");
       if (!card) return;
       var explain = card.querySelector(".explain");
-      if (explain) explain.classList.add("on");
       var badge = card.querySelector(".verdict-inline");
+      var embedded = explain && explain.textContent.trim().length > 0;
+      if (explain) {
+        if (!embedded) {
+          explain.textContent = "This checkpoint is graded when you sign in on a live "
+            + "EngineVerse install. The reading copy shows the question but cannot "
+            + "check your answer or reveal the explanation.";
+        }
+        explain.classList.add("on");
+      }
       if (badge) {
-        badge.textContent = "Shown from the note";
+        badge.textContent = embedded ? "Shown from the note" : "Graded on a live install";
         badge.className = "verdict-inline chip";
         badge.style.display = "inline-block";
       }

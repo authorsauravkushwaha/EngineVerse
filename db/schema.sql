@@ -470,9 +470,46 @@ CREATE TABLE IF NOT EXISTS language_modules (
   body        TEXT NOT NULL,
   example     TEXT,
   exercise    TEXT,
+  -- One of the three path stages: foundations | working_practice |
+  -- advanced_engineering. Every module belongs to exactly one stage of its
+  -- language; scripts/seed.py validates the assignment against
+  -- seed_data/language_curriculum.py and fails on drift, so a module can be
+  -- restaged only by editing that file.
+  stage       TEXT NOT NULL DEFAULT 'foundations',
   order_index INTEGER NOT NULL DEFAULT 0,
   UNIQUE (language_id, slug)
 );
+CREATE INDEX IF NOT EXISTS idx_langmod_stage ON language_modules(language_id, stage, order_index);
+
+-- The staged progression of one language path. Rows are seeded, never
+-- hard-coded in templates: three per language (Foundations, Working Practice,
+-- Advanced Engineering), each with its own title and summary so a language
+-- page can explain what the stage is for before listing its modules.
+CREATE TABLE IF NOT EXISTS language_stages (
+  id          TEXT PRIMARY KEY,
+  language_id TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
+  stage       TEXT NOT NULL,   -- foundations | working_practice | advanced_engineering
+  title       TEXT NOT NULL,
+  summary     TEXT,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (language_id, stage)
+);
+
+-- Stage checkpoint quizzes. A checkpoint is a link between a (language, stage)
+-- and an ordinary row in `questions`: checkpoints are answered through the
+-- normal /api/practice/answer flow, earn attempt-based XP like any question,
+-- appear in the question bank and rotate into DPP sets. Nothing about grading
+-- or history is checkpoint-specific; this table only says where a question is
+-- used as a gate.
+CREATE TABLE IF NOT EXISTS language_checkpoints (
+  id          TEXT PRIMARY KEY,
+  language_id TEXT NOT NULL REFERENCES programming_languages(id) ON DELETE CASCADE,
+  stage       TEXT NOT NULL,   -- matches language_stages.stage for the same language
+  question_id TEXT NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  UNIQUE (language_id, stage, question_id)
+);
+CREATE INDEX IF NOT EXISTS idx_langchk_stage ON language_checkpoints(language_id, stage, order_index);
 
 CREATE TABLE IF NOT EXISTS coding_problems (
   id              TEXT PRIMARY KEY,
@@ -545,6 +582,10 @@ CREATE TABLE IF NOT EXISTS projects (
   title               TEXT NOT NULL,
   branch_id           TEXT REFERENCES branches(id) ON DELETE SET NULL,
   subject_id          TEXT REFERENCES subjects(id) ON DELETE SET NULL,
+  -- Set on a project that is the capstone brief of a programming-language
+  -- path. The language page links forward to the brief and the brief links
+  -- back to the path; NULL means the project is not tied to one language.
+  language_id         TEXT REFERENCES programming_languages(id) ON DELETE SET NULL,
   difficulty          TEXT NOT NULL DEFAULT 'intermediate',
   category            TEXT NOT NULL DEFAULT 'software',
   est_hours           INTEGER NOT NULL DEFAULT 20,
@@ -574,6 +615,7 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 CREATE INDEX IF NOT EXISTS idx_project_difficulty ON projects(difficulty);
 CREATE INDEX IF NOT EXISTS idx_project_branch ON projects(branch_id);
+CREATE INDEX IF NOT EXISTS idx_project_language ON projects(language_id);
 
 CREATE TABLE IF NOT EXISTS project_steps (
   id          TEXT PRIMARY KEY,

@@ -119,6 +119,12 @@
   });
 
   // ------------------------------------------------------------- MCQ quiz
+  // The answer key never ships in the page: options render without the
+  // correct flag and the explanation div starts empty. The graded response
+  // from /api/practice/answer carries correct, correctLabel, explanation and
+  // xp, and only then does the card reveal which option was right, why, and
+  // what the attempt earned. Wrong attempts stay visible as attempts - they
+  // earn attempt XP and land in the mistake notebook like any other question.
   $$("[data-quiz]").forEach((card) => {
     const qid = card.dataset.quiz;
     const form = $("form", card);
@@ -135,22 +141,35 @@
           method: "POST",
           body: { questionId: qid, optionIndex: index, setId: card.dataset.set || null },
         });
+        const correctLabel = String(res.correctLabel || "").trim();
         $$(".opt", card).forEach((opt) => {
           opt.classList.add("locked");
-          const i = Number(opt.dataset.index);
-          if (i === res.correctIndex) opt.classList.add("correct");
-          else if (i === index) opt.classList.add("wrong");
+          const key = $(".k", opt);
+          const label = key ? key.textContent.trim() : "";
+          if (correctLabel && label === correctLabel) opt.classList.add("correct");
+          else if (Number(opt.dataset.index) === index) opt.classList.add("wrong");
           $$("input", opt).forEach((inp) => { inp.disabled = true; });
         });
         const explain = $(".explain", card);
-        if (explain) explain.classList.add("on");
+        if (explain) {
+          if (res.explanation) {
+            // Built with DOM nodes, not innerHTML: an explanation is authored
+            // content, and this path stays injection-proof even if that ever
+            // changes.
+            explain.replaceChildren();
+            const lead = document.createElement("strong");
+            lead.textContent = "Why.";
+            explain.append(lead, ` ${res.explanation}`);
+          }
+          explain.classList.add("on");
+        }
         const badge = $(".verdict-inline", card);
         if (badge) {
           badge.textContent = res.correct ? "Correct" : "Not quite";
           badge.className = `verdict-inline chip ${res.correct ? "ok" : "bad"}`;
           badge.style.display = "inline-block";
         }
-        if (res.xpAwarded) toast(`+${res.xpAwarded} XP`);
+        if (res.xp) toast(res.correct ? `+${res.xp} XP` : `+${res.xp} XP for the attempt`);
       } catch (err) {
         toast(err.message, "bad");
         submit.disabled = false;
