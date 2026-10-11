@@ -56,10 +56,10 @@ what is seeded today, not a completeness guarantee.
 | Area | Current seeded coverage |
 |---|---|
 | **Engineering subjects** | 45 branches and 93 published subjects. The catalogue includes computing, electrical, mechanical, civil, chemical, aerospace, biomedical, agricultural, cybersecurity and other engineering fields. Browse what is available in the app; missing material is not implied by this snapshot. |
-| **Notes** | 127 published topics, 508 notes across four reading depths, and 3,302 note sections. Standard notes use the [13-section note template](docs/NOTE_TEMPLATE.md). |
-| **Cyber Security** | 11 published starter topics with public notes; learners can read them without signing in. They remain starter material and need expert review. |
-| **Diagrams and models** | 127 topic-linked SVG diagrams and 127 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
-| **Practice** | 246 active questions and 50 published Daily Practice Problem sets (250 slots); every active question, all 93 subjects and all nine language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
+| **Notes** | 313 published topics, 1,252 notes across four reading depths, and 8,138 note sections. Standard notes use the [13-section note template](docs/NOTE_TEMPLATE.md). |
+| **Cyber Security** | 13 published starter topics with public notes; learners can read them without signing in. They remain starter material and need expert review. |
+| **Diagrams and models** | 313 topic-linked SVG diagrams and 313 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
+| **Practice** | 432 active questions and 87 published Daily Practice Problem sets (435 slots); every active question, all 93 subjects and all nine language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
 | **Programming paths** | 9 learning paths and 68 public, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, Go, Rust and SQL. Each path is staged — Foundations, then Working Practice, then Advanced Engineering — across 27 stages, and each stage ends with three checkpoint questions (81 total) answered through the normal practice flow, with feedback, explanation and XP only after submission. |
 | **Coding practice** | 13 problems with language stubs and test cases. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
 | **Projects** | 16 project briefs with ordered steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent — including a substantial capstone brief linked to each of the nine language paths. |

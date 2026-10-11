@@ -99,12 +99,18 @@ def _text(value: Any, limit: int = MAX_TEXT) -> str:
     escaping correctly for both is how the original diagram helper ended up
     stripping `<` and `>` but leaving a quote that broke out of a
     single-quoted attribute. Removing the characters is correct for both.
+
+    The ampersand is the one character that gets *escaped* instead: a bare `&`
+    is not well-formed XML in either context (a title like "GD&T" once made
+    `ET.fromstring` reject the whole stored spec), and `&amp;` happens to be
+    valid inside attributes and text alike, so it is safe in both. Escaping
+    runs *after* truncation so the limit can never cut an entity in half.
     """
     if value is None:
         return ""
     cleaned = "".join(ch for ch in str(value) if ch not in "<>\"'\x00")
-    cleaned = " ".join(cleaned.split())
-    return cleaned[:limit]
+    cleaned = " ".join(cleaned.split())[:limit]
+    return cleaned.replace("&", "&amp;")
 
 
 def _points(raw: Any, limit: int = MAX_POINTS) -> list[tuple[float, float]]:

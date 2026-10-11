@@ -1093,8 +1093,13 @@ class TestSearchIndexSelfHeal:
         from engineverse import search
 
         search.refresh_if_stale()
-        types = {row["type"] for row in search.search("array", limit=10)["results"]}
-        assert "note" in types, "a search for a covered concept returns no notes"
+        # Filter by type instead of asserting an exact top-10 mix: a note row
+        # indexes four merged quality levels, so bm25's length normalisation
+        # scores its long body below the topic/question rows for the same word,
+        # and which types hold the very top slots shifts as the catalogue grows.
+        rows = search.search("array", type="note", limit=5)["results"]
+        assert rows, "a search for a covered concept returns no notes"
+        assert all(row["type"] == "note" for row in rows)
 
     def test_content_added_after_boot_becomes_searchable(self, seeded):
         """docs/CONTENT.md says to extend the catalogue by inserting rows.

@@ -13,16 +13,16 @@ production content unless you just generated it from that database.
 
 - Branches: 45
 - Published subjects: 93
-- Published topics: 127
-- Published notes across all reading depths: 508
-- Note sections: 3302
-- Standard notes with all 13 sections: 127
-- Diagrams: 127
-- 3D models: 127
-- Formulas: 86
-- Active questions: 246
-- Published DPP sets: 50
-- Published DPP question slots: 250
+- Published topics: 313
+- Published notes across all reading depths: 1252
+- Note sections: 8138
+- Standard notes with all 13 sections: 313
+- Diagrams: 313
+- 3D models: 313
+- Formulas: 272
+- Active questions: 432
+- Published DPP sets: 87
+- Published DPP question slots: 435
 - Subjects represented in published DPPs: 93
 - Language tracks represented in published DPPs: 9
 - Coding problems: 13
@@ -55,51 +55,51 @@ Each path progresses through Foundations, Working Practice and Advanced Engineer
 
 | Branch | Subjects | Topics | Notes | Questions |
 |---|---:|---:|---:|---:|
-| AI & Machine Learning | 2 | 2 | 8 | 2 |
-| Aerospace Engineering | 1 | 1 | 4 | 1 |
-| Agricultural Engineering | 1 | 1 | 4 | 1 |
-| Automobile Engineering | 1 | 1 | 4 | 1 |
-| Biomedical Engineering | 1 | 1 | 4 | 1 |
-| Biotechnology Engineering | 1 | 1 | 4 | 1 |
-| Blockchain Engineering | 1 | 1 | 4 | 1 |
-| Chemical Engineering | 6 | 6 | 24 | 7 |
-| Civil Engineering | 3 | 3 | 12 | 3 |
-| Cloud Computing | 1 | 1 | 4 | 1 |
-| Computer Science Engineering | 10 | 31 | 124 | 49 |
-| Construction Engineering | 1 | 1 | 4 | 1 |
-| Control Systems | 1 | 1 | 4 | 1 |
-| Cyber Security | 1 | 11 | 44 | 11 |
-| Data Science | 1 | 1 | 4 | 1 |
-| DevOps & SRE | 1 | 1 | 4 | 1 |
-| Electrical Engineering | 5 | 5 | 20 | 8 |
-| Electronics & Communication | 6 | 6 | 24 | 8 |
-| Electronics Engineering | 1 | 1 | 4 | 1 |
-| Embedded Systems | 1 | 1 | 4 | 1 |
-| Energy Engineering | 1 | 1 | 4 | 1 |
-| Environmental Engineering | 1 | 1 | 4 | 1 |
-| Food Technology | 1 | 1 | 4 | 1 |
-| Geotechnical Engineering | 1 | 1 | 4 | 2 |
-| Industrial Engineering | 1 | 1 | 4 | 1 |
-| Information Technology | 1 | 1 | 4 | 1 |
-| Instrumentation Engineering | 1 | 1 | 4 | 1 |
-| Internet of Things | 1 | 1 | 4 | 1 |
-| Manufacturing Engineering | 1 | 1 | 4 | 1 |
-| Marine Engineering | 1 | 1 | 4 | 1 |
-| Materials Engineering | 1 | 1 | 4 | 1 |
-| Mechanical Engineering | 8 | 10 | 40 | 14 |
-| Mechatronics | 1 | 1 | 4 | 1 |
-| Metallurgical Engineering | 1 | 1 | 4 | 1 |
-| Mining Engineering | 1 | 1 | 4 | 1 |
-| Petroleum Engineering | 1 | 1 | 4 | 1 |
-| Polymer Engineering | 1 | 1 | 4 | 1 |
-| Production Engineering | 1 | 1 | 4 | 1 |
-| Robotics | 1 | 1 | 4 | 1 |
-| Robotics & Automation | 1 | 1 | 4 | 1 |
-| Software Engineering | 1 | 1 | 4 | 1 |
-| Structural Engineering | 2 | 2 | 8 | 2 |
-| Textile Engineering | 1 | 1 | 4 | 1 |
-| Transportation Engineering | 1 | 1 | 4 | 1 |
-| VLSI Design | 1 | 1 | 4 | 1 |
+| AI & Machine Learning | 2 | 6 | 24 | 6 |
+| Aerospace Engineering | 1 | 3 | 12 | 3 |
+| Agricultural Engineering | 1 | 3 | 12 | 3 |
+| Automobile Engineering | 1 | 3 | 12 | 3 |
+| Biomedical Engineering | 1 | 3 | 12 | 3 |
+| Biotechnology Engineering | 1 | 3 | 12 | 3 |
+| Blockchain Engineering | 1 | 3 | 12 | 3 |
+| Chemical Engineering | 6 | 18 | 72 | 19 |
+| Civil Engineering | 3 | 9 | 36 | 9 |
+| Cloud Computing | 1 | 3 | 12 | 3 |
+| Computer Science Engineering | 10 | 51 | 204 | 69 |
+| Construction Engineering | 1 | 3 | 12 | 3 |
+| Control Systems | 1 | 3 | 12 | 3 |
+| Cyber Security | 1 | 13 | 52 | 13 |
+| Data Science | 1 | 3 | 12 | 3 |
+| DevOps & SRE | 1 | 3 | 12 | 3 |
+| Electrical Engineering | 5 | 15 | 60 | 18 |
+| Electronics & Communication | 6 | 18 | 72 | 20 |
+| Electronics Engineering | 1 | 3 | 12 | 3 |
+| Embedded Systems | 1 | 3 | 12 | 3 |
+| Energy Engineering | 1 | 3 | 12 | 3 |
+| Environmental Engineering | 1 | 3 | 12 | 3 |
+| Food Technology | 1 | 3 | 12 | 3 |
+| Geotechnical Engineering | 1 | 3 | 12 | 4 |
+| Industrial Engineering | 1 | 3 | 12 | 3 |
+| Information Technology | 1 | 3 | 12 | 3 |
+| Instrumentation Engineering | 1 | 3 | 12 | 3 |
+| Internet of Things | 1 | 3 | 12 | 3 |
+| Manufacturing Engineering | 1 | 3 | 12 | 3 |
+| Marine Engineering | 1 | 3 | 12 | 3 |
+| Materials Engineering | 1 | 3 | 12 | 3 |
+| Mechanical Engineering | 8 | 26 | 104 | 30 |
+| Mechatronics | 1 | 3 | 12 | 3 |
+| Metallurgical Engineering | 1 | 3 | 12 | 3 |
+| Mining Engineering | 1 | 3 | 12 | 3 |
+| Petroleum Engineering | 1 | 3 | 12 | 3 |
+| Polymer Engineering | 1 | 3 | 12 | 3 |
+| Production Engineering | 1 | 3 | 12 | 3 |
+| Robotics | 1 | 3 | 12 | 3 |
+| Robotics & Automation | 1 | 3 | 12 | 3 |
+| Software Engineering | 1 | 3 | 12 | 3 |
+| Structural Engineering | 2 | 6 | 24 | 6 |
+| Textile Engineering | 1 | 3 | 12 | 3 |
+| Transportation Engineering | 1 | 3 | 12 | 3 |
+| VLSI Design | 1 | 3 | 12 | 3 |
 
 A branch with a handful of subjects is a sample, not a semester. Core learning
 stays free. Certificates issued by this application are not university degrees
