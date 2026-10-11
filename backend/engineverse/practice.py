@@ -348,6 +348,27 @@ def topic_accuracy(user_id: str, topic_id: str) -> dict:
     return {"total": total, "correct": correct, "accuracy": round(correct / total * 100) if total else 0}
 
 
+def attempt_summary(user_id: str, question_ids: list[str]) -> dict[str, dict]:
+    """Per-question attempt history for a set of questions: {id: {attempts, correct}}.
+
+    Read-only summary of ``submissions`` used to show a learner which
+    checkpoints they have already attempted. Questions with no submission are
+    absent from the result rather than listed with zeros.
+    """
+    if not question_ids:
+        return {}
+    placeholders = ",".join("?" for _ in question_ids)
+    rows = db.query(
+        f"SELECT question_id, count(*) AS attempts, COALESCE(sum(is_correct), 0) AS correct "
+        f"FROM submissions WHERE user_id = ? AND question_id IN ({placeholders}) GROUP BY question_id",
+        user_id, *question_ids,
+    )
+    return {
+        row["question_id"]: {"attempts": int(row["attempts"]), "correct": int(row["correct"])}
+        for row in rows
+    }
+
+
 def mistake_notebook(
     user_id: str, *, topic_id: str | None = None, kind: str | None = None,
     difficulty: str | None = None, limit: int = 60,

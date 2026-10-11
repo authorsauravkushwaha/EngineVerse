@@ -248,6 +248,9 @@ class TestAnswerApi:
         assert body["ok"] is True
         assert body["correct"] is True, f"a correct answer was marked wrong: {body}"
         assert body["xp"] > 0
+        # After a submission the learner is told which option was right and why.
+        assert body["correctLabel"], "a correct answer must still name the correct label"
+        assert str(body.get("explanation", "")).strip(), "a graded answer must return its explanation"
 
     def test_answering_incorrectly_is_marked_wrong(self, signed_in):
         from engineverse import db
@@ -273,6 +276,70 @@ class TestAnswerApi:
         body = response.json()
         assert body["correct"] is False
         assert body["correctLabel"], "the learner must be told which option was right"
+
+    def test_a_wrong_attempt_earns_attempt_xp_every_time_not_once(self, signed_in):
+        """Attempt-based XP: a wrong answer is a real attempt and must award XP
+        on every submission, exactly like a correct one. Guarding the specific
+        regression where a wrong answer is treated as one-time-per-question and
+        the second attempt silently earns nothing.
+        """
+        from engineverse import db
+
+        question = db.query_one(
+            "SELECT q.id FROM questions q WHERE q.kind = 'mcq' AND q.is_active = 1 "
+            "AND (SELECT count(*) FROM question_options o WHERE o.question_id = q.id AND o.is_correct = 0) >= 1 "
+            "LIMIT 1"
+        )
+        assert question is not None
+        _, wrong_index = self._option_indexes(question["id"])
+        token = _csrf(signed_in.get("/practice/questions").text)
+
+        def answer_wrong():
+            return signed_in.post(
+                "/api/practice/answer",
+                json={"csrf_token": token, "questionId": question["id"], "optionIndex": wrong_index},
+                headers={"x-csrf-token": token},
+            )
+
+        first = answer_wrong()
+        second = answer_wrong()
+        assert first.status_code == 200 and second.status_code == 200, (first.text, second.text)
+        for body in (first.json(), second.json()):
+            assert body["correct"] is False
+            assert body["xp"] == 1, "a wrong attempt must award the flat attempt XP on every try"
+            assert str(body.get("explanation", "")).strip(), "even a wrong attempt returns the explanation after submit"
+            assert body["correctLabel"], "a wrong attempt must still name the correct option"
+        # Both attempts were recorded in the learner's history, not collapsed into one.
+        recorded = int(db.scalar(
+            "SELECT count(*) FROM submissions WHERE question_id = ? AND is_correct = 0", question["id"]
+        ) or 0)
+        assert recorded >= 2, "both wrong attempts must appear in submission history"
+
+    def test_language_page_renders_checkpoints_without_leaking_the_key(self, client, seeded):
+        """An anonymous visitor sees the stage checkpoint questions, but the
+        answer key, the correct-option flag and the explanation must not be in
+        the HTML before submission - otherwise view-source solves the quiz."""
+        from engineverse import db
+
+        checkpoint = db.query_one(
+            "SELECT lc.question_id, l.slug AS language_slug, q.stem FROM language_checkpoints lc "
+            "JOIN programming_languages l ON l.id = lc.language_id "
+            "JOIN questions q ON q.id = lc.question_id LIMIT 1"
+        )
+        assert checkpoint is not None, "no checkpoint links were seeded"
+        page = client.get(f"/programming/{checkpoint['language_slug']}")
+        assert page.status_code == 200
+        html = page.text
+        assert 'data-quiz' in html and checkpoint["question_id"] in html, (
+            "the language page must render the stage checkpoint question"
+        )
+        # The stem is shown; the explanation and the correct flag are not.
+        explanation = db.scalar("SELECT explanation FROM questions WHERE id = ?", checkpoint["question_id"])
+        assert explanation and str(explanation).strip(), "fixture: checkpoint should have an explanation"
+        assert str(explanation).strip() not in html, "the explanation leaked into the pre-submission HTML"
+        assert 'is_correct' not in html and 'correctIndex' not in html and 'answer_index' not in html, (
+            "the correct-answer marker leaked into the pre-submission HTML"
+        )
 
     def test_an_unknown_question_is_a_404(self, signed_in):
         token = _csrf(signed_in.get("/practice/questions").text)

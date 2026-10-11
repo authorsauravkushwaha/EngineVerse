@@ -52,5 +52,11 @@ def test_sql_is_a_path_not_an_empty_card(client):
     page = client.get("/programming/sql")
     assert page.status_code == 200
     assert "SELECT" in page.text
-    assert "Professional habit" in page.text
+    # The path is staged, not a flat list: the final SQL stage is the real
+    # "Advanced Engineering" section (the old template fabricated a
+    # "Professional habit" chip from the loop position). Assert the genuine
+    # stage progression is rendered.
+    assert "Foundations" in page.text
+    assert "Working Practice" in page.text
+    assert "Advanced Engineering" in page.text
     assert "parameter" in page.text.lower()

@@ -58,7 +58,36 @@ def render() -> str:
             "JOIN dpp_sets d ON d.id = dq.set_id JOIN questions q ON q.id = dq.question_id "
             "WHERE d.published = 1 AND q.is_active = 1"
         ),
+        "dpp_languages": _count(
+            "SELECT count(DISTINCT lc.language_id) AS c FROM dpp_questions dq "
+            "JOIN dpp_sets d ON d.id = dq.set_id JOIN language_checkpoints lc ON lc.question_id = dq.question_id "
+            "WHERE d.published = 1"
+        ),
         "coding_problems": _count("SELECT count(*) AS c FROM coding_problems"),
+        "languages": _count("SELECT count(*) AS c FROM programming_languages"),
+        "language_modules": _count("SELECT count(*) AS c FROM language_modules"),
+        "staged_modules": _count(
+            "SELECT count(*) AS c FROM language_modules WHERE stage IN "
+            "('foundations', 'working_practice', 'advanced_engineering')"
+        ),
+        "language_stages": _count("SELECT count(*) AS c FROM language_stages"),
+        "checkpoints": _count("SELECT count(*) AS c FROM language_checkpoints"),
+        "checkpoint_questions": _count(
+            "SELECT count(*) AS c FROM language_checkpoints lc JOIN questions q ON q.id = lc.question_id "
+            "WHERE q.is_active = 1"
+        ),
+        "projects": _count("SELECT count(*) AS c FROM projects WHERE status = 'published'"),
+        "project_steps": _count(
+            "SELECT count(*) AS c FROM project_steps ps JOIN projects p ON p.id = ps.project_id "
+            "WHERE p.status = 'published'"
+        ),
+        "project_resources": _count(
+            "SELECT count(*) AS c FROM project_resources pr JOIN projects p ON p.id = pr.project_id "
+            "WHERE p.status = 'published'"
+        ),
+        "capstones": _count(
+            "SELECT count(*) AS c FROM projects WHERE status = 'published' AND language_id IS NOT NULL"
+        ),
     }
     lines = [
         "# Curriculum coverage",
@@ -87,13 +116,60 @@ def render() -> str:
         f"- Published DPP sets: {totals['dpp_sets']}",
         f"- Published DPP question slots: {totals['dpp_slots']}",
         f"- Subjects represented in published DPPs: {totals['dpp_subjects']}",
+        f"- Language tracks represented in published DPPs: {totals['dpp_languages']}",
         f"- Coding problems: {totals['coding_problems']}",
+        f"- Programming languages: {totals['languages']}",
+        f"- Language modules: {totals['language_modules']} "
+        f"({totals['staged_modules']} assigned to a stage)",
+        f"- Language stages: {totals['language_stages']}",
+        f"- Stage checkpoint links: {totals['checkpoints']} "
+        f"({totals['checkpoint_questions']} pointing at active questions)",
+        f"- Published project briefs: {totals['projects']}",
+        f"- Project steps: {totals['project_steps']}",
+        f"- Project resources: {totals['project_resources']}",
+        f"- Language-linked capstone briefs: {totals['capstones']}",
+        "",
+        "## Programming paths",
+        "",
+        "Each path progresses through Foundations, Working Practice and Advanced Engineering. "
+        "A stage with modules but no checkpoint, or a capstone column that is empty, is a gap - "
+        "not a variant.",
+        "",
+        "| Language | Modules | Foundations | Working Practice | Advanced Engineering | Checkpoints | Capstone |",
+        "|---|---:|---:|---:|---:|---:|---|",
+    ]
+    for language in db.query("SELECT id, name FROM programming_languages ORDER BY order_index, name"):
+        language_id = language["id"]
+
+        def stage_modules(stage: str) -> int:
+            return _count(
+                "SELECT count(*) AS c FROM language_modules WHERE language_id = ? AND stage = ?",
+                language_id, stage,
+            )
+
+        capstone = db.query_one(
+            "SELECT slug FROM projects WHERE language_id = ? AND status = 'published' "
+            "ORDER BY order_index LIMIT 1",
+            language_id,
+        )
+        lines.append(
+            "| {name} | {modules} | {foundations} | {working} | {advanced} | {checkpoints} | {capstone} |".format(
+                name=str(language["name"]).replace("|", "\\|"),
+                modules=_count("SELECT count(*) AS c FROM language_modules WHERE language_id = ?", language_id),
+                foundations=stage_modules("foundations"),
+                working=stage_modules("working_practice"),
+                advanced=stage_modules("advanced_engineering"),
+                checkpoints=_count("SELECT count(*) AS c FROM language_checkpoints WHERE language_id = ?", language_id),
+                capstone=f"[{capstone['slug']}](/projects/{capstone['slug']})" if capstone else "—",
+            )
+        )
+    lines.extend([
         "",
         "## By branch",
         "",
         "| Branch | Subjects | Topics | Notes | Questions |",
         "|---|---:|---:|---:|---:|",
-    ]
+    ])
     branches = db.query("SELECT id, name FROM branches ORDER BY name")
     for branch in branches:
         branch_id = branch["id"]

@@ -2,7 +2,10 @@
 {% block title %}Learn to code — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <h1>Learn to code</h1>
-<p class="muted">Pick a language and work the modules in order, from the first program to the habit a working engineer uses. Then do the problems. This is a path through the modules that exist, not a complete language reference.</p>
+<p class="muted">Pick a language and work its path in order: <strong>Foundations</strong>, <strong>Working
+  Practice</strong>, then <strong>Advanced Engineering</strong>. Each stage ends with a checkpoint quiz
+  answered through your normal practice account, and each path ends with a capstone project brief you can
+  ship. This is a path through the modules that exist, not a complete language reference.</p>
 {% include "_ladder.html" %}
 
 <section class="section">
@@ -10,8 +13,14 @@
     <a class="card" href="/programming/{{ lang.slug }}">
       <span class="title" style="color:{{ lang.color }}">{{ lang.name }}</span>
       <span class="desc">{{ lang.blurb }}</span>
-      <div class="tags"><span class="chip {{ 'ok' if lang.runnable else 'warn' }}">
-        {{ 'Runnable with active provider' if lang.runnable else 'No active runtime' }}</span></div>
+      <div class="tags">
+        <span class="chip">{{ lang.module_count }} modules</span>
+        <span class="chip">{{ lang.stage_count }} stages</span>
+        <span class="chip">{{ lang.checkpoint_count }} checkpoint questions</span>
+        {% if lang.capstone_slug %}<span class="chip accent">Capstone: {{ lang.capstone_title }}</span>{% endif %}
+        <span class="chip {{ 'ok' if lang.runnable else 'warn' }}">
+          {{ 'Runnable with active provider' if lang.runnable else 'No active runtime' }}</span>
+      </div>
     </a>{% endfor %}</div>
 </section>
 

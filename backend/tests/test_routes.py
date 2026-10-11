@@ -361,7 +361,8 @@ ROLE_PAGES = [
     "/subjects/data-structures-algorithms", "/subjects/thermodynamics",
     "/subjects/oops", "/subjects/fluid-mechanics", "/branches/computer-science",
     "/branches/mechanical-engineering", "/practice/problems/two-sum",
-    "/projects/student-performance-dashboard", "/roadmaps/cse-placement-roadmap",
+    "/projects/student-performance-dashboard", "/projects/python-field-notes-api",
+    "/roadmaps/cse-placement-roadmap",
     "/portfolio/asha", "/today", "/mistakes", "/profile", "/settings", "/onboarding",
     "/notifications", "/admin",
 ]

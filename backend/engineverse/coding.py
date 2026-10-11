@@ -39,7 +39,14 @@ def _with_runtime_availability(language: dict | None) -> dict | None:
 def list_languages() -> list[dict]:
     rows = db.query(
         "SELECT id, slug, name, icon, color, blurb, judge_slug, runnable, "
-        "(SELECT count(*) FROM language_modules lm WHERE lm.language_id = programming_languages.id) AS module_count "
+        "(SELECT count(*) FROM language_modules lm WHERE lm.language_id = programming_languages.id) AS module_count, "
+        "(SELECT count(*) FROM language_stages ls WHERE ls.language_id = programming_languages.id) AS stage_count, "
+        "(SELECT count(*) FROM language_checkpoints lc WHERE lc.language_id = programming_languages.id) "
+        "AS checkpoint_count, "
+        "(SELECT p.slug FROM projects p WHERE p.language_id = programming_languages.id "
+        "AND p.status = 'published' ORDER BY p.order_index LIMIT 1) AS capstone_slug, "
+        "(SELECT p.title FROM projects p WHERE p.language_id = programming_languages.id "
+        "AND p.status = 'published' ORDER BY p.order_index LIMIT 1) AS capstone_title "
         "FROM programming_languages ORDER BY order_index, name"
     )
     available = set(runnable_languages())
@@ -55,6 +62,59 @@ def language_by_slug(slug: str) -> dict | None:
 
 def modules_for_language(language_id: str) -> list[dict]:
     return db.query("SELECT * FROM language_modules WHERE language_id = ? ORDER BY order_index", language_id)
+
+
+def stages_for_language(language_id: str) -> list[dict]:
+    """The staged path: each stage with its modules and checkpoint questions.
+
+    Checkpoints go through ``practice.public_question``, which strips the
+    answer, the correct-option flag and the explanation - the page can render
+    the quiz without carrying the key, and grading happens only when the
+    learner submits through the normal practice-answer endpoint.
+    """
+    from . import practice
+
+    stages = db.query(
+        "SELECT * FROM language_stages WHERE language_id = ? ORDER BY order_index", language_id
+    )
+    for stage in stages:
+        stage["modules"] = db.query(
+            "SELECT * FROM language_modules WHERE language_id = ? AND stage = ? ORDER BY order_index",
+            language_id, stage["stage"],
+        )
+        rows = db.query(
+            "SELECT q.* FROM language_checkpoints lc JOIN questions q ON q.id = lc.question_id "
+            "WHERE lc.language_id = ? AND lc.stage = ? AND q.is_active = 1 ORDER BY lc.order_index",
+            language_id, stage["stage"],
+        )
+        stage["checkpoints"] = [practice.public_question(row) for row in rows]
+    return stages
+
+
+def capstone_for_language(language_id: str) -> dict | None:
+    """The published project brief linked to this language path, if any."""
+    return db.query_one(
+        "SELECT slug, title, summary, difficulty, est_hours FROM projects "
+        "WHERE language_id = ? AND status = 'published' ORDER BY order_index LIMIT 1",
+        language_id,
+    )
+
+
+def problems_with_starter(language_id: str, *, limit: int = 30) -> list[dict]:
+    """Coding problems this language has a usable starter for.
+
+    A problem without a stub for the language renders an empty editor and a
+    Run button that cannot compose a program, so the path page lists only the
+    problems the learner can actually start in that language.
+    """
+    return db.query(
+        "SELECT cp.id, cp.slug, cp.title, cp.difficulty, cp.topics FROM coding_problems cp "
+        "JOIN coding_problem_stubs s ON s.problem_id = cp.id "
+        "WHERE s.language_id = ? "
+        "ORDER BY CASE cp.difficulty WHEN 'easy' THEN 0 WHEN 'medium' THEN 1 WHEN 'hard' THEN 2 ELSE 3 END, "
+        "cp.title LIMIT ?",
+        language_id, limit,
+    )
 
 
 def list_problems(

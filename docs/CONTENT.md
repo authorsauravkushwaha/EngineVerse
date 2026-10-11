@@ -46,7 +46,11 @@ upload.
 
 ## Checking the links
 
-Every external URL in the library is checked by `scripts/check_links.py`.
+Every external URL in the library is checked by `scripts/check_links.py`. It
+scans the `resources`, `videos`, `books` and `project_resources` tables (so the
+documentation links inside project and capstone briefs are covered too), plus the
+URLs declared in the seed registries, so a link can be checked before it is ever
+seeded.
 
 ```
 python scripts/check_links.py --offline   # structural, no network, runs on every push
@@ -85,17 +89,19 @@ that every branch is a complete syllabus:
 ```
 universities 10 · colleges 13 · branches 45 · semesters 9 · curricula 180
 curriculum_subjects 2836 · subjects 93 · modules 93 · topics 127 · notes 508
-note_sections 3302 · diagrams 127 · models_3d 127 · formulas 86 · questions 165
-question_options 660 · dpp_sets 33 · dpp_questions 165 · programming_languages 9
-language_modules 68 · coding_problems 13 · coding_problem_stubs 16
-coding_testcases 54 · projects 7 · project_steps 38 · project_resources 9
-videos 400 · books 395 · resources 544 · roadmaps 5 · roadmap_nodes 57
-flashcards 281 · plans 3 · site_config 12 · badges 12 · search index 2365
+note_sections 3302 · diagrams 127 · models_3d 127 · formulas 86 · questions 246
+question_options 984 · dpp_sets 50 · dpp_questions 250 · programming_languages 9
+language_modules 68 · language_stages 27 · language_checkpoints 81
+coding_problems 13 · coding_problem_stubs 16 · coding_testcases 54 · projects 16
+project_steps 92 · project_resources 27 · videos 400 · books 395 · resources 544
+roadmaps 5 · roadmap_nodes 57 · flashcards 281 · plans 3 · site_config 12
+badges 12 · search index 2455
 ```
 
 Every active branch has at least one published subject, every published subject
 has a published lesson and active question, and every active question appears in
-the 33-set DPP rotation, covering all 93 subjects. The archive is paginated at
+the 50-set DPP rotation, covering all 93 subjects and all nine language tracks.
+The archive is paginated at
 `/dpp/archive`, so older seeded sets remain discoverable. All 281 seeded
 flashcards can be browsed at `/flashcards`, searched without exposing their
 answers in search snippets, and opened individually; personal SM-2 scheduling
@@ -109,10 +115,21 @@ note contains all thirteen sections. Topic-linked
 questions, a validated diagram and an interactive 3D model are seeded for every
 lesson. Cyber Security has eleven public lessons and is readable without signing
 in. The 71 added starter topics are marked `needs_review` in editorial metadata;
-publication makes them reachable but does not imply expert sign-off. The seven
-project briefs span hardware and engineering tools as well as software; the new
-study-planner brief starts model-free and treats an optional agent as an
-allowlisted, confirmation-gated layer, not a production-ready reference design.
+publication makes them reachable but does not imply expert sign-off.
+
+The nine programming paths are staged — 68 modules assigned across 27
+Foundations / Working Practice / Advanced Engineering stages — and each stage
+ends with three checkpoint questions (81 total). Checkpoints are ordinary bank
+questions linked through `language_checkpoints`, so they run through the normal
+practice-answer flow: the answer key, correct-option flag and explanation are
+stripped from the page and only returned after a submission, and a wrong attempt
+still awards attempt XP and lands in the mistake notebook. Their correct-answer
+positions are rotated deterministically, so a reseed reproduces the same bank.
+The sixteen project briefs span hardware and engineering tools as well as
+software, and include a substantial capstone linked to each language path
+(forward from the path page, back from the brief); the study-planner brief starts
+model-free and treats an optional agent as an allowlisted, confirmation-gated
+layer, not a production-ready reference design.
 
 Section bodies are assembled from the original and expanded topic entries, and
 the coverage tests assert all thirteen sections on every standard note. Notes are

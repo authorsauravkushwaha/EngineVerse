@@ -20,11 +20,36 @@ production content unless you just generated it from that database.
 - Diagrams: 127
 - 3D models: 127
 - Formulas: 86
-- Active questions: 165
-- Published DPP sets: 33
-- Published DPP question slots: 165
+- Active questions: 246
+- Published DPP sets: 50
+- Published DPP question slots: 250
 - Subjects represented in published DPPs: 93
+- Language tracks represented in published DPPs: 9
 - Coding problems: 13
+- Programming languages: 9
+- Language modules: 68 (68 assigned to a stage)
+- Language stages: 27
+- Stage checkpoint links: 81 (81 pointing at active questions)
+- Published project briefs: 16
+- Project steps: 92
+- Project resources: 27
+- Language-linked capstone briefs: 9
+
+## Programming paths
+
+Each path progresses through Foundations, Working Practice and Advanced Engineering. A stage with modules but no checkpoint, or a capstone column that is empty, is a gap - not a variant.
+
+| Language | Modules | Foundations | Working Practice | Advanced Engineering | Checkpoints | Capstone |
+|---|---:|---:|---:|---:|---:|---|
+| Python | 13 | 5 | 4 | 4 | 9 | [python-field-notes-api](/projects/python-field-notes-api) |
+| Java | 11 | 3 | 3 | 5 | 9 | [java-room-booking-service](/projects/java-room-booking-service) |
+| JavaScript | 8 | 2 | 3 | 3 | 9 | [js-revision-dashboard](/projects/js-revision-dashboard) |
+| TypeScript | 6 | 1 | 2 | 3 | 9 | [ts-task-api-client](/projects/ts-task-api-client) |
+| C++ | 7 | 2 | 3 | 2 | 9 | [cpp-text-index-cli](/projects/cpp-text-index-cli) |
+| Go | 6 | 1 | 3 | 2 | 9 | [go-healthcheck-service](/projects/go-healthcheck-service) |
+| Rust | 6 | 1 | 2 | 3 | 9 | [rust-logscan-cli](/projects/rust-logscan-cli) |
+| C | 5 | 2 | 2 | 1 | 9 | [c-sensor-ringlog](/projects/c-sensor-ringlog) |
+| SQL | 6 | 2 | 3 | 1 | 9 | [sql-ops-reporting-db](/projects/sql-ops-reporting-db) |
 
 ## By branch
 

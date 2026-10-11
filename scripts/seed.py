@@ -45,6 +45,8 @@ from seed_data import foundations as topics_foundations  # noqa: E402
 from seed_data import subject_paths  # noqa: E402
 from seed_data import community_data  # noqa: E402
 from seed_data import language_paths  # noqa: E402
+from seed_data import language_curriculum  # noqa: E402
+from seed_data import language_projects  # noqa: E402
 
 
 def now_ms() -> int:
@@ -478,7 +480,7 @@ def seed_formulas(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> Non
 # ---------------------------------------------------------------------------
 
 def seed_questions(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> dict[str, str]:
-    """Seed the authored bank and one linked concept-check for every topic."""
+    """Seed the authored bank, one concept-check per topic and every stage checkpoint."""
     all_topics = (list(topics_cse.TOPICS) + list(topics_core.TOPICS)
                   + list(topics_foundations.TOPICS) + list(subject_paths.TOPICS))
     entries: list[dict] = []
@@ -487,6 +489,11 @@ def seed_questions(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> di
         entry["topic"] = subject_paths.resolve_question_topic(entry, all_topics)
         entries.append(entry)
     entries.extend(subject_paths.questions_for_topics(all_topics))
+    # Language-stage checkpoints are ordinary bank questions: same table, same
+    # grading, same attempt-based XP, same DPP rotation. The
+    # language_checkpoints link rows (written once the languages exist) are the
+    # only thing that makes them checkpoints.
+    entries.extend(language_curriculum.checkpoint_questions())
 
     ids: dict[str, str] = {}
     with db.transaction():
@@ -672,6 +679,7 @@ def seed_languages() -> dict[str, str]:
                 "judge_slug=excluded.judge_slug, runnable=excluded.runnable",
                 slug, slug, name, icon, color, blurb, judge, runnable, index,
             )
+        modules_by_language: dict[str, list[tuple]] = {}
         for language_slug in ids:
             modules = list(library_data.LANGUAGE_MODULES.get(language_slug, []))
             seen = {row[0] for row in modules}
@@ -679,16 +687,64 @@ def seed_languages() -> dict[str, str]:
                 if row[0] not in seen:
                     modules.append(row)
                     seen.add(row[0])
-            language_id = ids.get(language_slug)
-            if not language_id or not modules:
-                continue
-            for order, (slug, title, summary, body, example, exercise) in enumerate(modules):
+            modules_by_language[language_slug] = modules
+
+        # Fail before writing anything if the staged curriculum has drifted from
+        # the module catalogue: a module with no stage, a stage assignment to a
+        # module that does not exist, or a language missing a stage would all
+        # render as a silently shorter path otherwise.
+        language_curriculum.validate(
+            set(ids), {slug: [row[0] for row in rows] for slug, rows in modules_by_language.items()}
+        )
+        stage_of = language_curriculum.module_stage_map()
+
+        for language_slug, language_id in ids.items():
+            for order, (stage, title, summary) in enumerate(language_curriculum.STAGES):
                 db.execute(
-                    "INSERT INTO language_modules (id,language_id,slug,title,summary,body,example,exercise,order_index) "
-                    "VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET body=excluded.body",
-                    slug, language_id, slug, title, summary, body, example, exercise, order,
+                    "INSERT INTO language_stages (id,language_id,stage,title,summary,order_index) "
+                    "VALUES (?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET title=excluded.title, "
+                    "summary=excluded.summary, order_index=excluded.order_index",
+                    f"{language_slug}::{stage}", language_id, stage, title, summary, order,
+                )
+            for order, (slug, title, summary, body, example, exercise) in enumerate(modules_by_language[language_slug]):
+                db.execute(
+                    "INSERT INTO language_modules (id,language_id,slug,title,summary,body,example,exercise,"
+                    "stage,order_index) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                    "body=excluded.body, stage=excluded.stage, order_index=excluded.order_index",
+                    slug, language_id, slug, title, summary, body, example, exercise,
+                    stage_of[language_slug][slug], order,
                 )
     return ids
+
+
+def seed_language_checkpoints(language_ids: dict[str, str], question_ids: dict[str, str]) -> int:
+    """Write the (language, stage) -> question links that make bank questions checkpoints.
+
+    The questions themselves were seeded by ``seed_questions()`` as ordinary
+    rows; this only records where each one is used as a stage gate. A link to a
+    language or question that does not exist fails the seed naming the offender
+    rather than rendering an empty checkpoint panel.
+    """
+    count = 0
+    with db.transaction():
+        for language_slug, stage, question_slug, order in language_curriculum.checkpoint_links():
+            language_id = language_ids.get(language_slug)
+            if not language_id:
+                raise KeyError(f"checkpoint for stage {stage!r} references unknown language {language_slug!r}")
+            question_id = question_ids.get(question_slug)
+            if not question_id:
+                raise KeyError(
+                    f"checkpoint question {question_slug!r} ({language_slug}/{stage}) was not seeded - "
+                    "its title must slugify to a banked question"
+                )
+            db.execute(
+                "INSERT INTO language_checkpoints (id,language_id,stage,question_id,order_index) "
+                "VALUES (?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET language_id=excluded.language_id, "
+                "stage=excluded.stage, question_id=excluded.question_id, order_index=excluded.order_index",
+                f"{language_slug}::{stage}::cp{order}", language_id, stage, question_id, order,
+            )
+            count += 1
+    return count
 
 
 def seed_problems(language_ids: dict[str, str]) -> dict[str, str]:
@@ -736,19 +792,38 @@ def seed_problems(language_ids: dict[str, str]) -> dict[str, str]:
 # Projects
 # ---------------------------------------------------------------------------
 
-def seed_projects(subject_ids: dict[str, str], branch_ids: dict[str, str]) -> None:
+def seed_projects(subject_ids: dict[str, str], branch_ids: dict[str, str],
+                  language_ids: dict[str, str]) -> int:
+    """Seed the library briefs and the language-linked capstones.
+
+    Capstones carry a ``language`` key resolving to ``projects.language_id``;
+    the language page links forward to the brief and the brief links back. An
+    unknown language fails the seed instead of unlinking the capstone.
+    """
+    entries = list(library_data.PROJECTS) + list(language_projects.CAPSTONES)
+    language_projects.validate(
+        set(language_ids), {entry["slug"] for entry in library_data.PROJECTS}
+    )
     with db.transaction():
-        for index, entry in enumerate(library_data.PROJECTS):
+        for index, entry in enumerate(entries):
             slug = entry["slug"]
+            language_key = entry.get("language")
+            language_id = None
+            if language_key:
+                language_id = language_ids.get(language_key)
+                if not language_id:
+                    raise KeyError(f"project {slug!r} references unknown language {language_key!r}")
             db.execute(
-                "INSERT INTO projects (id,slug,title,branch_id,subject_id,difficulty,category,est_hours,summary,"
-                "problem_statement,objective,prerequisites,hardware,software,architecture,source_code,"
-                "database_design,testing,expected_output,improvements,resume_md,interview_questions,tech,skills,"
-                "build_count,status,order_index,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'0','published',?,?) "
-                "ON CONFLICT(id) DO UPDATE SET branch_id=excluded.branch_id, subject_id=excluded.subject_id",
+                "INSERT INTO projects (id,slug,title,branch_id,subject_id,language_id,difficulty,category,"
+                "est_hours,summary,problem_statement,objective,prerequisites,hardware,software,architecture,"
+                "source_code,database_design,testing,expected_output,improvements,resume_md,"
+                "interview_questions,tech,skills,build_count,status,order_index,created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'0','published',?,?) "
+                "ON CONFLICT(id) DO UPDATE SET branch_id=excluded.branch_id, subject_id=excluded.subject_id, "
+                "language_id=excluded.language_id",
                 slug, slug, entry["title"], branch_ids.get(entry["branch"] or ""),
-                subject_ids.get(entry["subject"] or ""), entry["difficulty"], entry["category"], entry["est_hours"],
+                subject_ids.get(entry["subject"] or ""), language_id, entry["difficulty"], entry["category"],
+                entry["est_hours"],
                 entry["summary"], entry["problem_statement"], entry["objective"], jdump(entry["prerequisites"]),
                 entry["hardware"], entry["software"], entry["architecture"], entry["source_code"],
                 entry["database_design"], entry["testing"], entry["expected_output"], jdump(entry["improvements"]),
@@ -767,6 +842,7 @@ def seed_projects(subject_ids: dict[str, str], branch_ids: dict[str, str]) -> No
                     "ON CONFLICT(id) DO UPDATE SET url=excluded.url",
                     f"{slug}::res-{slugify(title)}", slug, kind, title, url, note,
                 )
+    return len(entries)
 
 
 # ---------------------------------------------------------------------------
@@ -846,7 +922,7 @@ def _assert_known_refs(subject_ids: dict[str, str], topic_ids: dict[str, str],
         if value not in known:
             problems.append(f"{where}: {what} {value!r} does not exist")
 
-    for index, entry in enumerate(library_data.PROJECTS):
+    for index, entry in enumerate(list(library_data.PROJECTS) + list(language_projects.CAPSTONES)):
         branch_key = entry.get("branch")
         subject_key = entry.get("subject")
         where = f"PROJECTS[{index}] {entry.get('slug')!r}"
@@ -1233,7 +1309,8 @@ TABLES = [
     "universities", "colleges", "branches", "semesters", "curricula", "curriculum_subjects", "subjects",
     "modules", "topics", "notes", "note_sections", "diagrams", "models_3d", "formulas", "questions",
     "question_options",
-    "dpp_sets", "dpp_questions", "programming_languages", "language_modules", "coding_problems",
+    "dpp_sets", "dpp_questions", "programming_languages", "language_modules", "language_stages",
+    "language_checkpoints", "coding_problems",
     "coding_problem_stubs", "coding_testcases", "projects", "project_steps", "project_resources", "videos",
     "books", "resources", "roadmaps", "roadmap_nodes", "flashcards", "plans", "site_config", "badges",
     "users", "user_progress", "xp_events", "submissions", "coding_submissions", "bookmarks",
@@ -1334,10 +1411,16 @@ def run(fresh: bool, *, demo: bool | None = None, destroy_users: bool = False) -
     print("Seeding programming languages and problems ...")
     language_ids = seed_languages()
     problem_ids = seed_problems(language_ids)
-    print(f"  {len(language_ids)} languages, {len(problem_ids)} problems")
+    checkpoints = seed_language_checkpoints(language_ids, question_ids)
+    staged_modules = int(db.scalar("SELECT count(*) AS c FROM language_modules") or 0)
+    stages = int(db.scalar("SELECT count(*) AS c FROM language_stages") or 0)
+    print(f"  {len(language_ids)} languages, {staged_modules} staged modules across {stages} stages, "
+          f"{len(problem_ids)} problems, {checkpoints} checkpoint questions")
 
     print("Seeding projects ...")
-    seed_projects(subject_ids, branch_ids)
+    project_count = seed_projects(subject_ids, branch_ids, language_ids)
+    capstones = int(db.scalar("SELECT count(*) AS c FROM projects WHERE language_id IS NOT NULL") or 0)
+    print(f"  {project_count} project briefs, including {capstones} language-linked capstones")
 
     # Runs before the library phase so a bad cross-reference fails the seed
     # with the offending row named, instead of quietly dropping it.

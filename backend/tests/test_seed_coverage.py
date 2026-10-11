@@ -27,7 +27,7 @@ import pytest
 from engineverse import community, db, library, progress
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-from seed_data import library_data
+from seed_data import language_curriculum, language_projects, library_data
 from seed_data.catalog import SUBJECTS
 
 #: Tables whose rows must exist for at least MIN_PER_SUBJECT entries per subject.
@@ -244,19 +244,34 @@ def test_homepage_and_explore_reach_every_branch_and_subject(client, seeded):
 
 
 def test_projects_are_branch_discoverable_and_the_agent_brief_is_practical(client, seeded):
-    """Project links must follow their real subject branch, not a category placeholder."""
+    """Project links must follow their real subject branch, not a category placeholder.
+
+    Library briefs are tied to a subject and must sit on that subject's branch.
+    The nine language capstones carry a language link instead of a subject, so
+    they are branch-linked (computer-science) with no subject to reconcile -
+    the subject/branch equality only applies where a subject exists.
+    """
     rows = db.query(
-        "SELECT p.slug, p.branch_id, s.branch_id AS subject_branch "
+        "SELECT p.slug, p.branch_id, p.language_id, s.branch_id AS subject_branch "
         "FROM projects p LEFT JOIN subjects s ON s.id = p.subject_id "
         "WHERE p.status = 'published' ORDER BY p.slug"
     )
-    assert len(rows) == len(library_data.PROJECTS)
+    assert len(rows) == len(library_data.PROJECTS) + len(language_projects.CAPSTONES)
+    capstone_slugs = {c["slug"] for c in language_projects.CAPSTONES}
     for project in rows:
         assert project["branch_id"], f"{project['slug']} has no branch link"
-        assert project["branch_id"] == project["subject_branch"], project["slug"]
-        branch_page = client.get(f"/branches/{project['branch_id']}")
-        assert branch_page.status_code == 200
-        assert f'href="/projects/{project["slug"]}"' in branch_page.text
+        if project["subject_branch"] is not None:
+            assert project["branch_id"] == project["subject_branch"], project["slug"]
+        # The branch page shows a capped "related projects" teaser. Every
+        # subject-linked library brief sits on its own branch and must appear
+        # there. The nine capstones all share the computer-science branch, so
+        # they overflow the teaser by design - their discoverability is the
+        # language path's forward/back links, asserted in
+        # test_language_capstone_links_forward_and_back.
+        if project["slug"] not in capstone_slugs:
+            branch_page = client.get(f"/branches/{project['branch_id']}")
+            assert branch_page.status_code == 200
+            assert f'href="/projects/{project["slug"]}"' in branch_page.text
 
     agent = client.get("/projects/citation-first-study-agent")
     assert agent.status_code == 200
@@ -864,3 +879,147 @@ def test_the_community_page_shows_the_counts_it_was_given(seeded, client):
     # Guard the guard: if the seed produced nothing, the comparison above would
     # pass on two empty lists.
     assert sum(shown_replies) > 0, "the seed produced no replies to display"
+
+
+# ---------------------------------------------------------------------------
+# Staged language curriculum: stages, checkpoints, rotation and capstones.
+#
+# These guard the guarantees the path pages make to a learner: every module
+# sits in exactly one real stage, every stage gates on three live checkpoint
+# questions with a single correct answer, the answer key is rotated (and a
+# reseed reproduces the same rotation), and every language path ends in a
+# capstone brief that links forward and back.
+# ---------------------------------------------------------------------------
+
+_STAGE_SLUGS = tuple(language_curriculum.STAGE_SLUGS)
+
+
+def _recomputed_checkpoints() -> list[dict]:
+    return language_curriculum.checkpoint_questions()
+
+
+def test_every_language_module_sits_in_exactly_one_real_stage(seeded):
+    """A module with no stage, or a stage assignment drifting from the source,
+    renders as a silently shorter path. Assert the DB matches the catalogue."""
+    valid = set(_STAGE_SLUGS)
+    rows = db.query("SELECT id, stage FROM language_modules")
+    assert rows, "no language modules were seeded"
+    for module in rows:
+        assert module["stage"] in valid, f"{module['id']} has non-stage {module['stage']!r}"
+
+    lang_ids = {row["slug"]: row["id"] for row in db.query("SELECT id, slug FROM programming_languages")}
+    for language, assignment in language_curriculum.module_stage_map().items():
+        assert language in lang_ids, f"{language} is not a seeded language"
+        for slug, expected in assignment.items():
+            actual = db.scalar("SELECT stage FROM language_modules WHERE id = ?", slug)
+            assert actual == expected, f"{language}/{slug}: DB stage {actual!r} != source {expected!r}"
+
+
+def test_each_language_has_three_stages_and_three_checkpoints_each(seeded):
+    languages = db.query("SELECT id, slug FROM programming_languages")
+    assert len(languages) == 9
+    for language in languages:
+        stages = db.query(
+            "SELECT stage FROM language_stages WHERE language_id = ? ORDER BY order_index", language["id"]
+        )
+        assert [s["stage"] for s in stages] == list(_STAGE_SLUGS), language["slug"]
+        for stage in stages:
+            n = int(db.scalar(
+                "SELECT count(*) FROM language_checkpoints WHERE language_id = ? AND stage = ?",
+                language["id"], stage["stage"],
+            ) or 0)
+            assert n == 3, f"{language['slug']}/{stage['stage']} has {n} checkpoints, expected 3"
+    assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 27
+    assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 81
+
+
+def test_checkpoint_questions_are_active_with_one_correct_option(seeded):
+    links = db.query(
+        "SELECT lc.question_id, q.is_active, q.answer_index FROM language_checkpoints lc "
+        "JOIN questions q ON q.id = lc.question_id"
+    )
+    assert len(links) == 81
+    for link in links:
+        qid = link["question_id"]
+        assert link["is_active"] == 1, f"checkpoint question {qid} is not active"
+        options = db.query(
+            "SELECT body, is_correct, order_index FROM question_options WHERE question_id = ? "
+            "ORDER BY order_index", qid,
+        )
+        assert len(options) == 4, f"{qid} has {len(options)} options, expected 4"
+        assert sum(int(o["is_correct"]) for o in options) == 1, f"{qid} does not have exactly one correct option"
+        correct = next(o for o in options if int(o["is_correct"]) == 1)
+        assert correct["order_index"] == link["answer_index"], f"{qid}: answer_index disagrees with the flagged option"
+
+
+def test_checkpoint_answer_positions_are_rotated_and_reproducible(seeded):
+    """The key must not sit at a fixed visible position, and a reseed must
+    reproduce the same bank. Compare the DB against a fresh recomputation."""
+    entries = _recomputed_checkpoints()
+    assert len(entries) == 81
+    positions = [entry["correct"] for entry in entries]
+    counts = {pos: positions.count(pos) for pos in range(4)}
+    assert set(counts) == {0, 1, 2, 3}, f"not all four answer positions are used: {counts}"
+    for pos, n in counts.items():
+        assert n <= 30, f"position {pos} carries {n}/81 checkpoints - the rotation is not spreading the key"
+
+    for entry in entries:
+        qid = entry["slug"]
+        row = db.query_one("SELECT answer_index FROM questions WHERE id = ?", qid)
+        assert row is not None, f"checkpoint question {qid!r} was not seeded"
+        assert row["answer_index"] == entry["correct"], (
+            f"{qid}: stored answer_index {row['answer_index']} != recomputed {entry['correct']}"
+        )
+        options = db.query(
+            "SELECT body FROM question_options WHERE question_id = ? ORDER BY order_index", qid
+        )
+        assert [o["body"] for o in options] == list(entry["options"]), (
+            f"{qid}: stored option order drifted from the recomputed rotation"
+        )
+
+
+def test_language_capstone_links_forward_and_back(client, seeded):
+    languages = db.query("SELECT id, slug FROM programming_languages")
+    assert len(languages) == 9
+    for language in languages:
+        capstone = db.query_one(
+            "SELECT slug FROM projects WHERE language_id = ? AND status = 'published' "
+            "ORDER BY order_index LIMIT 1", language["id"],
+        )
+        assert capstone, f"{language['slug']} has no published capstone project"
+        lang_page = client.get(f"/programming/{language['slug']}")
+        assert lang_page.status_code == 200
+        assert f'/projects/{capstone["slug"]}' in lang_page.text, (
+            f"{language['slug']} path page does not link forward to its capstone"
+        )
+        proj_page = client.get(f"/projects/{capstone['slug']}")
+        assert proj_page.status_code == 200
+        assert f'/programming/{language["slug"]}' in proj_page.text, (
+            f"capstone {capstone['slug']} does not link back to the {language['slug']} path"
+        )
+
+
+def test_published_dpps_cover_all_nine_language_tracks(seeded):
+    covered = db.query(
+        "SELECT DISTINCT lc.language_id FROM dpp_questions dq "
+        "JOIN dpp_sets d ON d.id = dq.set_id AND d.published = 1 "
+        "JOIN language_checkpoints lc ON lc.question_id = dq.question_id"
+    )
+    language_ids = {row["id"] for row in db.query("SELECT id FROM programming_languages")}
+    assert {row["language_id"] for row in covered} == language_ids, (
+        "not every language track has a checkpoint question in the published DPP archive"
+    )
+
+
+def test_fresh_seed_reproduces_the_expected_curriculum_counts(seeded):
+    """One number per acceptance criterion, so a regression in any seeder is
+    named by count rather than discovered by a broken page."""
+    assert int(db.scalar("SELECT count(*) FROM programming_languages") or 0) == 9
+    assert int(db.scalar("SELECT count(*) FROM language_modules") or 0) == 68
+    assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 27
+    assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 81
+    assert int(db.scalar("SELECT count(*) FROM questions WHERE is_active = 1") or 0) == 246
+    assert int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0) == 50
+    assert int(db.scalar("SELECT count(*) FROM projects WHERE status = 'published'") or 0) == 16
+    assert int(db.scalar(
+        "SELECT count(*) FROM projects WHERE status = 'published' AND language_id IS NOT NULL") or 0) == 9
