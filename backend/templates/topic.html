@@ -33,6 +33,13 @@
       </div>
     </header>
 
+    {% if topic.accuracy_state != 'reviewed' %}
+    <div class="callout warning mt"><span class="label">Public learning draft</span>
+      <p>This structured note has not completed editorial review. Use it to study, then verify safety-critical or exam-critical decisions against your course material and authoritative references.</p>
+      {% if topic.subject_slug == 'cryptography-security' %}<p>Security examples are defensive and for authorized systems and labs only.</p>{% endif %}
+    </div>
+    {% endif %}
+
     {% if available_depths | length > 1 %}
     <p class="muted">New to this? Start at Beginner. If you already use it, read Advanced and Industry. Same topic, different reader. None of these is a full textbook.</p>
     <nav class="depthbar" aria-label="Reading depth">

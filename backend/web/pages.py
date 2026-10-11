@@ -6,6 +6,8 @@ and talks to the JSON API under ``/api``.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlencode
+from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, HTTPException, Request
 
@@ -26,6 +28,9 @@ from engineverse import (
     search,
 )
 
+from engineverse.config import get_settings
+from engineverse.security import rbac
+
 from .deps import current_user, render, require_user
 
 router = APIRouter()
@@ -41,7 +46,8 @@ async def home(request: Request):
     context = {
         "site": catalog.site_stats(),
         "branches": catalog.branch_groups(),
-        "popular_subjects": catalog.popular_subjects(200),
+        "popular_subjects": catalog.popular_subjects(12),
+        "cyber_security_subject": catalog.get_subject("cryptography-security"),
         "trending": search.trending(8),
     }
     if viewer:
@@ -70,19 +76,26 @@ async def explore(
     year: str | None = None,
 ):
     first_year = year == "1"
+    semester_id = int(semester) if semester and semester.isdecimal() and len(semester) <= 3 else None
+    q = q[:200] if q else None
+    total = catalog.count_subjects(branch=branch, semester=semester_id, first_year=first_year, q=q)
+    pager = _pager(request, total)
     return render(
         request, "explore.html",
         branches=catalog.branch_groups(),
         subjects=catalog.list_subjects(
             branch=branch,
-            semester=int(semester) if semester and semester.isdigit() else None,
+            semester=semester_id,
             first_year=first_year,
             q=q,
-            limit=200,
+            limit=pager["size"],
+            offset=(pager["page"] - 1) * pager["size"],
         ),
+        total_subjects=total,
+        pager=pager,
         semesters=catalog.list_semesters(),
         active_branch=branch,
-        active_semester=semester,
+        active_semester=str(semester_id) if semester_id else "",
         active_q=q,
         active_year="1" if first_year else "",
     )
@@ -110,9 +123,14 @@ async def branch_page(request: Request, slug: str):
     branch = catalog.get_branch(slug)
     if not branch:
         raise HTTPException(status_code=404, detail="Unknown branch")
+    total = catalog.count_subjects(branch=slug)
+    pager = _pager(request, total)
     return render(
         request, "branch.html", branch=branch,
-        subjects=catalog.list_subjects(branch=slug, limit=200),
+        subjects=catalog.list_subjects(
+            branch=slug, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+        ),
+        total_subjects=total, pager=pager,
         semesters=catalog.list_semesters(),
         roadmaps=library.list_roadmaps(branch_slug=slug),
         related_projects=projects.list_projects(branch=branch["id"], limit=6),
@@ -203,6 +221,19 @@ async def dpp_today(request: Request):
     return render(
         request, "dpp.html", dpp=practice.dpp_with_context(),
         sets=practice.recent_practice_days(30), active_date=None,
+    )
+
+
+@router.get("/dpp/archive")
+async def dpp_archive(request: Request):
+    total = practice.count_dpp_sets()
+    pager = _pager(request, total, size=DPP_ARCHIVE_PAGE_SIZE)
+    return render(
+        request, "dpp_archive.html",
+        sets=practice.list_dpp_sets(
+            limit=pager["size"], offset=(pager["page"] - 1) * pager["size"]
+        ),
+        pager=pager,
     )
 
 
@@ -338,10 +369,9 @@ async def project_page(request: Request, slug: str):
     if not project:
         raise HTTPException(status_code=404, detail="Unknown project")
     viewer = current_user(request)
-    if viewer:
-        projects.record_build(viewer.id, project["id"])
     return render(
         request, "project.html", project=project,
+        has_built=projects.has_build(viewer.id, project["id"]) if viewer else False,
         steps=projects.steps(project["id"]),
         resources=projects.resources(project["id"]),
         similar=projects.suggested_for(viewer.id if viewer else None, 4),
@@ -355,6 +385,7 @@ async def project_page(request: Request, slug: str):
 #: Items per page on the library shelves. Large enough that a subject's whole
 #: shelf usually fits on one page, small enough that 451 resources do not.
 LIBRARY_PAGE_SIZE = 24
+DPP_ARCHIVE_PAGE_SIZE = 30
 
 
 def _pager(request: Request, total: int, *, size: int = LIBRARY_PAGE_SIZE) -> dict:
@@ -461,6 +492,32 @@ async def revision_page(request: Request):
         decks=library.decks(),
         weak=progress.weak_topics(viewer.id, 8) if viewer else [],
         heatmap=progress.heatmap(viewer.id, 182) if viewer else [],
+    )
+
+
+@router.get("/flashcards")
+async def flashcards_page(
+    request: Request, card: str | None = None, deck: str | None = None, q: str | None = None,
+):
+    """Public browse/search for cards; personal SM-2 scheduling stays at /revision."""
+    if card:
+        selected = library.flashcard_by_id(card[:160])
+        if not selected:
+            raise HTTPException(status_code=404, detail="Unknown flashcard")
+        return render(request, "flashcards.html", selected=selected)
+
+    deck = deck[:120].strip() if deck else None
+    q = q[:120].strip() if q else None
+    deck = deck or None
+    q = q or None
+    total = library.count_flashcards(deck=deck, q=q)
+    pager = _pager(request, total)
+    return render(
+        request, "flashcards.html", selected=None,
+        cards=library.list_flashcards(
+            deck=deck, q=q, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+        ),
+        decks=library.decks(), active_deck=deck, q=q, pager=pager,
     )
 
 
@@ -650,29 +707,50 @@ async def certificate_page(request: Request, verify_id: str):
 
 @router.get("/admin")
 async def admin_page(request: Request):
+    """Render only the admin data the signed-in role is allowed to inspect."""
     viewer = require_user(request)
-    if not viewer.is_staff:
+    permissions = {
+        "users_manage": rbac.can(viewer.role, "users.manage"),
+        "users_roles": rbac.can(viewer.role, "users.roles"),
+        "community_moderate": rbac.can(viewer.role, "community.moderate"),
+        "content_review": rbac.can(viewer.role, "content.update") or rbac.can(viewer.role, "content.publish"),
+        "analytics_view": rbac.can(viewer.role, "analytics.view"),
+        "settings_manage": rbac.can(viewer.role, "settings.manage"),
+    }
+    if not any(permissions.values()):
         raise HTTPException(status_code=403, detail="Staff only")
+
+    can_view_users = permissions["users_manage"] or permissions["users_roles"]
+    can_view_audit = permissions["users_manage"] or permissions["settings_manage"]
+    stats = catalog.site_stats()
+    if permissions["users_manage"] or permissions["analytics_view"]:
+        stats["users"] = int(db.scalar("SELECT count(*) FROM users WHERE deleted_at IS NULL") or 0)
+
     return render(
         request, "admin.html",
-        stats=catalog.site_stats(),
+        permissions=permissions,
+        role_options=rbac.ROLES,
+        stats=stats,
         users=db.query(
             "SELECT u.id, u.email, u.username, u.role, u.status, u.created_at, p.full_name, "
             "CASE WHEN u.totp_secret IS NULL OR u.totp_secret = '' THEN 0 ELSE 1 END AS mfa_enrolled "
-            "FROM users u LEFT JOIN profiles p ON p.user_id = u.id ORDER BY u.created_at DESC LIMIT 100"
-        ),
-        reports=community.open_reports(30),
+            "FROM users u LEFT JOIN profiles p ON p.user_id = u.id "
+            "WHERE u.deleted_at IS NULL ORDER BY u.created_at DESC LIMIT 100"
+        ) if can_view_users else [],
+        reports=community.open_reports(30) if permissions["community_moderate"] else [],
+        # Audit payloads can hold security metadata; the UI needs only action
+        # names and timestamps, and only user/security administrators see them.
         recent_audit=db.query(
-            "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 40"
-        ),
+            "SELECT action, created_at FROM audit_logs ORDER BY created_at DESC LIMIT 40"
+        ) if can_view_audit else [],
         pending_topics=db.query(
             "SELECT id, title, accuracy_state, updated_at FROM topics WHERE accuracy_state <> 'reviewed' "
             "ORDER BY updated_at DESC LIMIT 30"
-        ),
-        config=brand.all_config(),
+        ) if permissions["content_review"] else [],
+        config=brand.all_config() if permissions["settings_manage"] else {},
         searches=db.query(
             "SELECT query, count(*) AS c FROM search_log GROUP BY query ORDER BY c DESC LIMIT 20"
-        ) if db.table_exists("search_log") else [],
+        ) if permissions["analytics_view"] and db.table_exists("search_log") else [],
     )
 
 
@@ -694,23 +772,58 @@ async def about_page(request: Request):
 
 
 @router.get("/sitemap.xml", include_in_schema=False)
-async def sitemap(request: Request):
+async def sitemap():
     from fastapi.responses import Response
 
-    base = str(request.base_url).rstrip("/")
-    urls = ["/", "/explore", "/practice", "/programming", "/projects", "/resources", "/videos", "/books",
-            "/formulas", "/roadmaps", "/community", "/placements", "/leaderboard"]
+    # Canonical URLs come from deployment configuration, never the untrusted
+    # Host header supplied with this request.
+    base = get_settings().site_url.rstrip("/")
+    urls = [
+        "/", "/about", "/explore", "/practice", "/practice/questions",
+        "/practice/problems", "/dpp", "/dpp/archive", "/programming", "/projects",
+        "/resources", "/videos", "/books", "/flashcards", "/formulas", "/tutor", "/roadmaps",
+        "/community", "/placements", "/leaderboard",
+    ]
+
+    # Include the later pages of every paginated public shelf. Dated DPP URLs
+    # and content slugs below remain direct links; these pages also let a crawler
+    # discover every resource, video, book, subject and practice question.
+    def add_page_urls(path: str, total: int, page_size: int = LIBRARY_PAGE_SIZE) -> None:
+        page_count = max(1, (max(0, int(total)) + page_size - 1) // page_size)
+        urls.extend(f"{path}?page={page}" for page in range(2, page_count + 1))
+
+    add_page_urls("/explore", catalog.count_subjects())
+    add_page_urls("/practice/questions", int(db.scalar(
+        "SELECT count(*) FROM questions WHERE is_active = 1") or 0))
+    add_page_urls("/dpp/archive", practice.count_dpp_sets(), DPP_ARCHIVE_PAGE_SIZE)
+    add_page_urls("/resources", library.count_resources())
+    add_page_urls("/videos", library.count_videos())
+    add_page_urls("/books", library.count_books())
+    add_page_urls("/flashcards", library.count_flashcards())
+
+    urls += [
+        "/flashcards?" + urlencode({"card": row["id"]})
+        for row in db.query("SELECT id FROM flashcards ORDER BY id")
+    ]
+    urls += [f"/dpp/{row['date']}" for row in practice.list_dpp_sets(
+        limit=practice.count_dpp_sets())]
     urls += [f"/branches/{row['slug']}" for row in catalog.list_branches()]
-    urls += [f"/subjects/{row['slug']}" for row in catalog.list_subjects(limit=400)]
+    urls += [f"/subjects/{row['slug']}" for row in db.query(
+        "SELECT slug FROM subjects WHERE status = 'published' ORDER BY slug")]
     urls += [f"/topics/{row['slug']}" for row in db.query(
-        "SELECT slug FROM topics WHERE status='published' LIMIT 2000")]
-    urls += [f"/projects/{row['slug']}" for row in projects.list_projects(limit=400)]
-    urls += [f"/practice/problems/{row['slug']}" for row in coding.list_problems(limit=400)[0]]
+        "SELECT slug FROM topics WHERE status = 'published' ORDER BY slug")]
+    urls += [f"/programming/{row['slug']}" for row in coding.list_languages()]
+    urls += [f"/roadmaps/{row['slug']}" for row in library.list_roadmaps()]
+    urls += [f"/projects/{row['slug']}" for row in db.query(
+        "SELECT slug FROM projects WHERE status = 'published' ORDER BY order_index, title")]
+    urls += [f"/practice/problems/{row['slug']}" for row in db.query(
+        "SELECT slug FROM coding_problems ORDER BY title")]
+
     today = datetime.now(timezone.utc).date().isoformat()
     body = ['<?xml version="1.0" encoding="UTF-8"?>',
             '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">']
     for url in urls:
-        body.append(f"<url><loc>{base}{url}</loc><lastmod>{today}</lastmod></url>")
+        body.append(f"<url><loc>{escape(base + url)}</loc><lastmod>{today}</lastmod></url>")
     body.append("</urlset>")
     return Response("\n".join(body), media_type="application/xml")
 

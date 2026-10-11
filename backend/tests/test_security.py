@@ -553,11 +553,19 @@ class TestPasswordResetTokens:
         assert found, "reveal mode was on but no reset link was rendered"
         return found.group(1)
 
+    @staticmethod
+    def _request_reset(client, email: str):
+        page = client.get("/forgot-password")
+        return client.post(
+            "/forgot-password",
+            data={"csrf_token": _csrf(page.text), "email": email},
+        )
+
     def test_a_like_wildcard_does_not_match_any_pending_reset(self, client, dev_reset):
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
-        client.post("/forgot-password", data={"email": victim["email"]})
+        self._request_reset(client, victim["email"])
 
         attacker = TestClient(app=client.app, raise_server_exceptions=False)
         page = attacker.get("/reset-password").text
@@ -572,11 +580,23 @@ class TestPasswordResetTokens:
                 f"token {guess!r} was accepted - the wildcard takeover is back"
             )
 
+    def test_a_reset_token_can_be_claimed_only_once_concurrently(self, dev_reset, seeded):
+        from concurrent.futures import ThreadPoolExecutor
+
+        from engineverse import auth, db
+
+        victim = db.query_one("SELECT id FROM users WHERE role = 'student' LIMIT 1")
+        token = auth.issue_password_reset(victim["id"])
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(lambda _: auth.consume_password_reset(token), range(2)))
+        assert results.count(victim["id"]) == 1
+        assert results.count(None) == 1
+
     def test_a_valid_token_resets_the_password_once(self, client, restore_password, dev_reset):
         from engineverse import auth, db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
-        page = client.post("/forgot-password", data={"email": victim["email"]}).text
+        page = self._request_reset(client, victim["email"]).text
         token = self._token(page)
 
         fresh = TestClient(app=client.app, raise_server_exceptions=False)
@@ -601,7 +621,7 @@ class TestPasswordResetTokens:
         from engineverse import auth, db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
-        page = client.post("/forgot-password", data={"email": victim["email"]}).text
+        page = self._request_reset(client, victim["email"]).text
         token = self._token(page)
         db.execute("UPDATE password_resets SET expires_at = ?", auth.now_ms() - 1000)
 
@@ -617,8 +637,8 @@ class TestPasswordResetTokens:
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
-        first = self._token(client.post("/forgot-password", data={"email": victim["email"]}).text)
-        second = self._token(client.post("/forgot-password", data={"email": victim["email"]}).text)
+        first = self._token(self._request_reset(client, victim["email"]).text)
+        second = self._token(self._request_reset(client, victim["email"]).text)
         assert first != second
 
         stale = TestClient(app=client.app, raise_server_exceptions=False)
@@ -633,11 +653,26 @@ class TestPasswordResetTokens:
         from engineverse import db
 
         victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
-        token = self._token(client.post("/forgot-password", data={"email": victim["email"]}).text)
+        token = self._token(self._request_reset(client, victim["email"]).text)
         rows = db.query("SELECT token_hash FROM password_resets")
         assert rows, "no reset row was written"
         assert all(token not in row["token_hash"] for row in rows), "the plaintext token is stored"
         assert all(len(row["token_hash"]) == 64 for row in rows), "not a SHA-256 digest"
+
+
+class TestRequestBounds:
+    def test_chunked_body_is_bounded_without_a_content_length(self, client):
+        response = client.post(
+            "/login",
+            content=iter([b"a" * 300_000, b"b" * 300_000]),
+            headers={
+                "content-type": "application/x-www-form-urlencoded",
+                "transfer-encoding": "chunked",
+            },
+            follow_redirects=False,
+        )
+        assert response.status_code == 413
+        assert response.text == "Request body too large."
 
 
 class TestFormValidationErrors:
@@ -658,7 +693,11 @@ class TestFormValidationErrors:
         assert "identifier" in response.text
 
     def test_api_clients_still_get_json(self, client):
-        response = client.post("/api/coding/run", data={"nope": "1"}, headers={"Accept": "*/*"})
+        page = client.get("/login")
+        response = client.post(
+            "/api/coding/run", data={"nope": "1"},
+            headers={"Accept": "*/*", "x-csrf-token": _csrf(page.text)},
+        )
         assert response.status_code == 422
         assert response.json()["ok"] is False
         assert "fields" in response.json()
@@ -761,12 +800,13 @@ class TestPersonalPagesAreNotCacheable:
             f"{path} is personalised but sent Cache-Control: {cache_control!r}"
         )
 
-    def test_an_anonymous_page_is_still_cacheable(self, client):
+    def test_an_anonymous_page_is_private_but_available_to_its_offline_cache(self, client):
         response = client.get("/explore")
         assert response.status_code == 200
-        assert "no-store" not in response.headers.get("cache-control", ""), (
-            "a public page was needlessly marked non-cacheable"
-        )
+        cache_control = response.headers.get("cache-control", "").lower()
+        assert "private" in cache_control and "no-store" not in cache_control
+        assert response.headers.get("x-offline-cache") == "anonymous"
+        assert "ev_csrf=" in response.headers.get("set-cookie", "")
 
     def test_the_service_worker_honours_the_header(self):
         """The worker is the thing that would store the page, so it must check."""
@@ -774,7 +814,12 @@ class TestPersonalPagesAreNotCacheable:
 
         script = Path("backend/static/sw.js").read_text(encoding="utf-8")
         assert "no-store" in script, "the service worker ignores Cache-Control"
+        assert "X-Offline-Cache" in script
         assert "storable" in script
+        assert '  "/",' not in script and '  "/offline",' not in script, (
+            "the shell must not blindly precache dynamic HTML that can be personalised"
+        )
+        assert '"/static/offline.html"' in script
         # Every place that writes to the cache has to go through the check.
         writes = script.count("c.put(")
         guards = script.count("storable(")
@@ -972,8 +1017,9 @@ class TestPasswordResetIsNotAnOracle:
         )
         assert live == [], "an undeliverable reset token was left usable in the table"
 
-    def test_the_page_says_reset_is_unavailable(self, client, seeded, monkeypatch):
-        """Claiming "check your inbox" when nothing can be sent is a lie."""
+    def test_response_does_not_disclose_whether_delivery_is_possible_or_address_exists(
+        self, client, seeded, monkeypatch
+    ):
         from engineverse import config, db
 
         monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)
@@ -981,22 +1027,58 @@ class TestPasswordResetIsNotAnOracle:
         config.reload_settings()
 
         victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
-        body = self._post(client, victim["email"]).text
-        assert "unavailable" in body.lower()
-        assert "Check your inbox" not in body
+        existing = self._post(client, victim["email"]).text.lower()
+        absent = self._post(client, "not-registered@example.invalid").text.lower()
+        message = "if an account exists and this site can send email"
+        assert message in existing and message in absent
+        assert "unavailable" not in existing and "unavailable" not in absent
+        assert "self-service reset" not in existing and "self-service reset" not in absent
 
-    def test_production_refuses_the_reveal_flag(self, client, seeded, monkeypatch):
-        """An operator who leaves the flag on in production still must not get the link."""
+    def test_address_throttle_is_shared_across_client_ips(self, app, seeded, monkeypatch):
+        """An attacker cannot rotate IPs to send unlimited reset mail to one address."""
+        from engineverse import config, db
+
+        monkeypatch.setenv("ENGINEVERSE_ENV", "test")
+        monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
+        config.reload_settings()
+        try:
+            victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+            first_ip = TestClient(
+                app, client=("198.51.100.10", 41000), raise_server_exceptions=False
+            )
+            second_ip = TestClient(
+                app, client=("198.51.100.11", 41001), raise_server_exceptions=False
+            )
+
+            # Both IPs remain below the five-request IP budget. The fourth
+            # request is rejected only because the per-address limit is three.
+            for request_client, should_reveal in (
+                (first_ip, True), (second_ip, True), (first_ip, True), (second_ip, False)
+            ):
+                response = self._post(request_client, victim["email"])
+                assert response.status_code == 200
+                assert ("reset-password?token=" in response.text) is should_reveal
+        finally:
+            monkeypatch.setenv("ENGINEVERSE_ENV", "test")
+            config.reload_settings()
+
+    @pytest.mark.parametrize("environment", ["staging", "production"])
+    def test_non_development_refuses_the_reveal_flag(
+        self, client, seeded, monkeypatch, environment
+    ):
+        """An operator who leaves the flag on outside development gets no link."""
         from engineverse import config, db
 
         monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
-        monkeypatch.setenv("ENGINEVERSE_ENV", "production")
+        monkeypatch.setenv("ENGINEVERSE_ENV", environment)
+        monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
         config.reload_settings()
         try:
             victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
             body = self._post(client, victim["email"]).text
             assert "reset-password?token=" not in body, (
-                "production honoured ENGINEVERSE_REVEAL_RESET_TOKEN"
+                f"{environment} honoured ENGINEVERSE_REVEAL_RESET_TOKEN"
             )
         finally:
             monkeypatch.setenv("ENGINEVERSE_ENV", "test")
@@ -1010,18 +1092,29 @@ class TestPasswordResetIsNotAnOracle:
         assert notify.is_configured() is False
         assert notify.send(notify.Message("a@b.c", "subject", "body")) is False
 
-    def test_a_mail_failure_does_not_leak_the_token(self, client, seeded, monkeypatch):
-        """A configured but unreachable relay must not fall back to revealing."""
+    @pytest.mark.parametrize(
+        "smtp_url",
+        [
+            "smtp://127.0.0.1:1/?tls=0&starttls=0",
+            "smtp://mail.example:not-a-port/?tls=0&starttls=0",
+        ],
+    )
+    def test_a_mail_failure_does_not_leak_the_token(self, client, seeded, monkeypatch, smtp_url):
+        """Unreachable and malformed relays must not fall back to revealing."""
         from engineverse import config, db
 
-        monkeypatch.setenv("ENGINEVERSE_SMTP_URL", "smtp://127.0.0.1:1/?tls=0&starttls=0")
+        monkeypatch.setenv("ENGINEVERSE_SMTP_URL", smtp_url)
         monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
         config.reload_settings()
         try:
-            victim = db.query_one("SELECT email FROM users WHERE role = 'student' LIMIT 1")
+            victim = db.query_one("SELECT id, email FROM users WHERE role = 'student' LIMIT 1")
             response = self._post(client, victim["email"])
             assert response.status_code == 200
             assert "reset-password?token=" not in response.text
+            assert db.query(
+                "SELECT token_hash FROM password_resets WHERE user_id = ? AND used_at IS NULL",
+                victim["id"],
+            ) == []
         finally:
             monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
             monkeypatch.delenv("ENGINEVERSE_REVEAL_RESET_TOKEN", raising=False)

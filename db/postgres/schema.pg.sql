@@ -242,6 +242,17 @@ CREATE TABLE IF NOT EXISTS email_verifications (
   PRIMARY KEY (token_hash)
 );
 
+CREATE TABLE IF NOT EXISTS security_challenges (
+  token_hash           TEXT NOT NULL,
+  user_id              TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose              TEXT NOT NULL,
+  payload              TEXT,
+  created_at           BIGINT NOT NULL,
+  expires_at           BIGINT NOT NULL,
+  consumed_at          BIGINT,
+  PRIMARY KEY (token_hash)
+);
+
 CREATE TABLE IF NOT EXISTS colleges (
   id                   TEXT NOT NULL,
   university_id        TEXT REFERENCES universities(id) ON DELETE SET NULL,
@@ -980,6 +991,8 @@ CREATE INDEX IF NOT EXISTS idx_password_resets_user ON password_resets(user_id, 
 CREATE INDEX IF NOT EXISTS idx_password_resets_expiry ON password_resets(expires_at);
 CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_email_verifications_expiry ON email_verifications(expires_at);
+CREATE INDEX IF NOT EXISTS idx_security_challenges_user ON security_challenges(user_id, purpose, expires_at);
+CREATE INDEX IF NOT EXISTS idx_security_challenges_expiry ON security_challenges(expires_at);
 CREATE INDEX IF NOT EXISTS idx_login_ip ON login_attempts(ip, created_at);
 CREATE INDEX IF NOT EXISTS idx_login_ident ON login_attempts(identifier, created_at);
 CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_logs(actor_id, created_at);
@@ -1017,6 +1030,7 @@ CREATE INDEX IF NOT EXISTS idx_flash_topic ON flashcards(topic_id);
 CREATE INDEX IF NOT EXISTS idx_uf_due ON user_flashcards(user_id, due_at);
 CREATE INDEX IF NOT EXISTS idx_pnote ON personal_notes(user_id, entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_xp_user ON xp_events(user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_xp_project_build_once ON xp_events(user_id, entity_id) WHERE reason = 'project.built' AND entity_type = 'project';
 CREATE INDEX IF NOT EXISTS idx_activity_day ON activity(day);
 CREATE INDEX IF NOT EXISTS idx_disc_recent ON discussions(last_activity_at DESC);
 CREATE INDEX IF NOT EXISTS idx_comment_disc ON comments(discussion_id, created_at);

@@ -213,6 +213,22 @@ def _finish_login(row: dict, identifier: str, ip: str, user_agent: str) -> tuple
     return user, cookie_value, session_id
 
 
+def _store_mfa_replacement(row: dict, replacement: str | None) -> None:
+    """Compare-and-set MFA state so concurrent/replayed factors cannot both win."""
+    if replacement is None:
+        return
+    changed = db.execute(
+        "UPDATE users SET totp_secret = ?, updated_at = ? WHERE id = ? AND totp_secret = ?",
+        replacement, now_ms(), row["id"], row["totp_secret"],
+    )
+    if changed != 1:
+        raise AuthError(
+            "That authenticator code was already used or the factor changed. Try again with a fresh code.",
+            401,
+            code="mfa_replay",
+        )
+
+
 def _reject_factor(row: dict, identifier: str, ip: str) -> None:
     ts = now_ms()
     failures = int(db.scalar("SELECT failed_login_count AS c FROM users WHERE id = ?", row["id"]) or 0) + 1
@@ -270,13 +286,16 @@ def login(
         accepted, replacement = totp.verify_factor(row["totp_secret"], otp)
         if not accepted:
             _reject_factor(row, identifier, ip)
-        if replacement:
-            db.execute("UPDATE users SET totp_secret = ? WHERE id = ?", replacement, row["id"])
+        with db.transaction():
+            if not totp.consume_login_token(mfa_token, row["id"]):
+                raise AuthError("That sign-in step expired or was already used. Start again.", 401,
+                                code="mfa_replayed")
+            _store_mfa_replacement(row, replacement)
         return _finish_login(row, identifier, ip, user_agent)
 
     blocked, retry_after = auth_blocked(identifier, ip)
     if blocked:
-        record("auth.login_failed", ip=ip, meta={"identifier": identifier, "reason": "rate_limited"})
+        record("auth.login_failed", ip=ip, meta={"reason": "rate_limited"})
         raise AuthError(
             f"Too many failed attempts. Try again in {retry_after // 60 + 1} minute(s).", 429
         )
@@ -286,7 +305,7 @@ def login(
         # Spend comparable time so "no such user" is not measurable.
         verify_password(password, "scrypt$16384$8$1$AAAAAAAAAAAAAAAAAAAAAA==$" + "A" * 88)
         register_login_attempt(identifier, ip, False, "no_such_user")
-        record("auth.login_failed", ip=ip, meta={"identifier": identifier, "reason": "no_such_user"})
+        record("auth.login_failed", ip=ip, meta={"reason": "no_such_user"})
         raise AuthError("Incorrect email or password.", 401)
 
     if row["status"] != "active":
@@ -322,8 +341,7 @@ def login(
             accepted, replacement = totp.verify_factor(row["totp_secret"], otp)
             if not accepted:
                 _reject_factor(row, identifier, ip)
-            if replacement:
-                db.execute("UPDATE users SET totp_secret = ? WHERE id = ?", replacement, row["id"])
+            _store_mfa_replacement(row, replacement)
         else:
             raise MfaRequired(totp.issue_login_token(row["id"]))
     return _finish_login(row, identifier, ip, user_agent)
@@ -549,11 +567,14 @@ def issue_password_reset(user_id: str, ip: str | None = None) -> str:
     """
     token = secrets.token_urlsafe(32)
     ts = now_ms()
-    db.execute("DELETE FROM password_resets WHERE user_id = ?", user_id)
-    db.execute(
-        "INSERT INTO password_resets (token_hash, user_id, created_at, expires_at, ip) VALUES (?,?,?,?,?)",
-        _hash_reset_token(token), user_id, ts, ts + RESET_TOKEN_TTL_MS, ip,
-    )
+    lock = " FOR UPDATE" if db.uses_postgres() else ""
+    with db.transaction():
+        db.query_one("SELECT id FROM users WHERE id = ?" + lock, user_id)
+        db.execute("DELETE FROM password_resets WHERE user_id = ?", user_id)
+        db.execute(
+            "INSERT INTO password_resets (token_hash, user_id, created_at, expires_at, ip) VALUES (?,?,?,?,?)",
+            _hash_reset_token(token), user_id, ts, ts + RESET_TOKEN_TTL_MS, ip,
+        )
     record("auth.reset_token_issued", actor_id=user_id, ip=ip)
     return token
 
@@ -572,21 +593,27 @@ def consume_password_reset(token: str) -> str | None:
     """
     if not token or len(token) > 200:
         return None
-    row = db.query_one(
-        "SELECT user_id, expires_at FROM password_resets "
-        "WHERE token_hash = ? AND used_at IS NULL",
-        _hash_reset_token(token),
-    )
-    if not row:
-        return None
-    if int(row["expires_at"]) < now_ms():
-        db.execute("DELETE FROM password_resets WHERE token_hash = ?", _hash_reset_token(token))
-        return None
-    db.execute(
-        "UPDATE password_resets SET used_at = ? WHERE token_hash = ?",
-        now_ms(), _hash_reset_token(token),
-    )
-    return row["user_id"]
+    digest = _hash_reset_token(token)
+    ts = now_ms()
+    with db.transaction():
+        row = db.query_one(
+            "SELECT user_id, expires_at FROM password_resets "
+            "WHERE token_hash = ? AND used_at IS NULL",
+            digest,
+        )
+        if not row:
+            return None
+        if int(row["expires_at"]) < ts:
+            db.execute(
+                "DELETE FROM password_resets WHERE token_hash = ? AND used_at IS NULL", digest
+            )
+            return None
+        claimed = db.execute(
+            "UPDATE password_resets SET used_at = ? "
+            "WHERE token_hash = ? AND used_at IS NULL AND expires_at >= ?",
+            ts, digest, ts,
+        )
+        return str(row["user_id"]) if claimed == 1 else None
 
 
 def prune_password_resets() -> int:
@@ -605,12 +632,15 @@ def issue_email_verification(user_id: str, ip: str | None = None) -> str:
     """Creates a confirmation token and returns the plaintext, once."""
     token = secrets.token_urlsafe(32)
     ts = now_ms()
-    db.execute("DELETE FROM email_verifications WHERE user_id = ?", user_id)
-    db.execute(
-        "INSERT INTO email_verifications (token_hash, user_id, created_at, expires_at, ip) "
-        "VALUES (?,?,?,?,?)",
-        _hash_reset_token(token), user_id, ts, ts + VERIFY_TOKEN_TTL_MS, ip,
-    )
+    lock = " FOR UPDATE" if db.uses_postgres() else ""
+    with db.transaction():
+        db.query_one("SELECT id FROM users WHERE id = ?" + lock, user_id)
+        db.execute("DELETE FROM email_verifications WHERE user_id = ?", user_id)
+        db.execute(
+            "INSERT INTO email_verifications (token_hash, user_id, created_at, expires_at, ip) "
+            "VALUES (?,?,?,?,?)",
+            _hash_reset_token(token), user_id, ts, ts + VERIFY_TOKEN_TTL_MS, ip,
+        )
     record("auth.verification_issued", actor_id=user_id, ip=ip)
     return token
 
@@ -631,6 +661,7 @@ def consume_email_verification(token: str) -> str | None:
     if not token or len(token) > 200:
         return None
     digest = _hash_reset_token(token)
+    ts = now_ms()
     with db.transaction():
         row = db.query_one(
             "SELECT user_id, expires_at FROM email_verifications "
@@ -639,25 +670,34 @@ def consume_email_verification(token: str) -> str | None:
         )
         if not row:
             return None
-        if int(row["expires_at"]) < now_ms():
-            db.execute("DELETE FROM email_verifications WHERE token_hash = ?", digest)
+        if int(row["expires_at"]) < ts:
+            db.execute(
+                "DELETE FROM email_verifications WHERE token_hash = ? AND used_at IS NULL", digest
+            )
             return None
-        ts = now_ms()
-        db.execute("UPDATE email_verifications SET used_at = ? WHERE token_hash = ?", ts, digest)
+        claimed = db.execute(
+            "UPDATE email_verifications SET used_at = ? "
+            "WHERE token_hash = ? AND used_at IS NULL AND expires_at >= ?",
+            ts, digest, ts,
+        )
+        if claimed != 1:
+            return None
+        user_id = str(row["user_id"])
         db.execute(
             "UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?",
-            ts, row["user_id"],
+            ts, user_id,
         )
-    record("auth.email_verified", actor_id=row["user_id"], entity_type="user", entity_id=row["user_id"])
-    return row["user_id"]
+    record("auth.email_verified", actor_id=user_id, entity_type="user", entity_id=user_id)
+    return user_id
 
 
 def deliver_email_verification(user_id: str, email: str, ip: str | None = None) -> tuple[str, str]:
     """Send a confirmation link, or refuse to invent one.
 
-    Returns ``(status, dev_token)``. ``dev_token`` is non-empty only when this
-    process is not production, mail is not configured, and
-    ``ENGINEVERSE_REVEAL_RESET_TOKEN`` is on. A failed send deletes the token.
+    Returns ``(status, dev_token)``. ``dev_token`` is non-empty only in a
+    development/test environment when mail is not configured and
+    ``ENGINEVERSE_REVEAL_RESET_TOKEN`` is on. Staging and production never
+    reveal it. A failed send deletes the token.
     The token is never returned on the sent path.
     """
     from . import notify
@@ -668,7 +708,7 @@ def deliver_email_verification(user_id: str, email: str, ip: str | None = None) 
     if int(row["email_verified"] or 0):
         return "verified", ""
     settings = get_settings()
-    reveal = bool(settings.reveal_reset_token and not settings.is_production and not notify.is_configured())
+    reveal = bool(settings.reveal_reset_token and settings.allows_demo_accounts and not notify.is_configured())
     if not notify.is_configured() and not reveal:
         return "unavailable", ""
     token = issue_email_verification(user_id, ip=ip)

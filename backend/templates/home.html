@@ -85,6 +85,16 @@
   {% endif %}
 </section>
 
+{% if cyber_security_subject %}
+<section class="section">
+  <div class="panel between" style="gap:16px;align-items:center">
+    <div><h2 style="margin:0 0 6px">Cyber Security notes are public</h2>
+      <p class="muted" style="margin:0">Start the defensive security path—read the notes and practice without creating an account.</p></div>
+    <a class="btn btn-primary" href="/subjects/{{ cyber_security_subject.slug }}">Open Cyber Security notes</a>
+  </div>
+</section>
+{% endif %}
+
 <section class="section">
   <div class="section-head">
     <h2>Learn by subject</h2>

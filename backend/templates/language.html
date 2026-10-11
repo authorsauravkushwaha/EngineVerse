@@ -6,9 +6,9 @@
 <p class="muted">{{ language.blurb }}</p>
 <p class="muted">The modules are in order. The first ones are the first week. The last one is the habit a professional keeps: tests, checks, or queries you can explain. Copy each example and run it. This page is not a complete reference, and reading it is not the same as being able to build with it.</p>
 {% if not language.runnable %}
-  <div class="callout warning"><span class="label">Runtime not available on this host</span>
-    You can still read every module and copy the examples. Submissions in this language run only when the
-    matching toolchain is installed — see <code>docs/ARCHITECTURE.md</code>.</div>
+  <div class="callout warning"><span class="label">No active runtime for this language</span>
+    You can still read every module and copy the examples. Run support depends on the configured judge provider
+    and its available toolchains — see <code>docs/ARCHITECTURE.md</code>.</div>
 {% endif %}
 
 <div class="stack section">

@@ -54,6 +54,8 @@ class ParsedHash:
 
 
 def hash_password(password: str) -> str:
+    if not isinstance(password, str) or len(password) > MAX_PASSWORD_LENGTH:
+        raise ValueError("password must be text no longer than 256 characters")
     salt = os.urandom(16)
     digest = hashlib.scrypt(
         _normalise(password), salt=salt, n=N, r=R, p=P, dklen=KEY_LENGTH, maxmem=256 * 1024 * 1024
@@ -64,28 +66,43 @@ def hash_password(password: str) -> str:
 
 
 def parse_hash(stored: str) -> ParsedHash | None:
+    # Stored KDF parameters come from the database, not from a trusted caller.
+    # Bound the encoded record and the CPU/memory work before invoking scrypt.
+    if not isinstance(stored, str) or len(stored) > 512:
+        return None
     parts = stored.split("$")
     if len(parts) != 6 or parts[0] != PREFIX:
         return None
     try:
         n, r, p = int(parts[1]), int(parts[2]), int(parts[3])
-        salt = base64.b64decode(parts[4])
-        digest = base64.b64decode(parts[5])
+        salt = base64.b64decode(parts[4], validate=True)
+        digest = base64.b64decode(parts[5], validate=True)
     except (ValueError, TypeError):
         return None
-    if n <= 0 or (n & (n - 1)) != 0 or r <= 0 or p <= 0 or not salt or not digest:
+    if (
+        n < 2 or n > (1 << 20) or (n & (n - 1)) != 0
+        or r < 1 or r > 32 or p < 1 or p > 16
+        or n * r * p > (1 << 22)
+        or 128 * n * r > 240 * 1024 * 1024
+        or not 8 <= len(salt) <= 64
+        or not 16 <= len(digest) <= 64
+    ):
         return None
     return ParsedHash(n=n, r=r, p=p, salt=salt, digest=digest)
 
 
 def verify_password(password: str, stored: str) -> bool:
-    """Constant-time verification. Always does work, even for bad input."""
+    """Constant-time verification for bounded inputs.
+
+    Oversized passwords are refused before any expensive KDF work. Malformed
+    stored hashes still take a dummy KDF path for account-enumeration resistance.
+    """
+    if not isinstance(password, str) or len(password) > MAX_PASSWORD_LENGTH:
+        return False
     parsed = parse_hash(stored)
     if parsed is None:
         # Burn comparable time so timing cannot reveal hash validity.
         hashlib.scrypt(b"x", salt=b"0" * 16, n=N, r=R, p=P, dklen=KEY_LENGTH, maxmem=256 * 1024 * 1024)
-        return False
-    if len(password) > MAX_PASSWORD_LENGTH:
         return False
     try:
         digest = hashlib.scrypt(
@@ -126,7 +143,7 @@ def check_password_strength(password: str, context: list[str] | None = None) -> 
     if len(password) < 10:
         issues.append(PasswordIssue("too_short", "Use at least 10 characters."))
     if len(password) > MAX_PASSWORD_LENGTH:
-        issues.append(PasswordIssue("too_long", "Use at most 256 characters."))
+        return [PasswordIssue("too_long", "Use at most 256 characters.")]
     if 10 <= len(password) < 16:
         classes = sum(
             1
@@ -149,6 +166,8 @@ def check_password_strength(password: str, context: list[str] | None = None) -> 
 
 
 def password_score(password: str) -> int:
+    if not isinstance(password, str) or len(password) > MAX_PASSWORD_LENGTH:
+        return 0
     score = min(len(password) * 4, 60)
     if re.search(r"[a-z]", password) and re.search(r"[A-Z]", password):
         score += 10

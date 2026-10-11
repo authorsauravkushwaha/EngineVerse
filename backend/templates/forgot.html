@@ -15,14 +15,10 @@
         <p><a class="btn btn-primary" href="/reset-password?token={{ reset_token }}">Continue to reset</a></p>
         <p class="small muted">Token: <code>{{ reset_token }}</code></p>
       </div>
-    {% elif reset_unavailable %}
-      <div class="callout"><span class="label">Self-service reset is unavailable here</span>
-        <p class="small muted">This instance has no mail relay configured, so there is nowhere to send a reset link.
-          Contact the site administrator, who can reset the password for you.</p></div>
     {% else %}
-      <div class="callout"><span class="label">Check your inbox</span>
-        If an account exists for that address, a reset link is on its way. We always show this message so nobody can
-        use this form to discover which emails are registered.</div>
+      <div class="callout"><span class="label">Request received</span>
+        If an account exists and this site can send email, a reset link will be sent. If you do not receive one,
+        contact the site administrator. This message is the same for every address.</div>
     {% endif %}
     <a class="btn btn-ghost" href="/login">Back to sign in</a>
   {% else %}

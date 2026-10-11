@@ -171,6 +171,11 @@ def connection() -> Any:
     return conn
 
 
+def uses_postgres() -> bool:
+    """True when this runtime is configured for PostgreSQL."""
+    return get_settings().uses_postgres
+
+
 def close_connection() -> None:
     conn = getattr(_local, "conn", None)
     if conn is not None:
@@ -180,28 +185,58 @@ def close_connection() -> None:
             _local.conn = None
 
 
+def _transaction_control(conn: Any, statement: str) -> None:
+    """Run BEGIN/SAVEPOINT control SQL without passing through db.execute()."""
+    if isinstance(conn, sqlite3.Connection):
+        conn.execute(statement)
+        return
+    cur = conn.cursor()
+    try:
+        cur.execute(statement)
+    finally:
+        cur.close()
+
+
 @contextmanager
 def transaction() -> Iterator[None]:
-    """Serialises writes (SQLite is single-writer) and rolls back on error."""
+    """Serialise writes and make nested transactions safe on both databases.
+
+    SQLite needs ``BEGIN IMMEDIATE`` to claim its single-writer slot before a
+    read/modify/write sequence. PostgreSQL already opens a DB-API transaction on
+    the first statement; ``db.execute`` must not commit individual statements
+    while this context is active. Nested calls use savepoints rather than issuing
+    a second BEGIN (or accidentally committing their caller's work).
+    """
     with _write_lock:
         conn = connection()
+        depth = int(getattr(_local, "transaction_depth", 0))
+        savepoint = f"engineverse_sp_{depth + 1}"
         if isinstance(conn, sqlite3.Connection):
-            conn.execute("BEGIN IMMEDIATE;")
-        else:  # pragma: no cover - postgres path
-            pass
+            _transaction_control(conn, "BEGIN IMMEDIATE;" if depth == 0 else f"SAVEPOINT {savepoint};")
+        elif depth > 0:  # pragma: no cover - postgres path
+            _transaction_control(conn, f"SAVEPOINT {savepoint};")
+        _local.transaction_depth = depth + 1
         try:
             yield
         except Exception:
             try:
-                conn.rollback()
+                if depth == 0:
+                    conn.rollback()
+                else:
+                    _transaction_control(conn, f"ROLLBACK TO SAVEPOINT {savepoint};")
+                    _transaction_control(conn, f"RELEASE SAVEPOINT {savepoint};")
             except Exception:
                 pass
             raise
         else:
             if isinstance(conn, sqlite3.Connection):
-                conn.execute("COMMIT;")
-            else:  # pragma: no cover
+                _transaction_control(conn, "COMMIT;" if depth == 0 else f"RELEASE SAVEPOINT {savepoint};")
+            elif depth == 0:  # pragma: no cover
                 conn.commit()
+            else:  # pragma: no cover
+                _transaction_control(conn, f"RELEASE SAVEPOINT {savepoint};")
+        finally:
+            _local.transaction_depth = depth
 
 
 def query(sql: str, *params: Any) -> list[dict]:
@@ -237,7 +272,8 @@ def execute(sql: str, *params: Any) -> int:
             conn = connection()
             if isinstance(conn, sqlite3.Connection):
                 return cur.rowcount if cur.rowcount is not None else 0
-            conn.commit()
+            if not getattr(_local, "transaction_depth", 0):
+                conn.commit()
             return cur.rowcount
         finally:
             cur.close()

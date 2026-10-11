@@ -64,16 +64,29 @@ def reset(key: str) -> None:
 _shared_calls = 0
 
 
-def shared_check(key: str, limit: int, window_seconds: int) -> RateLimitResult:
+def shared_check(
+    key: str,
+    limit: int,
+    window_seconds: int,
+    *,
+    local_fallback: RateLimitResult | None = None,
+) -> RateLimitResult:
     """A counter in ``api_rate_limits``, shared by every process on this database.
 
-    The in-process window still applies. This one is what survives a second
-    replica and a restart. A missing table falls back to the in-process window
-    rather than failing the request; a malformed statement does not.
+    The in-process sliding window still applies. This persisted window survives
+    a second replica and a restart, and is anchored at the first hit rather than
+    a wall-clock boundary so a boundary burst cannot obtain two fresh quotas.
+    If the database table is unavailable, use the local
+    result already computed by middleware when supplied; checking that same
+    bucket twice would halve the effective limit. Direct callers that have not
+    checked locally get one local check as a fallback. Other database errors are
+    not silently ignored.
     """
+    def fallback() -> RateLimitResult:
+        return local_fallback if local_fallback is not None else check(key, limit, window_seconds)
     global _shared_calls
     now = int(time.time())
-    window_start = now - (now % max(1, window_seconds))
+    window_seconds = max(1, int(window_seconds))
     bucket = key[:180]
     _shared_calls += 1
     try:
@@ -82,25 +95,29 @@ def shared_check(key: str, limit: int, window_seconds: int) -> RateLimitResult:
         db.execute(
             "INSERT INTO api_rate_limits (bucket, count, window_start) VALUES (?, 1, ?) "
             "ON CONFLICT(bucket) DO UPDATE SET "
-            "count = CASE WHEN api_rate_limits.window_start < ? THEN 1 ELSE api_rate_limits.count + 1 END, "
-            "window_start = CASE WHEN api_rate_limits.window_start < ? THEN ? ELSE api_rate_limits.window_start END",
+            "count = CASE WHEN api_rate_limits.window_start + ? <= ? "
+            "THEN 1 ELSE api_rate_limits.count + 1 END, "
+            "window_start = CASE WHEN api_rate_limits.window_start + ? <= ? "
+            "THEN ? ELSE api_rate_limits.window_start END",
             bucket,
-            window_start,
-            window_start,
-            window_start,
-            window_start,
+            now,
+            window_seconds,
+            now,
+            window_seconds,
+            now,
+            now,
         )
         row = db.query_one("SELECT count, window_start FROM api_rate_limits WHERE bucket = ?", bucket)
     except db.DatabaseError:
-        return check(key, limit, window_seconds)
+        return fallback()
     except Exception as exc:
         message = str(exc).lower()
         if "no such table" in message or "does not exist" in message:
-            return check(key, limit, window_seconds)
+            return fallback()
         raise
     count = int(row["count"]) if row else limit + 1
     if count > limit:
-        retry = max(1, window_seconds - (now - window_start))
+        retry = max(1, window_seconds - (now - int(row["window_start"])))
         return RateLimitResult(False, 0, retry, limit)
     return RateLimitResult(True, max(0, limit - count), 0, limit)
 
@@ -175,6 +192,9 @@ def prune_login_attempts() -> int:
 LIMITS = {
     "login": (10, 300),
     "register": (5, 3600),
+    "forgot_password": (5, 3600),
+    "reset_password": (10, 300),
+    "feedback": (5, 3600),
     "answer": (120, 60),
     "run_code": (30, 60),
     "submit_code": (30, 60),

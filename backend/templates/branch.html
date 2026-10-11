@@ -5,7 +5,7 @@
 <header class="panel hero mb">
   <h1>{{ branch.name }}</h1>
   <p class="lead">{{ branch.description }}</p>
-  <div class="tags"><span class="chip accent">{{ subjects | length }} subjects</span>
+  <div class="tags"><span class="chip accent">{{ total_subjects }} subjects</span>
     <span class="chip">{{ branch.category | titlecase }}</span></div>
 </header>
 
@@ -27,6 +27,7 @@
     {% endfor %}
   </div>
 </section>
+{% include "_pager.html" %}
 
 {% if roadmaps %}
 <section class="section">

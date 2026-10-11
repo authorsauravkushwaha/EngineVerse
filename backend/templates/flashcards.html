@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}{% if selected %}{{ selected.front }}{% else %}Browse flashcards{% endif %} — {{ brand.site_name }}{% endblock %}
+{% block description %}Browse and search public revision flashcards across EngineVerse subjects. Personal spaced-repetition schedules are available after sign-in.{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/revision">Revision</a> › <span>Public flashcards</span></nav>
+{% if selected %}
+  <h1>{{ selected.front }}</h1>
+  <div class="tags">
+    <span class="chip accent">{{ selected.deck }}</span>
+    {% if selected.subject_name %}<a class="chip" href="/subjects/{{ selected.subject_slug }}">{{ selected.subject_name }}</a>{% endif %}
+    <span class="chip diff-{{ selected.difficulty }}">{{ selected.difficulty }}</span>
+  </div>
+  {% if selected.topic_title %}<p class="muted">Related topic: <a href="/topics/{{ selected.topic_slug }}">{{ selected.topic_title }}</a></p>{% endif %}
+  <article class="panel section public-flashcard" data-flashcard-id="{{ selected.id }}">
+    {% if selected.hint %}<p class="muted"><strong>Hint:</strong> {{ selected.hint }}</p>{% endif %}
+    <details class="answer-reveal"><summary>Reveal answer</summary><div class="prose mt">{{ selected.back | md | safe }}</div></details>
+  </article>
+  <a class="btn btn-soft" href="/flashcards">Browse all flashcards</a>
+{% else %}
+  <h1>Browse flashcards</h1>
+  <p class="muted">Prompts and answers are public. Sign in to save a personal SM-2 review schedule.</p>
+  <form class="panel mb" method="get" action="/flashcards">
+    <div class="row">
+      <input type="search" name="q" value="{{ q or '' }}" maxlength="120" placeholder="Search prompts, hints, subjects…" aria-label="Search flashcards">
+      <select name="deck" aria-label="Filter by deck">
+        <option value="">All decks</option>
+        {% for deck in decks %}<option value="{{ deck.deck }}" {{ 'selected' if active_deck == deck.deck }}>{{ deck.deck }} ({{ deck.count }})</option>{% endfor %}
+      </select>
+      <button class="btn btn-primary" type="submit">Find cards</button>
+      {% if q or active_deck %}<a class="btn btn-ghost" href="/flashcards">Clear</a>{% endif %}
+    </div>
+  </form>
+  <p class="muted">{{ pager.total }} card{{ '' if pager.total == 1 else 's' }}{% if active_deck %} in {{ active_deck }}{% endif %}{% if q %} matching “{{ q }}”{% endif %}.</p>
+  {% if cards %}
+    <div class="grid g2 section">
+      {% for card in cards %}
+      <article class="panel public-flashcard" id="{{ card.id }}" data-flashcard-id="{{ card.id }}">
+        <div class="tags">
+          <span class="chip accent">{{ card.deck }}</span>
+          {% if card.subject_name %}<a class="chip" href="/subjects/{{ card.subject_slug }}">{{ card.subject_name }}</a>{% endif %}
+          <span class="chip diff-{{ card.difficulty }}">{{ card.difficulty }}</span>
+        </div>
+        <h2><a href="/flashcards?card={{ card.id }}">{{ card.front }}</a></h2>
+        {% if card.topic_title %}<p class="tiny muted">Topic: <a href="/topics/{{ card.topic_slug }}">{{ card.topic_title }}</a></p>{% endif %}
+        {% if card.hint %}<p class="muted"><strong>Hint:</strong> {{ card.hint }}</p>{% endif %}
+        <details class="answer-reveal"><summary>Reveal answer</summary><div class="prose mt">{{ card.back | md | safe }}</div></details>
+      </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty"><span class="em">🗂️</span>No cards match those filters.</div>
+  {% endif %}
+  {% include "_pager.html" %}
+{% endif %}
+{% endblock %}

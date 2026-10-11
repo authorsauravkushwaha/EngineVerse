@@ -11,7 +11,7 @@
       <span class="title" style="color:{{ lang.color }}">{{ lang.name }}</span>
       <span class="desc">{{ lang.blurb }}</span>
       <div class="tags"><span class="chip {{ 'ok' if lang.runnable else 'warn' }}">
-        {{ 'Runnable here' if lang.runnable else 'Source + CI only' }}</span></div>
+        {{ 'Runnable with active provider' if lang.runnable else 'No active runtime' }}</span></div>
     </a>{% endfor %}</div>
 </section>
 

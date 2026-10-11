@@ -54,17 +54,20 @@ not having one.
 ### What does contain a submission
 
 This list applies only when a local judge is selected. Production compose does
-not select one. If it did, containment inside the web container would be: rlimits set in the child (process count, address space,
-CPU seconds, file size, open files), an empty tmpfs mounted over the application
-user's home directory, a network namespace with no outbound access, a private
-process group killed as a unit on timeout, and an unprivileged user. The
-container adds `read_only: true` with `/tmp` as the only writable path — which is
+not select one. If it did, containment inside the web container would include
+child rlimits (process count, address space, CPU seconds, file size and open
+files), a private network namespace, a private PID namespace with its own
+procfs, tmpfs mounts over the application tree and account home, a private
+process group killed as a unit on timeout, and a scrubbed child environment.
+The container adds `read_only: true` with `/tmp` as the only writable path —
 where the judge creates its work directories — plus `cap_drop: [ALL]` and
 `no-new-privileges:true`.
 
-That is a real set of limits and the judge suite verifies each one. It is not
-separation: a submission runs as the application user. See
-`docs/SECURITY.md` for precisely what that does and does not stop.
+That is a real set of limits and the judge suite verifies them when the host
+supports the required namespaces. It is still not separation from the web
+container: when the application runs unprivileged, the submission shares its
+host UID; a privileged parent drops the child to `nobody`. See
+`docs/SECURITY.md` for precisely what this does and does not stop.
 
 ### Making it a separate process
 

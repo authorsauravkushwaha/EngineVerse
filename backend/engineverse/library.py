@@ -249,7 +249,48 @@ def flashcards_for_topic(topic_id: str) -> list[dict]:
 
 
 def flashcard_by_id(flashcard_id: str) -> dict | None:
-    return db.query_one("SELECT * FROM flashcards WHERE id = ?", flashcard_id)
+    return db.query_one(
+        "SELECT f.*, s.name AS subject_name, s.slug AS subject_slug, "
+        "t.title AS topic_title, t.slug AS topic_slug "
+        "FROM flashcards f LEFT JOIN subjects s ON s.id = f.subject_id "
+        "LEFT JOIN topics t ON t.id = f.topic_id WHERE f.id = ?",
+        flashcard_id,
+    )
+
+
+def _flashcards_where(*, deck: str | None, q: str | None) -> tuple[str, list[Any]]:
+    clauses = ["1=1"]
+    args: list[Any] = []
+    if deck:
+        clauses.append("f.deck = ?")
+        args.append(deck)
+    if q:
+        clauses.append("(f.front LIKE ? OR f.hint LIKE ? OR f.deck LIKE ? OR s.name LIKE ? OR t.title LIKE ?)")
+        args.extend([f"%{q}%"] * 5)
+    return " AND ".join(clauses), args
+
+
+def count_flashcards(*, deck: str | None = None, q: str | None = None) -> int:
+    where, args = _flashcards_where(deck=deck, q=q)
+    return int(db.scalar(
+        "SELECT count(*) FROM flashcards f "
+        "LEFT JOIN subjects s ON s.id = f.subject_id LEFT JOIN topics t ON t.id = f.topic_id "
+        f"WHERE {where}", *args,
+    ) or 0)
+
+
+def list_flashcards(
+    *, deck: str | None = None, q: str | None = None, limit: int = 24, offset: int = 0,
+) -> list[dict]:
+    where, args = _flashcards_where(deck=deck, q=q)
+    return db.query(
+        "SELECT f.*, s.name AS subject_name, s.slug AS subject_slug, "
+        "t.title AS topic_title, t.slug AS topic_slug "
+        "FROM flashcards f LEFT JOIN subjects s ON s.id = f.subject_id "
+        "LEFT JOIN topics t ON t.id = f.topic_id "
+        f"WHERE {where} ORDER BY f.deck, s.name, f.front, f.id LIMIT ? OFFSET ?",
+        *args, max(1, min(int(limit), 100)), max(0, int(offset)),
+    )
 
 
 def decks() -> list[dict]:

@@ -80,8 +80,8 @@ def send(message: Message, *, timeout: float = 10.0) -> bool:
                meta={"subject": message.subject})
         return False
 
-    config = _parse(settings.smtp_url)
     try:
+        config = _parse(settings.smtp_url)
         context = ssl.create_default_context()
         if config["tls"] and not config["starttls"]:
             client = smtplib.SMTP_SSL(config["host"], config["port"], timeout=timeout,
@@ -94,14 +94,14 @@ def send(message: Message, *, timeout: float = 10.0) -> bool:
             if config["user"]:
                 client.login(config["user"], config["password"])
             client.send_message(_build(message))
-    except (smtplib.SMTPException, OSError) as exc:
+    except (smtplib.SMTPException, OSError, ValueError) as exc:
         # Never log the body: a reset link in the logs is a credential.
         record("mail.failed", entity_type="subject", entity_id="mail",
                meta={"subject": message.subject, "error": exc.__class__.__name__})
         return False
 
     record("mail.sent", entity_type="subject", entity_id="mail",
-           meta={"subject": message.subject, "to": message.to})
+           meta={"subject": message.subject})
     return True
 
 

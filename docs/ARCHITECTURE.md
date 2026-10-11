@@ -83,11 +83,15 @@ rest of the codebase sees.
 1. **`SecurityHeadersMiddleware`** — mints a per-request CSP nonce onto
    `request.state.csp_nonce`, then sets X-Frame-Options, nosniff, Referrer-Policy,
    Permissions-Policy, COOP/CORP, and HSTS when the request is HTTPS.
-2. **`RateLimitMiddleware`** — sliding window, 30/min for the judge and 300/min
-   for the rest of `/api`.
+2. **`RateLimitMiddleware`** — shared-IP budgets for login (10/5 min), register
+   and reset-link requests (5/hour), reset-token checks (10/5 min), feedback
+   (5/hour), practice answers (120/min), coding run/submit (30/min), tutor
+   (30/hour), and other API routes (300/min). Password/MFA settings and community
+   writes also have per-account budgets.
 3. **`CsrfMiddleware`** — rejects state-changing requests without a valid token,
-   read from the `x-csrf-token` header *or* the `csrf_token` form field (an HTML
-   form cannot set a header).
+   bound to the authenticated session or an anonymous browser's HttpOnly CSRF
+   cookie; reads the token from the `x-csrf-token` header *or* the
+   `csrf_token` form field (an HTML form cannot set a header).
 4. **Router** — resolves the current session into a `Viewer`, calls services,
    renders a template.
 
@@ -99,9 +103,11 @@ Templates never touch the database. Everything they need arrives through
 
 Submissions never run in the web process. `engineverse/judge` picks a provider:
 
-- **`local`** — runs the program in a scrubbed child process with CPU, memory,
-  file-size and wall-clock ceilings, no writable path outside a temp directory,
-  and no outbound network. Used for Python, JavaScript, C, C++ and Bash.
+- **`local`** — a development runner that executes in a scrubbed child process
+  with resource ceilings, no outbound network, a private PID namespace/procfs,
+  and tmpfs mounts over the app tree and home directory. It is available only
+  when the network, PID and mount namespace probes succeed; otherwise it refuses
+  to run learner code. It is not a separate container or a production boundary.
 - **`java-sandbox`** — shells out to `sandbox-java/`, which compiles with the
   ToolProvider API and runs the result in a second, killable JVM.
 - **`judge0`** — an optional bridge for deployments that want a dedicated judge
@@ -154,12 +160,13 @@ handled rather than assumed away.
 
 Nothing indexes a row at the moment it is written. Two things close that gap:
 
-- `search.refresh_if_stale()` runs at startup and compares a fingerprint of the
-  content tables — row count, `updated_at` sum and maximum per table — against
-  the marker written at the last build. An insert, an edit or a delete all change
-  it, so the next boot rebuilds. The schema-version marker alone is not enough:
-  it records which *shape* of index the code produces, and once it matches it
-  stays matched.
+- `search.refresh_if_stale()` runs at startup and compares hashes of the exact
+  indexed source fields — including timestamp-free module/card tables, note
+  sections, project steps and searchable profile settings — against the marker
+  written at the last build. Inserts, edits and deletes invalidate it. The stored
+  marker contains counts and digests, not source text. The schema-version marker
+  alone is not enough: it records which *shape* of index the code produces, and
+  once it matches it stays matched.
 - `scripts/reindex.py` rebuilds on demand, which is what an operator runs after
   inserting catalogue rows by hand. `--check` reports what the index holds
   without changing it.
@@ -170,6 +177,9 @@ They used to be indexed one entry per note keyed by the topic slug; since
 and only the last one read survived. Prose is capped at `MAX_BODY_CHARS`, sized
 from measurement: merged topic notes run to a median of 5.4k characters and a
 maximum of 11.3k, and the previous 4000-character cap truncated 47 of 48 topics.
+The same index includes each public programming module and flashcard prompt, so a
+search can deep-link to a module section or the public card browser. Flashcard
+answers are deliberately excluded from indexed text and search snippets.
 
 ## 3D models are data, not markup
 

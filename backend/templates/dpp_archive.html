@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Daily Practice Archive — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div>
+    <h1>Daily practice archive</h1>
+    <p class="muted">Browse every published five-question set. The dated archive follows the questions in the current practice bank.</p>
+  </div>
+  <a class="btn btn-ghost" href="/practice">Back to practice</a>
+</div>
+
+<div class="grid g3" data-dpp-archive>
+  {% for s in sets %}
+    <a class="card" href="/dpp/{{ s.date }}">
+      <span class="title">{{ s.title or s.date }}</span>
+      <span class="desc">{{ s.question_count }} questions · {{ s.duration_minutes }} min</span>
+      {% if s.subject_name %}<span class="chip">{{ s.subject_name }}</span>{% endif %}
+    </a>
+  {% else %}
+    <div class="empty"><span class="em">🗓️</span>No practice sets have been published yet.</div>
+  {% endfor %}
+</div>
+{% include "_pager.html" %}
+{% endblock %}

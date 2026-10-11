@@ -79,18 +79,69 @@ class TestApiSurface:
         body = client.get("/api/search?q=bernoulli").json()
         assert isinstance(body["results"], list)
 
+    def test_project_page_views_do_not_award_xp_and_build_claim_is_once(self, signed_in, demo_user):
+        from engineverse import db, progress
+        from engineverse.security.ids import today
+
+        slug = "citation-first-study-agent"
+        project = db.query_one("SELECT id, build_count FROM projects WHERE slug = ?", slug)
+        assert project is not None
+        before_xp = progress.total_xp(demo_user["id"])
+        before_activity = db.query_one(
+            "SELECT projects_touched, xp FROM activity WHERE user_id = ? AND day = ?",
+            demo_user["id"], today(),
+        ) or {"projects_touched": 0, "xp": 0}
+
+        page = signed_in.get(f"/projects/{slug}")
+        assert page.status_code == 200
+        assert progress.total_xp(demo_user["id"]) == before_xp
+        assert db.scalar("SELECT build_count FROM projects WHERE id = ?", project["id"]) == project["build_count"]
+        token = _csrf(page.text)
+
+        first = signed_in.post(
+            "/api/projects/track", json={"projectSlug": slug}, headers={"x-csrf-token": token}
+        )
+        assert first.status_code == 200, first.text
+        assert first.json()["xpAwarded"] == 5
+        assert first.json()["alreadyLogged"] is False
+
+        retry = signed_in.post(
+            "/api/projects/track", json={"projectSlug": slug}, headers={"x-csrf-token": token}
+        )
+        assert retry.status_code == 200, retry.text
+        assert retry.json()["xpAwarded"] == 0
+        assert retry.json()["alreadyLogged"] is True
+
+        assert progress.total_xp(demo_user["id"]) == before_xp + 5
+        assert db.scalar("SELECT build_count FROM projects WHERE id = ?", project["id"]) == project["build_count"] + 1
+        events = db.scalar(
+            "SELECT count(*) FROM xp_events WHERE user_id = ? AND reason = 'project.built' "
+            "AND entity_type = 'project' AND entity_id = ?",
+            demo_user["id"], project["id"],
+        )
+        assert events == 1
+        after_activity = db.query_one(
+            "SELECT projects_touched, xp FROM activity WHERE user_id = ? AND day = ?",
+            demo_user["id"], today(),
+        )
+        assert after_activity["projects_touched"] == before_activity["projects_touched"] + 1
+        assert after_activity["xp"] == before_activity["xp"] + 5
+        refreshed = signed_in.get(f"/projects/{slug}")
+        assert "Build logged" in refreshed.text
+        assert "I built this (+5 XP)" not in refreshed.text
+
 
 def _host_can_isolate() -> bool:
     """Whether this host can run a submission at all.
 
-    GitHub-hosted runners block unprivileged user namespaces, so the sandbox
-    refuses to execute rather than running untrusted code on the app server.
-    These two tests assert on a verdict, which only exists where execution
-    happened; test_judge.py covers the refusal itself on every host.
+    The local runner requires network, PID and mount namespaces, so it refuses
+    to execute rather than running untrusted code with weaker isolation. These
+    tests assert on a verdict, which only exists where execution happened;
+    test_judge.py covers refusal on hosts that lack any required namespace.
     """
     from engineverse.judge import provider_info
 
-    return bool(provider_info().get("have_namespace"))
+    return bool(provider_info().get("available"))
 
 
 requires_execution = pytest.mark.skipif(
@@ -230,14 +281,191 @@ class TestAnswerApi:
             json={"csrf_token": token, "questionId": "nope", "answerText": "x"},
             headers={"x-csrf-token": token},
         )
-        assert response.status_code in (400, 404, 422)
+        assert response.status_code == 404
+
+    def test_answer_rejects_oversized_text_and_out_of_range_mcq_options(self, signed_in):
+        from engineverse import db
+
+        token = _csrf(signed_in.get("/practice/questions").text)
+        oversized = signed_in.post(
+            "/api/practice/answer",
+            json={"questionId": "unused", "answerText": "x" * 2001},
+            headers={"x-csrf-token": token},
+        )
+        assert oversized.status_code == 413
+
+        question = db.query_one(
+            "SELECT id FROM questions WHERE kind = 'mcq' AND is_active = 1 LIMIT 1"
+        )
+        assert question is not None
+        option_count = int(db.scalar(
+            "SELECT count(*) AS c FROM question_options WHERE question_id = ?", question["id"]
+        ) or 0)
+        assert option_count > 0
+        invalid_option = signed_in.post(
+            "/api/practice/answer",
+            json={"questionId": question["id"], "optionIndex": option_count},
+            headers={"x-csrf-token": token},
+        )
+        assert invalid_option.status_code == 400
+
+    def test_answer_cannot_claim_an_unrelated_practice_set(self, signed_in):
+        from engineverse import db
+
+        question = db.query_one(
+            "SELECT q.id FROM questions q WHERE q.kind = 'mcq' AND q.is_active = 1 "
+            "AND EXISTS (SELECT 1 FROM question_options o WHERE o.question_id = q.id) LIMIT 1"
+        )
+        assert question is not None
+        _, wrong_index = self._option_indexes(question["id"])
+        token = _csrf(signed_in.get("/practice/questions").text)
+        response = signed_in.post(
+            "/api/practice/answer",
+            json={"questionId": question["id"], "optionIndex": wrong_index, "setId": "not-a-published-set"},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 404
+
+    def test_every_attempt_awards_xp_including_repeated_wrong_answers(self, signed_in, demo_user):
+        from engineverse import db, progress
+
+        question = db.query_one(
+            "SELECT q.id FROM questions q WHERE q.kind = 'mcq' AND q.is_active = 1 "
+            "AND (SELECT count(*) FROM question_options o WHERE o.question_id = q.id AND o.is_correct = 0) >= 1 "
+            "LIMIT 1"
+        )
+        assert question is not None
+        _, wrong_index = self._option_indexes(question["id"])
+        token = _csrf(signed_in.get("/practice/questions").text)
+        before = progress.total_xp(demo_user["id"])
+
+        for _ in range(2):
+            response = signed_in.post(
+                "/api/practice/answer",
+                json={"questionId": question["id"], "optionIndex": wrong_index},
+                headers={"x-csrf-token": token},
+            )
+            assert response.status_code == 200, response.text
+            assert response.json()["correct"] is False
+            assert response.json()["xp"] == 1
+
+        events = db.scalar(
+            "SELECT count(*) AS c FROM xp_events WHERE user_id = ? AND reason = 'question.attempt' "
+            "AND entity_type = 'question' AND entity_id = ?",
+            demo_user["id"], question["id"],
+        )
+        assert int(events or 0) >= 2
+        assert progress.total_xp(demo_user["id"]) == before + 2
 
 
 class TestRateLimiting:
+    def test_auth_forms_limit_expensive_or_abusable_posts_by_ip(self, client):
+        register_token = _csrf(client.get("/register").text)
+        for _ in range(5):
+            assert client.post("/register", data={"csrf_token": register_token}).status_code == 422
+        register_block = client.post("/register", data={"csrf_token": register_token})
+        assert register_block.status_code == 429
+        assert register_block.headers["x-ratelimit-limit"] == "5"
+
+        forgot_token = _csrf(client.get("/forgot-password").text)
+        for _ in range(5):
+            assert client.post("/forgot-password", data={"csrf_token": forgot_token}).status_code == 422
+        reset_block = client.post("/forgot-password", data={"csrf_token": forgot_token})
+        assert reset_block.status_code == 429
+        assert reset_block.headers["x-ratelimit-limit"] == "5"
+
+    def test_password_reset_token_checks_are_limited_by_ip(self, client):
+        page = client.get("/reset-password")
+        token = _csrf(page.text)
+        for _ in range(10):
+            response = client.post(
+                "/reset-password",
+                data={"csrf_token": token, "token": "not-a-reset-token", "password": "A-valid-New-Password-42!"},
+                follow_redirects=False,
+            )
+            assert response.status_code == 400
+        blocked = client.post(
+            "/reset-password",
+            data={"csrf_token": token, "token": "not-a-reset-token", "password": "A-valid-New-Password-42!"},
+            follow_redirects=False,
+        )
+        assert blocked.status_code == 429
+        assert blocked.headers["x-ratelimit-limit"] == "10"
+
+    def test_feedback_submissions_are_limited_by_ip(self, client):
+        token = _csrf(client.get("/about").text)
+        headers = {"x-csrf-token": token}
+        for _ in range(5):
+            response = client.post(
+                "/api/feedback", json={"message": "Helpful note for the team."}, headers=headers
+            )
+            assert response.status_code == 200
+        blocked = client.post(
+            "/api/feedback", json={"message": "Another useful note."}, headers=headers
+        )
+        assert blocked.status_code == 429
+        assert blocked.headers["x-ratelimit-limit"] == "5"
+
+    def test_community_posting_is_limited_per_account(self, signed_in):
+        token = _csrf(signed_in.get("/community").text)
+        headers = {"x-csrf-token": token}
+        for attempt in range(10):
+            response = signed_in.post(
+                "/api/community/threads",
+                json={"title": f"Rate limited post {attempt}", "body": "A valid discussion with enough detail."},
+                headers=headers,
+            )
+            assert response.status_code == 200
+        blocked = signed_in.post(
+            "/api/community/threads",
+            json={"title": "One more thread", "body": "A valid discussion with enough detail."},
+            headers=headers,
+        )
+        assert blocked.status_code == 429
+        assert blocked.headers["x-ratelimit-limit"] == "10"
+        assert "retry-after" in blocked.headers
+
     def test_the_limiter_reports_a_budget(self, client):
         response = client.get("/api/search?q=x")
         assert response.status_code == 200
         assert "x-ratelimit-remaining" in response.headers
+
+    def test_practice_answers_are_limited_to_120_attempts_per_ip_per_minute(self, signed_in):
+        token = _csrf(signed_in.get("/practice/questions").text)
+        headers = {"x-csrf-token": token}
+        for attempt in range(120):
+            response = signed_in.post(
+                "/api/practice/answer",
+                json={"questionId": "no-such-question"},
+                headers=headers,
+            )
+            assert response.status_code == 404, f"attempt {attempt + 1}: {response.text}"
+
+        blocked = signed_in.post(
+            "/api/practice/answer",
+            json={"questionId": "no-such-question"},
+            headers=headers,
+        )
+        assert blocked.status_code == 429
+        assert blocked.headers["x-ratelimit-limit"] == "120"
+        assert blocked.headers["retry-after"]
+
+    def test_code_runner_paths_use_the_30_per_minute_judge_limit(self, signed_in):
+        for attempt in range(30):
+            response = signed_in.post("/api/coding/run", json={})
+            assert response.status_code == 403, f"attempt {attempt + 1}: {response.text}"
+        blocked = signed_in.post("/api/coding/run", json={})
+        assert blocked.status_code == 429
+        assert blocked.headers["x-ratelimit-limit"] == "30"
+
+    def test_missing_csrf_does_not_bypass_the_answer_ip_limit(self, client):
+        for _ in range(120):
+            response = client.post("/api/practice/answer", json={"questionId": "not-used"})
+            # Rate limiting runs before CSRF rejection, so a missing token cannot
+            # be used to evade the per-IP answer-attempt budget.
+            assert response.status_code == 403
+        blocked = client.post("/api/practice/answer", json={"questionId": "not-used"})
+        assert blocked.status_code == 429
 
 
 class TestSqliteSchema:
@@ -511,10 +739,12 @@ class TestBranding:
 
         def signup(email, username):
             with TestClient(app, raise_server_exceptions=False) as anon:
+                page = anon.get("/register")
                 return anon.post(
                     "/register",
-                    data={"email": email, "username": username, "full_name": "Toggle Test",
-                          "password": "FreshStart#2026!", "password_confirm": "FreshStart#2026!"},
+                    data={"csrf_token": _csrf(page.text), "email": email, "username": username,
+                          "full_name": "Toggle Test", "password": "FreshStart#2026!",
+                          "password_confirm": "FreshStart#2026!"},
                     follow_redirects=False,
                 )
 
@@ -547,11 +777,12 @@ class TestBranding:
 
         brand.set_many({"registration_open": "1"})
         client = TestClient(app, raise_server_exceptions=False)
+        page = client.get("/register")
         response = client.post(
             "/register",
-            data={"email": "mismatch@example.com", "username": "mismatchuser",
-                  "full_name": "Mismatch Person", "password": "SomePass#2026!",
-                  "password_confirm": "DifferentPass#2026!"},
+            data={"csrf_token": _csrf(page.text), "email": "mismatch@example.com",
+                  "username": "mismatchuser", "full_name": "Mismatch Person",
+                  "password": "SomePass#2026!", "password_confirm": "DifferentPass#2026!"},
             follow_redirects=False,
         )
         assert response.status_code == 422
@@ -582,6 +813,39 @@ class TestErrorStatusCodes:
             follow_redirects=False,
         )
         assert response.status_code == 422
+
+
+class TestFeedbackInputValidation:
+    def test_non_string_message_is_rejected_without_a_server_error(self, signed_in):
+        token = _csrf(signed_in.get("/community").text)
+        response = signed_in.post(
+            "/api/feedback",
+            json={"message": {"unexpected": "object"}, "path": "/about"},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 400
+        assert response.json()["ok"] is False
+
+    def test_oversized_message_is_rejected_instead_of_silently_truncated(self, signed_in):
+        token = _csrf(signed_in.get("/community").text)
+        response = signed_in.post(
+            "/api/feedback",
+            json={"message": "x" * 2001},
+            headers={"x-csrf-token": token},
+        )
+        assert response.status_code == 400
+        assert "2,000" in response.json()["error"]
+
+    def test_feedback_redirect_path_cannot_be_protocol_relative(self, signed_in):
+        token = _csrf(signed_in.get("/community").text)
+        response = signed_in.post(
+            "/api/feedback",
+            json={"message": "A useful feedback note.", "path": "/\\\\evil.example"},
+            headers={"x-csrf-token": token, "accept": "text/html"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 303
+        assert response.headers["location"] == "/about"
 
 
 class TestFlashCookie:
@@ -727,9 +991,9 @@ class TestThemeAndJsonForms:
 class TestSearchIndexSelfHeal:
     """The search index is derived data and must not go stale on an upgrade.
 
-    Notes were added to the indexer, but a deployment upgraded in place kept the
-    index it already had, so its note content stayed unsearchable until someone
-    remembered to reseed. The version marker makes that automatic.
+    Notes, programming modules and flashcard prompts are source content, not
+    optional seed-time extras. The version marker rebuilds old indexes, and the
+    source fingerprint keeps later edits discoverable without requiring reseeds.
     """
 
     def test_a_stale_index_is_rebuilt(self, seeded):
@@ -799,6 +1063,155 @@ class TestSearchIndexSelfHeal:
             )
         finally:
             db.execute("DELETE FROM topics WHERE id = ?", topic_id)
+            search.refresh_if_stale()
+
+    def test_timestamp_free_language_module_insert_triggers_reindex(self, seeded):
+        """Language modules have no timestamps; inserts and edits still invalidate search."""
+        from engineverse import db, search
+        from engineverse.security.ids import ulid
+
+        search.refresh_if_stale()
+        before = search.content_fingerprint()
+        language = db.query_one("SELECT id, slug, name FROM programming_languages LIMIT 1")
+        module_id = ulid()
+        module_slug = "fingerprint-module-probe"
+        try:
+            db.execute(
+                "INSERT INTO language_modules "
+                "(id, language_id, slug, title, summary, body, example, exercise, order_index) "
+                "VALUES (?,?,?,?,?,?,?,?,?)",
+                module_id, language["id"], module_slug, "Fingerprint Module Probe",
+                "Rare index-refresh concept.", "Spectral widgets require a polar alignment.",
+                "print('polar alignment')", "Explain why polar alignment matters.", 999,
+            )
+            assert search.content_fingerprint() != before, (
+                "a table without updated_at contributed no useful fingerprint"
+            )
+            assert search.refresh_if_stale() > 0
+            results = search.search("spectral widgets polar alignment", type="module")["results"]
+            assert any(
+                result["id"] == f"{language['slug']}::{module_slug}"
+                and result["url"] == f"/programming/{language['slug']}#{module_slug}"
+                for result in results
+            ), f"new language module is not searchable: {results}"
+
+            before_edit = search.content_fingerprint()
+            db.execute(
+                "UPDATE language_modules SET body = ? WHERE id = ?",
+                "Tantalum gyroscopes need calibrated bearings.", module_id,
+            )
+            assert search.content_fingerprint() != before_edit, (
+                "an in-place edit to a timestamp-free table did not change its hash"
+            )
+            assert search.refresh_if_stale() > 0
+            edited = search.search("tantalum gyroscopes calibrated bearings", type="module")["results"]
+            assert any(result["id"] == f"{language['slug']}::{module_slug}" for result in edited)
+        finally:
+            db.execute("DELETE FROM language_modules WHERE id = ?", module_id)
+            search.refresh_if_stale()
+
+    def test_flashcards_are_searchable_without_indexing_their_answers(self, seeded):
+        """A public search hit may show the prompt and hint, never its answer."""
+        from engineverse import db, search
+        from engineverse.security.ids import now_ms, ulid
+
+        search.refresh_if_stale()
+        before = search.content_fingerprint()
+        subject = db.query_one("SELECT id FROM subjects LIMIT 1")
+        card_id = ulid()
+        answer_marker = "ANSWERONLYQXZ94720531"
+        try:
+            db.execute(
+                "INSERT INTO flashcards "
+                "(id, subject_id, deck, front, back, hint, difficulty, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                card_id, subject["id"], "Search regression", "Public prompt probe QXZ94720531",
+                f"{answer_marker} contains the private solution text.",
+                "Prompt hint probe QXZ94720531", "medium", now_ms(),
+            )
+            assert search.content_fingerprint() != before
+            assert search.refresh_if_stale() > 0
+            entry = db.query_one(
+                "SELECT title, body FROM search_index WHERE entity_type='flashcard' AND entity_id=?",
+                card_id,
+            )
+            assert entry and "QXZ94720531" in entry["title"]
+            assert answer_marker not in entry["body"]
+            result = next(
+                item for item in search.search("QXZ94720531 public prompt", type="flashcard")["results"]
+                if item["id"] == card_id
+            )
+            assert result["url"] == f"/flashcards?card={card_id}"
+            leaked = search.search(answer_marker, type="flashcard")["results"]
+            assert not any(item["id"] == card_id for item in leaked)
+        finally:
+            db.execute("DELETE FROM flashcards WHERE id = ?", card_id)
+            search.refresh_if_stale()
+
+    def test_profile_privacy_change_removes_stale_search_entry(self, seeded):
+        import json
+
+        from engineverse import db, search
+        from engineverse.security.ids import now_ms
+
+        search.refresh_if_stale()
+        profile = db.query_one(
+            "SELECT p.user_id, p.privacy FROM profiles p JOIN users u ON u.id = p.user_id "
+            "WHERE u.username='asha'"
+        )
+        assert profile
+        before = profile["privacy"]
+        indexed = db.query_one(
+            "SELECT entity_id FROM search_index WHERE entity_type='user' AND entity_id='asha'"
+        )
+        assert indexed, "the seeded public profile should be searchable"
+        try:
+            privacy = json.loads(before)
+            privacy["searchable"] = False
+            db.execute(
+                "UPDATE profiles SET privacy = ?, updated_at = ? WHERE user_id = ?",
+                json.dumps(privacy, sort_keys=True), now_ms(), profile["user_id"],
+            )
+            assert search.refresh_if_stale() > 0
+            assert not db.query_one(
+                "SELECT 1 FROM search_index WHERE entity_type='user' AND entity_id='asha'"
+            ), "a profile made private remained in public search"
+        finally:
+            db.execute(
+                "UPDATE profiles SET privacy = ?, updated_at = ? WHERE user_id = ?",
+                before, now_ms(), profile["user_id"],
+            )
+            search.refresh_if_stale()
+
+    def test_note_section_edit_without_a_timestamp_invalidates_the_index(self, seeded):
+        from engineverse import db, search
+
+        search.refresh_if_stale()
+        section = db.query_one(
+            "SELECT ns.id, ns.body, t.slug AS topic_slug FROM note_sections ns "
+            "JOIN notes n ON n.id = ns.note_id JOIN topics t ON t.id = n.topic_id "
+            "WHERE n.status='published' ORDER BY ns.id LIMIT 1"
+        )
+        assert section
+        marker = "NOTESECTIONHASHPROBE8137"
+        before = search.content_fingerprint()
+        try:
+            db.execute(
+                "UPDATE note_sections SET body = ? WHERE id = ?",
+                section["body"] + " " + marker, section["id"],
+            )
+            assert search.content_fingerprint() != before
+            assert search.refresh_if_stale() > 0
+            entry = db.query_one(
+                "SELECT body FROM search_index WHERE entity_type='note' AND entity_id=?",
+                section["topic_slug"],
+            )
+            assert entry and marker in entry["body"]
+        finally:
+            db.execute(
+                "UPDATE note_sections SET body = ? WHERE id = ?",
+                section["body"], section["id"],
+            )
             search.refresh_if_stale()
 
     def test_edited_and_deleted_content_leaves_the_index(self, seeded):
@@ -915,40 +1328,98 @@ class TestNoteIndexing:
         )
 
 
-class TestLanguagePickerMatchesTheJudge:
-    """Every language the editor offers must be one the judge can actually run.
+class TestLearningMaterialIndexing:
+    def test_every_seeded_language_module_and_flashcard_is_indexed(self, seeded):
+        from engineverse import db, search
 
-    seed.py hard-coded runnable = 1 for every row, so SQL appeared in the code
-    editor's language picker looking exactly like Python or C, and pressing Run
-    returned "unsupported_language". The seed data already carried judge_slug =
-    None for SQL - the honest signal was there and being discarded.
+        search.reindex_all()
+        for entity_type, table in (
+            ("module", "language_modules"),
+            ("flashcard", "flashcards"),
+        ):
+            indexed = db.scalar(
+                "SELECT count(*) FROM search_index WHERE entity_type = ?", entity_type,
+            )
+            source = db.scalar(f"SELECT count(*) FROM {table}")
+            assert indexed == source, f"{entity_type}: indexed {indexed}, source has {source}"
+
+        card = db.query_one("SELECT id, back FROM flashcards ORDER BY id LIMIT 1")
+        entry = db.query_one(
+            "SELECT body FROM search_index WHERE entity_type='flashcard' AND entity_id=?",
+            card["id"],
+        )
+        assert entry and card["back"] not in entry["body"], "an answer leaked into search text"
+
+
+class TestLanguagePickerMatchesTheJudge:
+    """Catalogue entries may be supported by one provider but not another.
+
+    The persisted `runnable` column is seed-time metadata. Pages and API
+    responses must instead report what the active provider can execute now.
     """
 
-    def test_the_runnable_flag_matches_the_judges_runners(self, seeded):
+    def test_seed_metadata_matches_languages_configured_for_the_local_runner(self, seeded):
         from engineverse import db
         from engineverse.judge import local as judge_local
 
         for row in db.query("SELECT slug, judge_slug, runnable FROM programming_languages"):
-            can_run = row["judge_slug"] in judge_local.RUNNERS
-            assert bool(row["runnable"]) == can_run, (
-                f"{row['slug']}: advertised runnable={row['runnable']} but the judge "
-                f"{'can' if can_run else 'cannot'} run judge_slug={row['judge_slug']!r}"
+            has_local_runner = row["judge_slug"] in judge_local.RUNNERS
+            assert bool(row["runnable"]) == has_local_runner, (
+                f"{row['slug']}: seed runnable={row['runnable']} but local judge_slug="
+                f"{row['judge_slug']!r} is {'configured' if has_local_runner else 'not configured'}"
             )
 
-    def test_the_editor_labels_a_language_it_cannot_run(self, seeded):
-        from engineverse import coding, db
+    def test_language_listing_reflects_the_active_provider(self, seeded):
+        from engineverse import coding, judge
 
+        runnable = set(judge.runnable_languages())
         languages = coding.list_languages()
-        unrunnable = [l for l in languages if not l["runnable"]]
-        assert unrunnable, "expected at least one non-runnable language in the seed"
-        for language in unrunnable:
-            row = db.query_one(
-                "SELECT judge_slug FROM programming_languages WHERE slug = ?", language["slug"]
+        assert languages, "expected languages in the seeded catalogue"
+        for language in languages:
+            expected = bool(language["judge_slug"] and language["judge_slug"] in runnable)
+            assert bool(language["runnable"]) == expected, (
+                f"{language['slug']} says runnable={language['runnable']} while active "
+                f"provider supports {language['judge_slug']!r}={expected}"
             )
-            assert not row["judge_slug"], (
-                f"{language['slug']} is marked non-runnable but has judge_slug="
-                f"{row['judge_slug']!r}"
-            )
+
+    def test_judge0_activates_typescript_go_and_rust_in_the_catalogue(self, seeded, monkeypatch, client):
+        from engineverse import coding, judge
+        from engineverse.judge.judge0 import Judge0Provider
+
+        provider = Judge0Provider()
+        provider.base_url = "https://judge0.invalid"
+        monkeypatch.setattr(judge, "_provider", provider)
+        expected = {"typescript", "go", "rust"}
+        assert expected <= set(judge.runnable_languages())
+        languages = {language["slug"]: language for language in coding.list_languages()}
+        assert expected <= languages.keys()
+        assert all(languages[slug]["runnable"] for slug in expected)
+
+        for slug in expected:
+            page = client.get(f"/programming/{slug}")
+            assert page.status_code == 200
+            assert "No active runtime for this language" not in page.text
+
+        api = client.get("/api/coding/languages").json()
+        assert expected <= {language["slug"] for language in api["languages"] if language["runnable"]}
+
+    def test_practical_language_paths_are_connected_to_the_seed_catalogue(self, seeded):
+        from engineverse import coding
+
+        required = {
+            "python": {"python-fastapi-app", "python-agent-tools", "python-tested-app-capstone"},
+            "java": {"java-http-service", "java-agent-tools", "java-application-capstone"},
+            "javascript": {"js-node-service", "js-agent-tools", "js-fullstack-capstone"},
+            "cpp": {"cpp-safe-app-project"},
+            "typescript": {"ts-agent-tools", "ts-test-release-capstone"},
+            "go": {"go-agent-capstone", "go-http-api"},
+            "rust": {"rust-agent-tools", "rust-application-capstone"},
+        }
+        for language_slug, module_slugs in required.items():
+            language = coding.language_by_slug(language_slug)
+            assert language is not None, f"{language_slug} is not in the language catalogue"
+            found = {module["slug"] for module in coding.modules_for_language(language["id"])}
+            assert module_slugs <= found, f"{language_slug} is missing {sorted(module_slugs - found)}"
 
 
 class TestEditorOffersOnlyWhatTheHostCanRun:
@@ -1122,7 +1593,7 @@ class TestModerationCanActuallyHide:
             json={"entityType": "thread", "entityId": "no-such-thread", "reason": "spam"},
             headers={"x-csrf-token": token},
         )
-        assert response.status_code == 400, response.text
+        assert response.status_code == 404, response.text
 
     def test_resolving_with_hide_hides_the_discussion(self, seeded):
         from engineverse import community, db

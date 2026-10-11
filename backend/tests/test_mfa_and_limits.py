@@ -17,7 +17,7 @@ import pytest
 
 from engineverse import auth, db
 from engineverse.config import reload_settings
-from engineverse.security import ratelimit, totp
+from engineverse.security import ratelimit, sessions, totp
 from engineverse.security.clientip import client_ip
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -58,6 +58,29 @@ def _sessions(user_id: str) -> int:
     return int(db.scalar("SELECT count(*) AS c FROM sessions WHERE user_id = ?", user_id) or 0)
 
 
+def test_session_tokens_are_keyed_and_root_secret_rotation_invalidates_them(demo_user, monkeypatch):
+    import hashlib
+
+    old_secret = os.environ.get("ENGINEVERSE_SECRET")
+    cookie, session_id = sessions.create_session(demo_user["id"], ip="203.0.113.12")
+    token = cookie.split(".", 1)[1]
+    stored = db.scalar("SELECT token_hash AS h FROM sessions WHERE id = ?", session_id)
+    assert stored != hashlib.sha256(token.encode("ascii")).hexdigest()
+    assert sessions.read_session(cookie) is not None
+
+    try:
+        monkeypatch.setenv("ENGINEVERSE_SECRET", "rotated-test-root-secret-0123456789")
+        reload_settings()
+        assert sessions.read_session(cookie) is None
+    finally:
+        if old_secret is None:
+            monkeypatch.delenv("ENGINEVERSE_SECRET", raising=False)
+        else:
+            monkeypatch.setenv("ENGINEVERSE_SECRET", old_secret)
+        reload_settings()
+        sessions.revoke_session(session_id)
+
+
 def test_rfc_sha1_vectors():
     assert totp.code_at(RFC_SECRET, 0) == "755224"
     assert totp.code_at(RFC_SECRET, 1) == "287082"
@@ -73,14 +96,36 @@ def test_seal_round_trip_and_a_bad_mac_does_not_open():
     assert totp.verify_factor("v1:not-a-seal", "287082") == (False, None)
 
 
-def test_a_recovery_code_works_once():
-    code = "abc123def0"
-    stored = totp.pack(RFC_SECRET, [code, "bbbbbbbbbb"])
-    accepted, replacement = totp.verify_factor(stored, code)
+def test_recovery_codes_are_single_use_and_totp_steps_cannot_be_replayed():
+    recovery = "abc123def0"
+    stored = totp.pack(RFC_SECRET, [recovery, "bbbbbbbbbb"])
+    accepted, replacement = totp.verify_factor(stored, recovery)
     assert accepted and replacement
-    assert totp.verify_factor(replacement, code) == (False, None)
-    again, untouched = totp.verify_factor(replacement, totp.code_at(RFC_SECRET, int(time.time()) // 30))
-    assert again and untouched is None
+    assert totp.verify_factor(replacement, recovery) == (False, None)
+
+    step = int(time.time()) // 30
+    otp = totp.code_at(RFC_SECRET, step)
+    accepted, updated = totp.verify_factor(replacement, otp)
+    assert accepted and updated
+    assert totp.verify_factor(updated, otp) == (False, None)
+
+
+def test_reissuing_mfa_challenge_invalidates_the_previous_prompt(seeded):
+    user = _register("mfachallenge" + totp.random_secret()[:6].lower())
+    first = totp.issue_login_token(user["id"])
+    second = totp.issue_login_token(user["id"])
+    assert totp.read_login_token(first) is None
+    assert totp.read_login_token(second) == user["id"]
+    assert not totp.consume_login_token(first, user["id"])
+    assert totp.consume_login_token(second, user["id"])
+    assert totp.read_login_token(second) is None
+
+    third = totp.issue_login_token(user["id"])
+    assert totp.read_login_token(third) == user["id"]
+    assert db.scalar(
+        "SELECT count(*) AS c FROM security_challenges WHERE user_id = ? AND purpose = 'mfa_login'",
+        user["id"],
+    ) == 1
 
 
 def test_password_match_creates_no_session_until_the_factor_passes(seeded):
@@ -124,6 +169,22 @@ def test_an_unreadable_seal_does_not_create_a_session(seeded):
         )
     assert _sessions(user["id"]) == 0
     db.execute("UPDATE users SET totp_secret = NULL WHERE id = ?", user["id"])
+
+
+def test_password_change_attempts_are_limited_per_account(signed_in):
+    token = _csrf(signed_in.get("/settings").text)
+    form = {
+        "csrf_token": token,
+        "current_password": "incorrect-current-password",
+        "new_password": "Strong-New-Password-42!",
+        "confirm_password": "Strong-New-Password-42!",
+    }
+    for _ in range(5):
+        response = signed_in.post("/settings/password", data=form, follow_redirects=False)
+        assert response.status_code == 303
+    blocked = signed_in.post("/settings/password", data=form, follow_redirects=True)
+    assert blocked.status_code == 200
+    assert "Too many password-change attempts" in blocked.text
 
 
 def test_login_form_does_not_echo_the_password_into_the_second_step(client, seeded):
@@ -192,6 +253,25 @@ def test_login_form_does_not_echo_the_password_into_the_second_step(client, seed
         db.execute("UPDATE users SET totp_secret = NULL WHERE id = ?", user["id"])
 
 
+def test_login_rejects_an_oversized_password_before_running_the_hash(client, monkeypatch):
+    from unittest.mock import Mock
+
+    login = Mock(side_effect=AssertionError("oversized password reached authentication"))
+    monkeypatch.setattr(auth, "login", login)
+    page = client.get("/login")
+    response = client.post(
+        "/login",
+        data={
+            "csrf_token": _csrf(page.text),
+            "identifier": "nobody@example.test",
+            "password": "x" * 257,
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 422
+    login.assert_not_called()
+
+
 def test_settings_enrol_confirm_and_disable_round_trip(client, seeded):
     tag = "mfaweb" + totp.random_secret()[:6].lower()
     user = _register(tag)
@@ -210,12 +290,13 @@ def test_settings_enrol_confirm_and_disable_round_trip(client, seeded):
         )
         assert started.status_code == 200
         secret = re.search(r'id="mfa-secret">([^<]+)', started.text).group(1)
+        enrolled_step = int(time.time()) // 30
         confirmed = client.post(
             "/settings/mfa/confirm",
             data={
                 "csrf_token": _csrf(started.text),
                 "token": _field(started.text, "token"),
-                "otp": totp.code_at(secret, int(time.time()) // 30),
+                "otp": totp.code_at(secret, enrolled_step),
             },
             follow_redirects=False,
         )
@@ -229,12 +310,27 @@ def test_settings_enrol_confirm_and_disable_round_trip(client, seeded):
             follow_redirects=False,
         )
         assert bad.status_code == 303
+        replayed = client.post(
+            "/settings/mfa/disable",
+            data={
+                "csrf_token": _csrf(client.get("/settings").text),
+                "current_password": PASSWORD,
+                "otp": totp.code_at(secret, enrolled_step),
+            },
+            follow_redirects=False,
+        )
+        assert replayed.status_code == 303
+        assert db.query_one("SELECT totp_secret FROM users WHERE id = ?", user["id"])["totp_secret"]
+
+        # The previous 30-second step was accepted during enrollment. A fresh
+        # counter (still within the permitted +1 clock-skew window) is required.
+        fresh_step = max(enrolled_step + 1, int(time.time()) // 30 + 1)
         disabled = client.post(
             "/settings/mfa/disable",
             data={
                 "csrf_token": _csrf(client.get("/settings").text),
                 "current_password": PASSWORD,
-                "otp": totp.code_at(secret, int(time.time()) // 30),
+                "otp": totp.code_at(secret, fresh_step),
             },
             follow_redirects=False,
         )
@@ -269,6 +365,42 @@ def test_shared_counter_survives_an_empty_process_window(client):
         ratelimit._buckets.clear()
     blocked = client.get("/api/search", params={"q": "ohm"})
     assert blocked.status_code == 429
+
+
+def test_shared_limit_window_does_not_reset_at_a_clock_boundary(monkeypatch):
+    """A near-boundary burst must not obtain a fresh shared quota a second later."""
+    from types import SimpleNamespace
+
+    key = "anchored-window:test"
+    db.execute("DELETE FROM api_rate_limits WHERE bucket = ?", key)
+    clock = [599.9]
+    monkeypatch.setattr(ratelimit, "time", SimpleNamespace(time=lambda: clock[0]))
+    try:
+        assert ratelimit.shared_check(key, 1, 60).allowed
+        clock[0] = 600.1
+        blocked = ratelimit.shared_check(key, 1, 60)
+        assert blocked.allowed is False
+        assert blocked.retry_after > 0
+
+        clock[0] = 659.0
+        assert ratelimit.shared_check(key, 1, 60).allowed
+    finally:
+        db.execute("DELETE FROM api_rate_limits WHERE bucket = ?", key)
+
+
+def test_shared_check_uses_existing_local_result_on_fallback(monkeypatch):
+    key = "fallback-count-once:test"
+    ratelimit.reset(key)
+    local = ratelimit.check(key, 1, 60)
+
+    def missing(*_args, **_kwargs):
+        raise RuntimeError("no such table: api_rate_limits")
+
+    monkeypatch.setattr(ratelimit.db, "execute", missing)
+    fallback = ratelimit.shared_check(key, 1, 60, local_fallback=local)
+    assert fallback.allowed is True
+    assert ratelimit.check(key, 1, 60).allowed is False
+    ratelimit.reset(key)
 
 
 def test_shared_check_falls_back_or_raises(monkeypatch):

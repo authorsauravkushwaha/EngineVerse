@@ -3,8 +3,9 @@
 Cookie value: ``<sessionId>.<token>``
 
 * ``token`` is 256 bits of CSPRNG output that is **never stored in clear**:
-  only its SHA-256 digest is persisted, so a database dump cannot be replayed
-  as a login.
+  only its HMAC-SHA-256 digest under ``ENGINEVERSE_SECRET`` is persisted. A
+  database-only disclosure cannot replay the cookie, and rotating the root
+  secret invalidates existing session tokens.
 * The cookie is HttpOnly, SameSite=Lax, Secure over https, Path=/.
 * Absolute lifetime cap plus an idle timeout; ``last_seen_at`` is refreshed at
   most once every 5 minutes so the hot path stays cheap.
@@ -29,6 +30,7 @@ from .ids import now_ms, ulid
 SESSION_COOKIE = "ev_session"
 CSRF_COOKIE = "ev_csrf"
 SESSION_ID_RE = re.compile(r"^[0-9A-HJKMNP-TV-Z]{26}$")
+SESSION_TOKEN_RE = re.compile(r"^[0-9a-f]{64}$")
 
 _DAY = 86_400_000
 
@@ -45,7 +47,9 @@ class Session:
 
 
 def _hash_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+    return hmac.new(
+        get_settings().effective_secret(), token.encode("ascii"), hashlib.sha256
+    ).hexdigest()
 
 
 def create_session(user_id: str, *, ip: str | None = None, user_agent: str | None = None) -> tuple[str, str]:
@@ -74,7 +78,7 @@ def read_session(cookie_value: str | None) -> Session | None:
     if not cookie_value or "." not in cookie_value:
         return None
     session_id, _, token = cookie_value.partition(".")
-    if not SESSION_ID_RE.match(session_id) or len(token) < 32:
+    if not SESSION_ID_RE.fullmatch(session_id) or not SESSION_TOKEN_RE.fullmatch(token):
         return None
     row = db.query_one(
         "SELECT id, user_id, token_hash, created_at, expires_at, last_seen_at, revoked_at, ip, user_agent "
@@ -156,7 +160,7 @@ def cookie_options(max_age_seconds: int) -> dict:
 
 
 def public_cookie_kwargs(max_age_seconds: int) -> dict:
-    """Flags for cookies JavaScript must be able to read (CSRF, flash)."""
+    """Cookie flags for short-lived UI flash state (not an authentication cookie)."""
     return {
         "httponly": False,
         "secure": cookies_are_secure(),

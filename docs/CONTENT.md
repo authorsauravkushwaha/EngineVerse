@@ -4,8 +4,8 @@ How content is added, reviewed, published, and what may legally be hosted.
 
 ## The content lifecycle
 
-Every mutable content table carries `status`, `version` and `author_id`. A piece
-of content moves through:
+Tables that participate in the editorial workflow carry `status`, `version` and
+`author_id`. Those records move through:
 
 ```
 draft ──► under_review ──► approved ──► published ──► archived
@@ -13,9 +13,10 @@ draft ──► under_review ──► approved ──► published ──► ar
   └────────────┴──────────── changes requested ─────────┘
 ```
 
-Only `published` rows reach learners. Every catalogue query filters on it —
-`topics.status = 'published'`, `subjects.status = 'published'`, and so on — so a
-draft is invisible without any extra logic in the templates.
+Only `published` rows from those editorial tables reach learners. Queries filter
+on the relevant status field — for example, `topics.status = 'published'` and
+`subjects.status = 'published'` — so a draft remains invisible. Seeded reference
+content such as formula rows and flashcards does not currently use this workflow.
 
 Capability to move content along that path is defined in `security/rbac.py`, not
 in the UI. `subject_expert` and `content_admin` hold `content.publish`;
@@ -83,23 +84,35 @@ that every branch is a complete syllabus:
 
 ```
 universities 10 · colleges 13 · branches 45 · semesters 9 · curricula 180
-curriculum_subjects 2836 · subjects 93 · modules 93 · topics 121 · notes 484
-note_sections 3146 · diagrams 121 · models_3d 121 · formulas 80 · questions 159
-question_options 636 · dpp_sets 19 · dpp_questions 95 · programming_languages 6
-language_modules 37 · coding_problems 13 · coding_problem_stubs 16
-coding_testcases 54 · projects 6 · project_steps 32 · project_resources 6
+curriculum_subjects 2836 · subjects 93 · modules 93 · topics 127 · notes 508
+note_sections 3302 · diagrams 127 · models_3d 127 · formulas 86 · questions 165
+question_options 660 · dpp_sets 33 · dpp_questions 165 · programming_languages 9
+language_modules 68 · coding_problems 13 · coding_problem_stubs 16
+coding_testcases 54 · projects 7 · project_steps 38 · project_resources 9
 videos 400 · books 395 · resources 544 · roadmaps 5 · roadmap_nodes 57
-flashcards 281 · plans 3 · site_config 12 · badges 12 · search index 1988
+flashcards 281 · plans 3 · site_config 12 · badges 12 · search index 2365
 ```
 
 Every active branch has at least one published subject, every published subject
-has a published lesson and active question, and all 93 subjects appear in the
-19-set DPP rotation. Each of the 121 topics has four published reading-depth
-notes; the standard-depth note contains all thirteen sections. Topic-linked
+has a published lesson and active question, and every active question appears in
+the 33-set DPP rotation, covering all 93 subjects. The archive is paginated at
+`/dpp/archive`, so older seeded sets remain discoverable. All 281 seeded
+flashcards can be browsed at `/flashcards`, searched without exposing their
+answers in search snippets, and opened individually; personal SM-2 scheduling
+remains at `/revision`. `/sitemap.xml` includes published branches, subjects,
+topics, languages, roadmaps, projects, coding problems, dated DPPs, individual
+flashcards and later pages of public shelves; its canonical origin comes from
+`ENGINEVERSE_SITE_URL`, not the request `Host` header.
+`robots.txt` advertises that sitemap using the same configured origin.
+Each of the 127 topics has four published reading-depth notes; the standard-depth
+note contains all thirteen sections. Topic-linked
 questions, a validated diagram and an interactive 3D model are seeded for every
-lesson. Cyber Security has five lessons and is readable without signing in.
-The 65 added starter topics are marked `needs_review` in editorial metadata;
-publication makes them reachable but does not imply expert sign-off.
+lesson. Cyber Security has eleven public lessons and is readable without signing
+in. The 71 added starter topics are marked `needs_review` in editorial metadata;
+publication makes them reachable but does not imply expert sign-off. The seven
+project briefs span hardware and engineering tools as well as software; the new
+study-planner brief starts model-free and treats an optional agent as an
+allowlisted, confirmation-gated layer, not a production-ready reference design.
 
 Section bodies are assembled from the original and expanded topic entries, and
 the coverage tests assert all thirteen sections on every standard note. Notes are
@@ -134,18 +147,21 @@ python scripts/reindex.py --check    # report what the index holds, change nothi
 ```
 
 and the application rebuilds on startup when it notices the content has changed.
-`search.refresh_if_stale()` fingerprints the content tables — row counts and
-`updated_at` sums per table — and compares it with the marker written at the last
-build, so an insert, an edit or a delete all trigger a rebuild on the next boot.
+`search.refresh_if_stale()` hashes the exact source fields used by the indexer,
+including timestamp-free tables and joined content such as note sections, project
+steps, language modules and searchable profile settings. Inserts, edits and
+removals therefore invalidate the marker; the stored marker contains table
+counts and digests, not source text.
 
 Both are worth knowing about because the version marker alone is not enough.
 It records which *schema* of index the code produces, and once it matches it
 stays matched, so relying on it would have left newly added content invisible
 until a schema change happened to force a rebuild.
 
-A fingerprint cannot notice an edit that changes neither a row count nor a
-timestamp. If you rewrite content in place by hand, run `scripts/reindex.py`.
-`scripts/seed.py` reindexes as part of seeding, so reseeding never needs it.
+When the indexer starts using a new source column or table, update its
+fingerprint projection and bump `INDEX_SCHEMA_VERSION` in `engineverse/search.py`.
+`scripts/seed.py` reindexes as part of seeding; a manual catalogue edit is detected
+on the next startup when it changes one of the indexed source fields.
 
 The one place a new *shape* of content needs code is the coding judge: a problem
 whose input is not one of the thirteen known forms needs a new wrapper in

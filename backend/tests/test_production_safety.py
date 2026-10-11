@@ -372,7 +372,10 @@ def test_judge_status_is_staff_only_and_does_not_claim_a_container(client):
     assert signed_in.status_code == 303, signed_in.text
     body = client.get("/api/ops/judge").json()
     assert body["ok"] is True, body
-    assert body["runs_on_this_server"] is True, body
-    assert "not a separate container" in body["isolation"], body
+    assert body["runs_on_this_server"] is body["available"], body
+    if body["available"]:
+        assert "not a separate container" in body["isolation"], body
+    else:
+        assert "execution refused" in body["isolation"], body
     assert "url" not in body
     assert "key" not in body
