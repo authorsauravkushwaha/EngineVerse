@@ -88,19 +88,19 @@ that every branch is a complete syllabus:
 
 ```
 universities 10 · colleges 13 · branches 45 · semesters 9 · curricula 180
-curriculum_subjects 2836 · subjects 93 · modules 93 · topics 127 · notes 508
-note_sections 3302 · diagrams 127 · models_3d 127 · formulas 86 · questions 246
-question_options 984 · dpp_sets 50 · dpp_questions 250 · programming_languages 9
+curriculum_subjects 2836 · subjects 93 · modules 93 · topics 313 · notes 1252
+note_sections 8138 · diagrams 313 · models_3d 313 · formulas 272 · questions 432
+question_options 1728 · dpp_sets 87 · dpp_questions 435 · programming_languages 9
 language_modules 68 · language_stages 27 · language_checkpoints 81
 coding_problems 13 · coding_problem_stubs 16 · coding_testcases 54 · projects 16
 project_steps 92 · project_resources 27 · videos 400 · books 395 · resources 544
 roadmaps 5 · roadmap_nodes 57 · flashcards 281 · plans 3 · site_config 12
-badges 12 · search index 2455
+badges 12 · search index 3199
 ```
 
 Every active branch has at least one published subject, every published subject
 has a published lesson and active question, and every active question appears in
-the 50-set DPP rotation, covering all 93 subjects and all nine language tracks.
+the 87-set DPP rotation, covering all 93 subjects and all nine language tracks.
 The archive is paginated at
 `/dpp/archive`, so older seeded sets remain discoverable. All 281 seeded
 flashcards can be browsed at `/flashcards`, searched without exposing their
@@ -110,12 +110,17 @@ topics, languages, roadmaps, projects, coding problems, dated DPPs, individual
 flashcards and later pages of public shelves; its canonical origin comes from
 `ENGINEVERSE_SITE_URL`, not the request `Host` header.
 `robots.txt` advertises that sitemap using the same configured origin.
-Each of the 127 topics has four published reading-depth notes; the standard-depth
+Each of the 313 topics has four published reading-depth notes; the standard-depth
 note contains all thirteen sections. Topic-linked
 questions, a validated diagram and an interactive 3D model are seeded for every
-lesson. Cyber Security has eleven public lessons and is readable without signing
-in. The 71 added starter topics are marked `needs_review` in editorial metadata;
-publication makes them reachable but does not imply expert sign-off.
+lesson. Cyber Security has thirteen public lessons and is readable without signing
+in. The generated catalogue runs in two passes: 71 breadth-first starter topics
+that give every published subject an entry point, then two deeper lessons per
+subject from `seed_data/deeper_lessons.py` (186 topics) that work one
+high-leverage theme each with a real formula, derivation, worked example and
+pitfall. All 257 generated topics are marked `needs_review` in editorial
+metadata; publication makes them reachable but does not imply expert sign-off,
+and two deeper lessons per subject is starter depth, not exhaustive coverage.
 
 The nine programming paths are staged — 68 modules assigned across 27
 Foundations / Working Practice / Advanced Engineering stages — and each stage

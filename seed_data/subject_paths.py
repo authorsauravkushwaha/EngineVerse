@@ -1,10 +1,14 @@
-"""Breadth-first course starters for subjects without authored topic notes.
+"""Breadth-first course starters plus a depth pass for every subject.
 
 The existing topic files remain the hand-authored deep curriculum. This module
-fills the catalogue gaps with a clearly scoped first lesson for every subject
-that otherwise had no notes, then supplies diagrams, questions, and models from
-the same source of truth. It deliberately does not claim that one lesson is a
-complete degree syllabus.
+first fills the catalogue gaps with a clearly scoped starter lesson for every
+subject that otherwise had no notes (the breadth pass), then appends the deeper
+lessons authored in ``seed_data.deeper_lessons`` - two additional lessons for
+*every* subject in the catalogue, including the ones the original topic files
+already cover (the depth pass). Diagrams, questions, and models are supplied
+from the same source of truth. The result is deliberately not claimed to be a
+complete degree syllabus: it is substantive starter material for each subject,
+not expert-signed courseware.
 
 New lessons are published so a learner can read them, but are marked
 ``needs_review`` in the editorial metadata. In particular, the Cyber Security
@@ -17,6 +21,7 @@ from typing import Any
 
 from backend.engineverse.diagrams import arrow as svg_arrow, box as svg_box, hotspot, label as svg_label
 from seed_data import foundations, topics_core, topics_cse
+from seed_data import deeper_lessons
 from seed_data.catalog import SUBJECTS
 
 
@@ -936,7 +941,13 @@ def _build_topic(subject: dict, spec: dict) -> dict:
 
 
 def generated_topics() -> list[dict]:
-    """Return one published starter lesson for each previously empty subject."""
+    """Starter lessons for empty subjects, then two deeper lessons per subject.
+
+    Breadth pass first (one starter wherever the hand-authored topic files
+    left a subject empty), then the depth pass from ``deeper_lessons``: every
+    subject in the catalogue gains the same two additional lessons, covered
+    subjects included, so no engineering part stays thin.
+    """
     subjects = _subject_map()
     covered = {row["subject"] for row in _existing_topics()}
     generated: list[dict] = []
@@ -946,6 +957,14 @@ def generated_topics() -> list[dict]:
         specs = CYBER_SECURITY_LESSONS if subject_slug == "cryptography-security" else [STARTERS.get(subject_slug)]
         if not specs or any(spec is None for spec in specs):
             raise KeyError(f"No starter lesson is authored for subject {subject_slug!r} ({subject['name']})")
+        generated.extend(_build_topic(subject, spec) for spec in specs)
+
+    # Depth pass: append the deeper lessons for every subject in catalogue
+    # order. Validation at import time guarantees each subject has entries.
+    for subject_slug, subject in subjects.items():
+        specs = deeper_lessons.LESSONS.get(subject_slug, ())
+        if not specs:
+            raise KeyError(f"No deeper lessons are authored for subject {subject_slug!r} ({subject['name']})")
         generated.extend(_build_topic(subject, spec) for spec in specs)
 
     topic_slugs = [_slugify(topic["title"]) for topic in _existing_topics() + generated]
@@ -1116,3 +1135,5 @@ if _unmapped:
 _unknown_starters = set(STARTERS) - SUBJECT_SLUGS
 if _unknown_starters:
     raise KeyError(f"Starter lesson points to unknown subject: {sorted(_unknown_starters)}")
+# Depth pass: every subject must carry its deeper lessons, fully specified.
+deeper_lessons.validate(SUBJECT_SLUGS)
