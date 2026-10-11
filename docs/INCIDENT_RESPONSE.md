@@ -38,9 +38,13 @@ paste the seal into the ticket.
 Production must be running with `ENGINEVERSE_JUDGE=disabled` or with a Judge0
 URL you operate. If a process was started with `python`, `java` or `auto`,
 learner code ran as a subprocess on that host. That is not a container
-boundary. The child is supposed to have a scrubbed environment, rlimits, and
-a namespace when the kernel allows it. Assume a submission could read what
-the application user could read if those probes failed open.
+boundary. The local provider now refuses execution unless the network, PID and
+mount namespace probes succeed and required filesystem mounts work; it does not
+fall back to rlimits alone. Its private procfs prevents enumeration of host
+processes, but this remains process isolation, not a full container or VM. Even
+when those controls work, assume files outside the hidden application/home
+paths and other host surfaces may remain visible. Production must use `disabled`
+or a separately operated judge whose isolation you have independently assessed.
 
 1. Set `ENGINEVERSE_JUDGE=disabled` and restart. Startup refuses the local modes.
 2. Take the web container out of rotation if you have more than one. API rate

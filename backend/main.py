@@ -40,6 +40,13 @@ from web import api as api_router  # noqa: E402
 from web import auth_pages, pages  # noqa: E402
 from web.deps import STATIC_DIR  # noqa: E402
 
+
+def _route_label(request: Request) -> str:
+    """Return a route template, never a caller-controlled URL/path value."""
+    route = request.scope.get("route")
+    return str(getattr(route, "path", "unmatched"))[:160]
+
+
 # Nonce placeholder replaced per response.
 _CSP_TEMPLATE = (
     "default-src 'self'; "
@@ -64,7 +71,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         nonce = os.urandom(16).hex()
         request.state.csp_nonce = nonce
-        started = time.perf_counter()
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = _CSP_TEMPLATE.format(nonce=nonce)
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -76,8 +82,102 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-XSS-Protection"] = "0"
         if get_settings().is_https:
             response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains; preload"
-        response.headers["X-Response-Time-Ms"] = f"{(time.perf_counter() - started) * 1000:.1f}"
         return response
+
+
+class _RequestTooLarge(Exception):
+    pass
+
+
+class RequestBoundsMiddleware:
+    """Bound request targets and bodies before expensive parsing or KDF work.
+
+    The receive wrapper also counts chunked requests that omit Content-Length;
+    checking the header alone leaves an easy memory-exhaustion path. No path or
+    payload value is included in the rejection response or server-side log.
+    """
+
+    MAX_BODY_BYTES = 512 * 1024
+    MAX_TARGET_BYTES = 8192
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        target_size = len(scope.get("raw_path", b"")) + len(scope.get("query_string", b""))
+        if target_size > self.MAX_TARGET_BYTES:
+            await self._reject(send, 414, "Request target too long.")
+            return
+
+        headers = {key.lower(): value for key, value in scope.get("headers", ())}
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                content_length = int(raw_length)
+            except (TypeError, ValueError):
+                await self._reject(send, 400, "Invalid request length.")
+                return
+            if content_length < 0:
+                await self._reject(send, 400, "Invalid request length.")
+                return
+            if content_length > self.MAX_BODY_BYTES:
+                await self._reject(send, 413, "Request body too large.")
+                return
+
+        received = 0
+        response_started = False
+
+        async def bounded_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body") or b"")
+                if received > self.MAX_BODY_BYTES:
+                    scope.setdefault("state", {})["ev_body_too_large"] = True
+                    raise _RequestTooLarge
+            return message
+
+        async def bounded_send(message):
+            nonlocal response_started
+            if message.get("type") == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, bounded_receive, bounded_send)
+        except Exception as exc:
+            # BaseHTTPMiddleware can wrap receive exceptions while unwinding its
+            # task group. The scope flag preserves the overflow signal through
+            # middleware that inspects (and may otherwise swallow) the body.
+            oversized = (
+                isinstance(exc, _RequestTooLarge)
+                or scope.get("state", {}).get("ev_body_too_large", False)
+            )
+            if not oversized:
+                raise
+            if not response_started:
+                await self._reject(send, 413, "Request body too large.")
+            else:
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+
+    @staticmethod
+    async def _reject(send, status: int, message: str) -> None:
+        body = message.encode("utf-8")
+        headers = [
+            (b"content-type", b"text/plain; charset=utf-8"),
+            (b"content-length", str(len(body)).encode("ascii")),
+            (b"cache-control", b"no-store"),
+            (b"x-content-type-options", b"nosniff"),
+            (b"x-frame-options", b"DENY"),
+            (b"referrer-policy", b"no-referrer"),
+            (b"content-security-policy", b"default-src 'none'; frame-ancestors 'none'; base-uri 'none'"),
+        ]
+        await send({"type": "http.response.start", "status": status, "headers": headers})
+        await send({"type": "http.response.body", "body": body})
 
 
 class CsrfMiddleware(BaseHTTPMiddleware):
@@ -89,13 +189,16 @@ class CsrfMiddleware(BaseHTTPMiddleware):
         session = getattr(request.state, "ev_session_id", None)
         if session is None:
             viewer = _peek_session(request)
-            session = viewer.session_id if viewer else ""
+            session = (
+                viewer.session_id if viewer
+                else request.cookies.get(csrf.cookie_name(), "")
+            )
         token = csrf.request_csrf(request)
         if not token:
             token = await csrf.form_csrf(request)
         if not csrf.check(request, session, token):
             record("security.csrf_rejected", ip=client_ip(request),
-                   meta={"path": request.url.path, "method": request.method})
+                   meta={"route": _route_label(request), "method": request.method})
             accepts_html = "text/html" in (request.headers.get("accept") or "")
             if accepts_html:
                 return RedirectResponse("/login?error=csrf", status_code=303)
@@ -142,8 +245,28 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
         limit = None
-        if path.startswith("/api/run") or path.startswith("/api/submit"):
-            limit = ("judge", 30, 60)
+        if request.method == "POST" and path == "/login":
+            count, window = ratelimit.LIMITS["login"]
+            limit = ("login", count, window)
+        elif request.method == "POST" and path == "/register":
+            count, window = ratelimit.LIMITS["register"]
+            limit = ("register", count, window)
+        elif request.method == "POST" and path == "/forgot-password":
+            count, window = ratelimit.LIMITS["forgot_password"]
+            limit = ("forgot", count, window)
+        elif request.method == "POST" and path == "/reset-password":
+            count, window = ratelimit.LIMITS["reset_password"]
+            limit = ("reset", count, window)
+        elif request.method == "POST" and path == "/api/feedback":
+            count, window = ratelimit.LIMITS["feedback"]
+            limit = ("feedback", count, window)
+        elif request.method == "POST" and path == "/api/practice/answer":
+            count, window = ratelimit.LIMITS["answer"]
+            limit = ("answer", count, window)
+        elif path in ("/api/coding/run", "/api/coding/submit"):
+            key = "run_code" if path.endswith("/run") else "submit_code"
+            count, window = ratelimit.LIMITS[key]
+            limit = ("judge", count, window)
         elif path.startswith("/api/tutor/"):
             # Reads the configured ceiling rather than a literal, so the "ai"
             # entry in LIMITS - defined but previously unused - is what applies.
@@ -156,13 +279,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         key, count, window = limit
         ident = client_ip(request)
         local = ratelimit.check(f"{key}:{ident}", count, window)
-        shared = ratelimit.shared_check(f"{key}:{ident}", count, window)
+        shared = ratelimit.shared_check(
+            f"{key}:{ident}", count, window, local_fallback=local
+        )
         result = local if not local.allowed else shared
         if not result.allowed:
             return JSONResponse(
                 {"ok": False, "error": "Too many requests. Please slow down."},
                 status_code=429,
-                headers={"Retry-After": str(window), "X-RateLimit-Remaining": "0"},
+                headers={
+                    "Retry-After": str(max(1, result.retry_after)),
+                    "X-RateLimit-Limit": str(count),
+                    "X-RateLimit-Remaining": "0",
+                },
             )
         response = await call_next(request)
         response.headers["X-RateLimit-Remaining"] = str(result.remaining)
@@ -220,10 +349,15 @@ def create_app() -> FastAPI:
         openapi_url="/api/openapi.json" if not settings.is_production else None,
     )
 
-    app.add_middleware(SecurityHeadersMiddleware)
-    app.add_middleware(RateLimitMiddleware)
+    # The order here is the incoming request order after Starlette wraps the
+    # middleware stack: bounds -> security headers -> rate limit -> CSRF -> MFA.
+    # Rate limits must run before CSRF rejection so an attacker cannot evade
+    # per-IP abuse controls by omitting or forging a token.
     app.add_middleware(AdminMfaMiddleware)
     app.add_middleware(CsrfMiddleware)
+    app.add_middleware(RateLimitMiddleware)
+    app.add_middleware(SecurityHeadersMiddleware)
+    app.add_middleware(RequestBoundsMiddleware)
 
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
     app.include_router(pages.router)
@@ -268,8 +402,7 @@ def create_app() -> FastAPI:
         app.error audit entry.
         """
         record("security.forbidden", actor_id=getattr(request.state, "ev_user_id", None),
-               ip=client_ip(request),
-               meta={"path": request.url.path})
+               ip=client_ip(request), meta={"route": _route_label(request)})
         if request.url.path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "You do not have permission to do that."},
                                 status_code=403)
@@ -321,8 +454,10 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(500)
     async def server_error(request: Request, exc):
+        # Exception messages often quote submitted data or SQL details. Keep the
+        # audit useful for operators without storing a secret or raw URL.
         record("app.error", ip=client_ip(request),
-               meta={"path": request.url.path, "error": f"{type(exc).__name__}: {exc}"[:400]})
+               meta={"route": _route_label(request), "error_type": type(exc).__name__})
         if request.url.path.startswith("/api/"):
             return JSONResponse({"ok": False, "error": "Internal server error."}, status_code=500)
         from web.deps import render
@@ -392,7 +527,11 @@ def create_app() -> FastAPI:
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots() -> Response:
-        body = "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /settings\n"
+        sitemap_url = get_settings().site_url.rstrip("/") + "/sitemap.xml"
+        body = (
+            "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /settings\n"
+            f"Sitemap: {sitemap_url}\n"
+        )
         return Response(body, media_type="text/plain")
 
     return app

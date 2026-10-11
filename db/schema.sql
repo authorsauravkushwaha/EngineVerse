@@ -120,6 +120,21 @@ CREATE TABLE IF NOT EXISTS email_verifications (
 CREATE INDEX IF NOT EXISTS idx_email_verifications_user ON email_verifications(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_email_verifications_expiry ON email_verifications(expires_at);
 
+-- MFA challenges (both login and enrollment) are random, hashed, expiring, and
+-- single-use. Enrollment state is sealed server-side; the bearer token contains
+-- no TOTP secret or recovery codes. A database read alone cannot replay a token.
+CREATE TABLE IF NOT EXISTS security_challenges (
+  token_hash  TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  purpose     TEXT NOT NULL,
+  payload     TEXT,
+  created_at  INTEGER NOT NULL,
+  expires_at  INTEGER NOT NULL,
+  consumed_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_security_challenges_user ON security_challenges(user_id, purpose, expires_at);
+CREATE INDEX IF NOT EXISTS idx_security_challenges_expiry ON security_challenges(expires_at);
+
 CREATE TABLE IF NOT EXISTS login_attempts (
   id           TEXT PRIMARY KEY,
   identifier   TEXT NOT NULL,   -- normalised email or username
@@ -738,6 +753,8 @@ CREATE TABLE IF NOT EXISTS xp_events (
   created_at  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_xp_user ON xp_events(user_id, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_xp_project_build_once ON xp_events(user_id, entity_id)
+  WHERE reason = 'project.built' AND entity_type = 'project';
 
 CREATE TABLE IF NOT EXISTS streaks (
   user_id          TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,

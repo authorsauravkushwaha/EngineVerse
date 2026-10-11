@@ -118,9 +118,12 @@ def test_confirmation_link_is_not_rendered_unless_development_reveal_is_on(clien
         reload_settings()
 
 
-def test_production_does_not_reveal_a_confirmation_link(client, seeded, monkeypatch):
+@pytest.mark.parametrize("environment", ["staging", "production"])
+def test_non_development_does_not_reveal_a_confirmation_link(
+    client, seeded, monkeypatch, environment
+):
     user = _register("verprod" + os.urandom(3).hex())
-    monkeypatch.setenv("ENGINEVERSE_ENV", "production")
+    monkeypatch.setenv("ENGINEVERSE_ENV", environment)
     monkeypatch.setenv("ENGINEVERSE_REVEAL_RESET_TOKEN", "1")
     monkeypatch.delenv("ENGINEVERSE_SMTP_URL", raising=False)
     reload_settings()

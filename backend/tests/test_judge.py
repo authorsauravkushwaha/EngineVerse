@@ -196,12 +196,12 @@ pytestmark = pytest.mark.usefixtures("seeded")
 #: rather than fail. Skipping is honest here: the behaviour under test cannot be
 #: produced on the host, and TestSandboxRefusesWithoutIsolation below covers the
 #: refusal itself on every host including those.
-_CAN_ISOLATE = bool(provider_info().get("have_namespace"))
+_CAN_ISOLATE = bool(provider_info().get("available"))
 
 requires_isolation = pytest.mark.skipif(
     not _CAN_ISOLATE,
-    reason="host cannot create an unprivileged user namespace; the sandbox "
-           "refuses to run submissions, so there is nothing to exercise",
+    reason="host cannot create the required network, PID and mount namespaces; "
+           "the sandbox refuses to run submissions, so there is nothing to exercise",
 )
 
 
@@ -575,6 +575,42 @@ class TestSandboxFilesystemIsolation:
         )
         assert not marker.exists(), "a submission wrote into the application user's home"
 
+    def test_host_process_environments_are_not_visible_in_proc(self, provider):
+        """A submission must not inspect same-UID host process environments."""
+        import os
+        import subprocess
+        import sys
+        import secrets
+
+        canary = secrets.token_hex(24)
+        child_env = os.environ.copy()
+        child_env["ENGINEVERSE_PROC_CANARY"] = canary
+        host_process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(15)"],
+            env=child_env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            result = provider.run(
+                "python",
+                "from pathlib import Path\n"
+                f"target = Path('/proc/{host_process.pid}/environ')\n"
+                "if not target.exists():\n    print('PROC_HIDDEN')\n"
+                "else:\n"
+                "    try:\n        data = target.read_bytes()\n"
+                "        print('PROC_VISIBLE', data.decode('latin1', 'ignore'))\n"
+                "    except OSError:\n        print('PROC_ENTRY_VISIBLE_BUT_ENV_BLOCKED')\n",
+                "",
+            )
+            assert result.status == "accepted", result.stderr
+            assert "PROC_HIDDEN" in result.stdout, result.stdout
+            assert "PROC_VISIBLE" not in result.stdout
+            assert canary not in result.stdout
+        finally:
+            host_process.terminate()
+            host_process.wait(timeout=5)
+
     def test_a_source_file_cannot_be_read(self, provider):
         from engineverse.judge.local import APP_ROOT
 
@@ -612,6 +648,21 @@ class TestSandboxFilesystemIsolation:
         assert isinstance(provider._have_mount_ns, bool)
 
 
+class TestSandboxFailsClosedOnLimitFailure:
+    def test_required_rlimit_failure_aborts_before_code_execution(self, monkeypatch):
+        from engineverse.judge import local
+
+        if local.resource is None:
+            pytest.skip("this host has no POSIX resource module")
+
+        def denied(*_args):
+            raise PermissionError("limit denied")
+
+        monkeypatch.setattr(local.resource, "setrlimit", denied)
+        with pytest.raises(RuntimeError, match="could not apply required resource limit"):
+            local._set_limits_and_drop(max_processes=32, memory_kb=262_144, cpu_seconds=5)
+
+
 class TestSandboxRefusesWithoutIsolation:
     """The fallback path that must never run code.
 
@@ -622,11 +673,18 @@ class TestSandboxRefusesWithoutIsolation:
     network.
     """
 
-    def _provider(self, have_namespace: bool):
+    def _provider(
+        self,
+        have_namespace: bool,
+        have_mount_ns: bool = False,
+        have_pid_ns: bool | None = None,
+    ):
         from engineverse.judge.local import LocalSandboxProvider
 
         provider = LocalSandboxProvider()
         provider._have_namespace = have_namespace
+        provider._have_pid_ns = have_namespace if have_pid_ns is None else have_pid_ns
+        provider._have_mount_ns = have_mount_ns
         return provider
 
     def test_no_namespace_means_no_execution(self):
@@ -641,9 +699,27 @@ class TestSandboxRefusesWithoutIsolation:
         result = provider.run("python", "print(1)", "")
         assert "namespace" in result.stderr.lower()
 
-    def test_available_tracks_the_host(self):
-        assert self._provider(False).available is False
-        assert self._provider(True).available is True
+    def test_available_requires_network_pid_and_mount_namespaces(self):
+        assert self._provider(False, True, True).available is False
+        assert self._provider(True, False, True).available is False
+        assert self._provider(True, True, False).available is False
+        assert self._provider(True, True, True).available is True
+
+    def test_no_pid_namespace_means_no_execution(self):
+        provider = self._provider(True, True, False)
+        result = provider.run("python", "print('this must not run')", "")
+        assert result.status == "sandbox_unavailable"
+        assert "this must not run" not in result.stdout
+        assert "PID namespace" in result.stderr
+        assert provider.supports("python") is False
+
+    def test_no_mount_namespace_means_no_execution(self):
+        provider = self._provider(True, False)
+        result = provider.run("python", "print('this must not run')", "")
+        assert result.status == "sandbox_unavailable"
+        assert "this must not run" not in result.stdout
+        assert "mount namespace" in result.stderr
+        assert provider.supports("python") is False
 
     def test_present_but_forbidden_binaries_are_detected(self):
         """The exact GitHub-hosted-runner case.

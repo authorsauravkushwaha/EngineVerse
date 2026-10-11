@@ -176,10 +176,10 @@ def curriculum(university_id: str, branch_id: str) -> list[dict]:
 # Subjects
 # --------------------------------------------------------------------------
 
-def list_subjects(
-    *, branch: str | None = None, semester: int | None = None, first_year: bool = False,
-    q: str | None = None, limit: int = 200,
-) -> list[dict]:
+def _subject_filters(
+    *, branch: str | None = None, semester: int | None = None,
+    first_year: bool = False, q: str | None = None,
+) -> tuple[str, list[Any]]:
     clauses = ["s.status = 'published'"]
     args: list[Any] = []
     if branch:
@@ -193,16 +193,34 @@ def list_subjects(
     if q:
         clauses.append("(s.name LIKE ? OR s.description LIKE ? OR s.code LIKE ?)")
         args += [f"%{q}%"] * 3
-    args.append(limit)
+    return " AND ".join(clauses), args
+
+
+def count_subjects(
+    *, branch: str | None = None, semester: int | None = None,
+    first_year: bool = False, q: str | None = None,
+) -> int:
+    where, args = _subject_filters(branch=branch, semester=semester, first_year=first_year, q=q)
+    return int(db.scalar(
+        f"SELECT count(*) AS c FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id WHERE {where}",
+        *args,
+    ) or 0)
+
+
+def list_subjects(
+    *, branch: str | None = None, semester: int | None = None, first_year: bool = False,
+    q: str | None = None, limit: int = 200, offset: int = 0,
+) -> list[dict]:
+    where, args = _subject_filters(branch=branch, semester=semester, first_year=first_year, q=q)
     rows = db.query(
         "SELECT s.*, b.name AS branch_name, b.slug AS branch_slug, b.color AS branch_color, "
         "(SELECT count(*) FROM topics t WHERE t.subject_id = s.id AND t.status='published') AS topic_count, "
         "(SELECT count(*) FROM notes n JOIN topics t ON t.id = n.topic_id "
         "WHERE t.subject_id = s.id AND n.status='published') AS note_count, "
         "(SELECT count(*) FROM questions qn WHERE qn.subject_id = s.id AND qn.is_active = 1) AS question_count "
-        f"FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id WHERE {' AND '.join(clauses)} "
-        "ORDER BY s.is_first_year DESC, s.order_index, s.name LIMIT ?",
-        *args,
+        f"FROM subjects s LEFT JOIN branches b ON b.id = s.branch_id WHERE {where} "
+        "ORDER BY s.is_first_year DESC, s.order_index, s.name LIMIT ? OFFSET ?",
+        *args, max(1, min(int(limit), 1000)), max(0, int(offset)),
     )
     return rows
 

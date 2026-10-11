@@ -1,240 +1,204 @@
 # EngineVerse
 
-**A complete learning platform for engineering students.**
+EngineVerse is a self-hostable learning platform for engineering students and
+working professionals. It brings together a growing subject catalogue, structured
+notes, practice, programming paths, projects, revision tools and a community in
+one progressively enhanced web app.
 
-Structured notes for every branch, daily practice problems, a LeetCode-style
-coding judge, real-world projects, spaced-repetition revision, skill roadmaps, a
-community, and a portfolio — in one installable app. Built for students and for
-working professionals who are filling a gap.
+**The seeded catalogue is starter material, not a complete degree syllabus.**
+Some expanded entries are explicitly marked `needs_review`; publication means a
+learner can read them, not that an expert has signed them off. EngineVerse is not
+an accredited institution and its certificates are not academic or professional
+qualifications.
 
-```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env                       # then set ENGINEVERSE_SECRET
-python scripts/seed.py --fresh             # ~0.4s, builds the whole catalogue
-uvicorn main:app --app-dir backend --reload
-```
+## Run locally
 
-Open https://authorsauravkushwaha.github.io/EngineVerse/ . On a development machine, sign in as
-`asha@example.com` / `LearnBuild#2026!`, or `admin@engineverse.local` /
-`Str0ngPassphrase#42!` for the CMS. Those accounts are created only when
-`ENGINEVERSE_ENV` is `development` or `test`. Production seed does not create
-them, does not print the passwords, and the login page does not show them.
-`python scripts/seed.py --no-demo` builds the catalogue without them.
-
-Production is a separate step, and it has not been claimed as deployed. See
-[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
-
-## What is here
-
-| Area | What it does |
-|---|---|
-| **Notes** | 93 published subjects across all 45 branches, with 121 published starter topics in the current seed snapshot. All 121 topics have four public reading depths; each standard note carries the full [13-section template](docs/NOTE_TEMPLATE.md), with LaTeX rendered by a dependency-free renderer. |
-| **Diagrams & 3D** | One topic-linked SVG diagram and one interactive 3D learning model per topic (121 of each in the current snapshot), drawn by a dependency-free WebGL renderer (`engine3d.js`, no three.js, no CDN). Drag to orbit, scroll to zoom, labels projected from 3D. Each model is JSON geometry stored in the database. |
-| **Practice** | 159 active questions plus 19 Daily Practice Problem sets (95 question slots), with every published subject represented in the rotation. The question bank is filterable and paginated so all questions are reachable. |
-| **Coding** | 13 problems with an in-browser editor, real execution in an isolated sandbox, per-test verdicts, and stubs in Python, Java, JavaScript and C++. |
-| **Projects** | 6 end-to-end builds with steps, skills and resources — not "make a todo app". |
-| **Revision** | 281 flashcards in the current seed snapshot, on SM-2 spaced repetition, alongside a formula centre and a mistake notebook that turns wrong answers into a recovery plan. |
-| **Roadmaps** | 5 skill trees with 57 prerequisite-linked nodes. |
-| **Tutor** | A retrieval-grounded AI tutor. It answers only from this platform's own notes, formulas and topics, cites every source it used, is labelled AI-generated, and refuses rather than inventing when the library has nothing on a subject. Self-hosted — no external model call. |
-| **Community** | Threads, comments, votes, answers, moderation. |
-| **Placements** | Interview questions by topic, company tags, contest scaffolding. |
-| **Gamification** | XP, 40 levels, streaks, 12 badges, a contribution heatmap, a leaderboard. |
-| **Portfolio** | A public page per learner with progress, solved problems and verifiable certificates. |
-| **Admin** | Content lifecycle, roles, audit log, branding. |
-
-Everything in that table works. There are no dead buttons and no stub pages: the
-route suite renders all 49 pages as anonymous, student, faculty *and* admin, and
-asserts none of them errors or renders an undefined template variable. Pages that
-look fine to a visitor but break for a signed-in user are the easy ones to miss,
-so every role is covered separately. The suite also checks 9 infrastructure
-routes and 20 authenticated API endpoints, and the coding judge is exercised end
-to end by 13 real reference solutions.
-
-## Stack
-
-**Python** for the application, **SQL** for the data, **Java** for the sandbox.
-No CDN, no npm build step, no SaaS, no third-party auth.
-
-```
-browser / PWA ──► FastAPI + Jinja2 SSR ──► SQL (SQLite dev / Postgres prod)
-                        │
-                        └──► Java sandbox (one JVM per submission)
-```
-
-- ~5,800 lines of Python in `backend/engineverse/` — the domain and services
-- ~1,650 lines in `backend/web/` — routing and the JSON API
-- Jinja2 templates, one dependency-free CSS file, one dependency-free JS file
-
-The interface is **neumorphic and self-contained**. Surfaces share one clay colour;
-volume is a light shadow from the top-left and a dark shadow to the bottom-right.
-Fields, tracks and the active nav are inset. Nothing is loaded from a CDN, an
-icon font, or a component library — including the LaTeX renderer and the WebGL
-models. Light is the default; dark is the same system with a deeper clay.
-- 63 SQL tables; `db/schema.sql` for development, `db/postgres/schema.pg.sql`
-  hash-partitioned for production
-- `sandbox-java/` — a Maven project with zero runtime dependencies
-
-The client is progressively enhanced: with JavaScript disabled the site still
-reads, still navigates, still works. That is also what makes it installable on a
-phone without an app store — `manifest.webmanifest` plus a service worker, no
-store submission.
-
-## The coding judge
-
-A coding stub only *declares* an entry point, so nothing would call it. Each
-problem names a **wrapper** and the judge appends a driver that reads stdin, calls
-the entry point, and prints in exactly the shape the expected output uses.
-
-```
-two-sum               list-target      '[2, 7, 11, 15]\n9'      -> '[0, 1]'
-reverse-linked-list   linked-list      '1 2 3 4 5'              -> '5 4 3 2 1'
-detect-cycle          cycle            '1 2 3 2'                -> 'True'
-level-order-traversal tree             '3 9 20 None None 15 7'  -> '[[3], [9, 20], [15, 7]]'
-lru-cache             lru              '2\nput 1 1\nget 1'      -> '1'
-dijkstra-shortest-path graph           'A:B1,C4\n...\nA\nD'     -> '4'
-```
-
-Thirteen wrappers cover arrays, linked lists, cycles, trees, graphs, an LRU cache
-and plain stdin. Adding a new problem shape means adding one wrapper — the judge,
-the editor and the stored test cases are untouched. Drivers carry their own node
-and tree types, so a submission still runs if the learner deletes the stub's
-helpers.
-
-Submissions never execute in the web process. They run in a child process with a
-scrubbed environment, CPU/memory/wall-clock ceilings, no writable path outside a
-temp directory, and no outbound network. Java goes through a second JVM entirely.
-
-## Scale
-
-The Postgres schema hash-partitions the sixteen tables that a global platform
-actually stresses:
-
-| Table | Partitions |
-|---|---|
-| `submissions`, `activity`, `audit_logs` | 256 |
-| `coding_submissions`, `user_flashcards`, `user_progress`, `xp_events`, `notifications` | 128 |
-| `sessions`, `profiles`, `mistakes`, `bookmarks`, `personal_notes`, `user_badges`, `votes` | 64 |
-| `login_attempts`, `contest_submissions` | 32 |
-
-Hash rather than range, so writes spread evenly from the first row to the
-billionth with no rebalancing, and every per-user query prunes to one partition.
-Fan-out is chosen so the largest partition stays in the low tens of millions of
-rows — small enough for `VACUUM`, `REINDEX` and a restore to stay tractable.
-ULID keys are kept so ids can be minted on any node without sequence contention.
-
-Details and the scaling path beyond partitioning: [`db/postgres/README.md`](db/postgres/README.md).
-
-## Security
-
-scrypt password hashing (N=16384, measured 52 ms), opaque sessions stored as
-SHA-256 digests, HMAC CSRF tokens bound to the session, an 8-role × 10-capability
-RBAC that fails closed, parameterised SQL throughout, autoescaped templates, a
-per-request CSP nonce, and an append-only audit log.
-
-Full detail, including the honest limitations — authenticator enrolment is
-optional for learners, the password blocklist is small, and a proxy hides
-every client behind one address unless you explicitly trust it — is in
-[`docs/SECURITY.md`](docs/SECURITY.md).
-
-## Testing
+Requirements: Python 3.11 or newer. The default development database is SQLite;
+PostgreSQL and container setup are documented separately.
 
 ```bash
-python -m pytest backend/tests -q          # 431 tests
-python -m pytest backend/tests -q -m "not slow"   # skip the sandbox runs
-
-node scripts/check_engine3d.js             # the WebGL renderer's maths
-python scripts/dump_scenes.py | node scripts/check_scenes.js   # every scene is drawable
+python -m venv .venv
+. .venv/bin/activate
+python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-The last two matter because the 3D layer has no browser in CI. The first runs
-the shipped mesh builders under a DOM stub and asserts finite geometry,
-parameter clamping, the arrow-orientation algebra and the projection maths.
-The second feeds all 56 stored scenes to that same renderer and fails if any
-object cannot be built — which is how a model that validated as JSON but named
-a mesh the renderer does not have gets caught before it ships.
+Set a private development signing secret in `.env` (do not commit the file):
 
-| Suite | Tests | Covers |
-|---|---|---|
-| `test_security.py` | 100 | Hashing, salting, NFKC, policy, RBAC, safe URLs, ULIDs; every POST form carries a CSRF token; every capability the web layer checks actually exists |
-| `test_judge.py` | 53 | All 13 reference solutions through the real sandbox; rlimits read back from inside a submission; fork bomb containment; the checkout is invisible to submitted code |
-| `test_tutor.py` | 13 | Grounded answers cite only listed sources; uncovered subjects are refused, not invented; stored markup never reaches the client; the rate limit engages |
-| `test_routes.py` | 97 | Every page renders; access control; headers; CSP nonce uniqueness; forms |
-| `test_models3d.py` | 48 | Python and JavaScript agree on the mesh vocabulary; the validator refuses junk, clamps absurd numbers and emits attribute-safe JSON; **validation drops no object from any seeded scene**; a corrupted row is dropped, not rendered |
-| `test_api_and_schema.py` | 120 | 20 authenticated endpoints; coding run/submit; grading; community forms both ways; branding keys; theme wiring; registration toggle; flash cookie encoding; migration idempotence; Postgres schema parsed |
-
-The tests are how the platform's worst defects were found: every `/api/*` request
-500ing on a rate-limit unpacking error, every authenticated form POST 403ing
-because the CSRF check only read a header an HTML form cannot set, an open
-redirect through protocol-relative URLs, a seeded role that RBAC did not define,
-every subject page 500ing for a signed-in user, the entire admin panel refusing
-even a `super_admin`, a judge with no resource limits at all, and an account
-takeover through the password reset form.
-
-## Repository
-
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
 ```
-backend/
-  engineverse/        domain, services, security, judge, markdown renderer
-  web/                pages.py (SSR), auth_pages.py, api.py (JSON)
-  templates/          48 Jinja2 templates
-  static/             one CSS file, two JS files (app.js, engine3d.js), PWA manifest, service worker, icons
-  tests/              431 tests
-db/
-  schema.sql          SQLite, 66 tables (development)
-  postgres/           hash-partitioned Postgres schema (production)
-seed_data/            the catalogue as data
-scripts/seed.py       builds the database
-scripts/reindex.py    rebuilds the search index after you insert content rows
-scripts/check_engine3d.js · check_scenes.js
-                      headless verification of the 3D renderer and its scenes
-sandbox-java/         the JVM sandbox (Maven, zero runtime deps)
-deploy/               Dockerfiles and compose topology (web, Postgres)
-docs/                 ARCHITECTURE · SECURITY · NOTE_TEMPLATE · CONTENT
-.github/workflows/    Python tests, Postgres schema, Java build, JS + 3D checks
+
+Copy the output into `ENGINEVERSE_SECRET` in `.env`. Seed the local SQLite
+catalogue, then start the app:
+
+```bash
+python scripts/seed.py --fresh --no-demo
+uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 ```
+
+`--fresh` is destructive: use it only with a disposable development database.
+`--no-demo` avoids creating sample accounts. Open <http://127.0.0.1:8000> and
+create an account through **Register**. Do not use development demo credentials
+on a public instance. The login page may show demo-account details only when the
+application is configured for development or tests.
+
+For Windows/Git Bash, Docker Compose, PostgreSQL and production configuration,
+see [Deployment](docs/DEPLOYMENT.md) and [the Compose topology](deploy/README.md).
+
+## Learning catalogue
+
+The catalogue is data-driven: pages enumerate the subjects and learning material
+present in the database rather than assuming there are only one or two fixed
+subjects. The following counts come from a fresh, no-demo seed; they describe
+what is seeded today, not a completeness guarantee.
+
+| Area | Current seeded coverage |
+|---|---|
+| **Engineering subjects** | 45 branches and 93 published subjects. The catalogue includes computing, electrical, mechanical, civil, chemical, aerospace, biomedical, agricultural, cybersecurity and other engineering fields. Browse what is available in the app; missing material is not implied by this snapshot. |
+| **Notes** | 127 published topics, 508 notes across four reading depths, and 3,302 note sections. Standard notes use the [13-section note template](docs/NOTE_TEMPLATE.md). |
+| **Cyber Security** | 11 published starter topics with public notes; learners can read them without signing in. They remain starter material and need expert review. |
+| **Diagrams and models** | 127 topic-linked SVG diagrams and 127 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
+| **Practice** | 165 active questions and 33 published Daily Practice Problem sets (165 slots); every active question and all 93 subjects appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
+| **Programming paths** | 9 learning paths and 68 public, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, Go, Rust and SQL. Paths progress from fundamentals and testing toward building applications, APIs and carefully bounded tool-using agents where appropriate to the language. |
+| **Coding practice** | 13 problems with language stubs and test cases. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
+| **Projects** | 7 project briefs with steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent. |
+| **Revision and roadmaps** | 281 public flashcards are browsable at `/flashcards` and searchable without indexing their answers; personal SM-2 schedules are at `/revision`. The seed also includes 5 roadmaps and 57 roadmap nodes. |
+| **Study helper** | A retrieval-grounded tutor that composes answers from EngineVerse's own indexed material and cites its sources. It does not make an external model call by default and should say when the catalogue has no relevant coverage. |
+
+The generated [curriculum coverage report](docs/CURRICULUM_COVERAGE.md) lists the
+current snapshot by branch. Use `python scripts/coverage_report.py` after seeding
+to regenerate it for a database. Do not read the counts as evidence that every
+subject has a complete semester or degree curriculum.
+
+## Practical programming
+
+The programming paths are intended to build from syntax toward useful software,
+not stop at isolated language trivia. Depending on the path, modules cover
+collections, functions, object-oriented design, error handling, testing, safe
+input handling, APIs, persistence, concurrency, authorization and project
+structure. Later projects include study tools, services, dashboards and
+allowlisted agent tools. C and C++ paths also emphasize memory/resource safety
+and undefined-behavior avoidance.
+
+Runnable support is a deployment property, not just a curriculum promise. The
+UI marks a language runnable only when the active provider supports it on that
+host. Missing compilers or blocked isolation cause the runner to refuse execution
+rather than silently run code with weaker controls.
+
+## Code execution
+
+Learner code is untrusted. **Production does not run code in the web process.**
+The production default is `ENGINEVERSE_JUDGE=disabled`; operators may instead
+configure a separately managed Judge0 endpoint. This application delegates to
+that endpoint but does not certify or independently verify its isolation.
+
+For development, `ENGINEVERSE_JUDGE=auto` may select the Java sandbox or the
+built-in local runner. The local runner only becomes available when the host
+proves it can create network, PID and mount namespaces, mount private procfs,
+and perform the filesystem-isolation mount. It applies bounded process
+resources, scrubs the child environment and refuses if required controls fail.
+It is still a child
+process on the same host—not a container or VM—and is not a production security
+boundary. A restrictive kernel/container may make it unavailable, in which
+case submissions are refused. See [Security](docs/SECURITY.md) for its limits.
+
+## Security overview
+
+Security is part of the application design, not a deployment afterthought. The
+current implementation includes:
+
+- scrypt password hashing with bounded password length and bounded verification
+  parameters; a modest local exact-match common-password list is used, not a
+  breached-password lookup service;
+- opaque sessions whose random tokens are stored as HMAC-SHA-256 hashes under
+  `ENGINEVERSE_SECRET`, session- or browser-bound CSRF tokens, secure cookie
+  flags when served over HTTPS, and revocation on sensitive account changes;
+- authentication-factor replay controls for TOTP steps, one-use recovery codes
+  and short-lived one-use authentication/reset tokens. Practice answers are
+  intentionally repeatable and continue to earn attempt-based XP;
+- server-side authorization, parameterized SQL, request/input bounds,
+  autoescaped templates and CSP/security headers. There is currently no
+  user-controlled file-upload feature or dynamic file-serving route;
+- rate limits for login (10 per 5 minutes), registration (5/hour), reset-link
+  requests (5/hour/IP plus 3/hour per keyed address), reset-token checks
+  (10 per 5 minutes), feedback
+  (5 per hour per IP), practice answers (120 per minute per IP), and coding
+  execution (30 per minute); per-account limits also bound password/MFA/email
+  actions and community posts, replies, reports and votes;
+- proxy trust disabled by default. Enable it only behind a trusted proxy that
+  overwrites forwarding headers.
+
+These protections reduce risk but do not make an application invulnerable.
+Review the threat model, operational requirements, key rotation effects and
+known limitations in [docs/SECURITY.md](docs/SECURITY.md) before deployment.
+Never commit `.env`, database files, private keys or real learner data.
+
+## Architecture
+
+```text
+Browser / PWA  ──► FastAPI + Jinja2 server-rendered pages ──► SQLite or PostgreSQL
+                                         │
+                                         └──► configured judge provider
+```
+
+The Python application uses server-rendered HTML with progressive enhancement.
+The default SQLite setup needs no database service; PostgreSQL is intended for
+production. Static assets are served by the application without a JavaScript
+build step or third-party CDN. The application also includes a service worker
+for offline reading; personalized responses are excluded from offline caching.
+
+See [Architecture](docs/ARCHITECTURE.md) for the module map, request lifecycle,
+search/tutor flow and judge providers.
+
+## Tests and checks
+
+```bash
+python -m pytest backend/tests -q
+python -m pytest backend/tests -q -m "not slow"
+node scripts/check_engine3d.js
+python scripts/dump_scenes.py | node scripts/check_scenes.js
+```
+
+The Python suite covers API and page behavior, authorization, request validation,
+rate limiting, authentication, seeded catalogue coverage and judge isolation.
+The scene checks validate both the renderer's geometry/math and the seeded 3D
+models. CI also builds and tests the Java sandbox and validates the PostgreSQL
+schema; those checks do not substitute for deployment testing against your own
+infrastructure.
 
 ## Documentation
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module map, request lifecycle, why this shape
-- [`docs/SECURITY.md`](docs/SECURITY.md) — threat model and what is actually implemented
-- [`docs/NOTE_TEMPLATE.md`](docs/NOTE_TEMPLATE.md) — the 13-section note structure
-- [`docs/CONTENT.md`](docs/CONTENT.md) — lifecycle, licensing, what may be hosted
-- [`db/postgres/README.md`](db/postgres/README.md) — partitioning rationale and scaling path
-- [`sandbox-java/README.md`](sandbox-java/README.md) — the judge's isolation model
-- [`deploy/README.md`](deploy/README.md) — containers, hardening flags, scaling out
+- [Architecture](docs/ARCHITECTURE.md) — code map and request lifecycle
+- [Security](docs/SECURITY.md) — threat model, controls and limitations
+- [Deployment](docs/DEPLOYMENT.md) — local, Compose and production setup
+- [Compose topology](deploy/README.md) — services and code-execution boundary
+- [Curriculum coverage](docs/CURRICULUM_COVERAGE.md) — generated seeded-content snapshot
+- [Content and licensing](docs/CONTENT.md) — review lifecycle and third-party material policy
+- [Note template](docs/NOTE_TEMPLATE.md) — the 13-section note format
+- [PostgreSQL](db/postgres/README.md) — schema and partitioning notes
+- [Java sandbox](sandbox-java/README.md) — sandbox implementation and caveats
 
 ## Known limitations
 
-Stated plainly rather than discovered later:
+- Seeded content is broad starter coverage, not a complete engineering-degree
+  syllabus. The generated additions, including Cyber Security, are public but
+  marked for expert review. See the [coverage snapshot](docs/CURRICULUM_COVERAGE.md).
+- Toolchains and kernel features vary by host. A seeded language may have a
+  learning path without being executable on the current judge host. Production
+  refuses local code execution by default.
+- The local runner shares a host with the web application and is not a container
+  boundary. A configured external judge's isolation is the operator's
+  responsibility.
+- Email delivery requires an SMTP URL. Without a mail transport, account
+  confirmation and self-service password reset cannot deliver links; reset
+  tokens are not exposed in public responses by default.
+- A passing test suite does not certify the deployment, backups, TLS proxy,
+  content review or security configuration. No production deployment is claimed
+  by this repository documentation.
 
-- **The Java sandbox cannot be built in this workspace.** No JDK is installable
-  here, so `javac` is absent and `LocalSandboxProvider.supports("java")` returns
-  `False`; Java problems report `unsupported_language` instead of failing
-  silently. It is not unverified: `.github/workflows/java.yml` compiles it, runs
-  its tests and smoke-tests the jar on JDK 21 and JDK 25. Note that its optional
-  security policy is inert on JDK 24+ (JEP 486 killed the Security Manager) — see
-  `docs/SECURITY.md`.
-- **The Postgres schema has not been applied to a live server here.** It is
-  parsed with `sqlglot` locally and applied to a real PostgreSQL 16 service in CI.
-- **Authenticator enrolment is optional for learners.** Production blocks staff
-  `POST`s to `/admin` until that account has enrolled. A password alone still
-  signs in every account that has not.
-- **API rate limits are shared via the database**, but the client address is the
-  TCP peer unless `ENGINEVERSE_TRUST_PROXY` is on. The compose file leaves it off.
-- **Email confirmation is sent only when `ENGINEVERSE_SMTP_URL` is set.**
-  Without it the address stays unconfirmed and sign-in still works.
-- **The seeded catalogue is broad starter coverage, not a complete degree.** The
-  current seed covers 45 active branches and 93 subjects with 121 published
-  starter topics. Sixty-five topics were added to previously uncovered subject
-  paths; generated starter material is marked `needs_review` in editorial
-  metadata, including the five public Cyber Security lessons. Every topic has a
-  standard note with all 13 sections, a linked SVG diagram, a 3D learning model,
-  and a question. Nineteen five-question DPPs represent all 93 subjects across
-  the dated rotation. See the generated [coverage snapshot](docs/CURRICULUM_COVERAGE.md);
-  a full degree is still thousands of carefully reviewed topics.
+## Content and software licensing
 
-## Licence
-
-Original content is CC-BY-4.0. Third-party videos, books and articles are linked,
-never hosted — see [`docs/CONTENT.md`](docs/CONTENT.md).
+Third-party books, videos and articles are linked rather than copied or hosted.
+Content authors should follow [the content policy](docs/CONTENT.md). Check the
+repository for applicable software licensing before redistribution.

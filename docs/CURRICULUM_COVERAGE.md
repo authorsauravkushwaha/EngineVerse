@@ -13,16 +13,16 @@ production content unless you just generated it from that database.
 
 - Branches: 45
 - Published subjects: 93
-- Published topics: 121
-- Published notes across all reading depths: 484
-- Note sections: 3146
-- Standard notes with all 13 sections: 121
-- Diagrams: 121
-- 3D models: 121
-- Formulas: 80
-- Active questions: 159
-- Published DPP sets: 19
-- Published DPP question slots: 95
+- Published topics: 127
+- Published notes across all reading depths: 508
+- Note sections: 3302
+- Standard notes with all 13 sections: 127
+- Diagrams: 127
+- 3D models: 127
+- Formulas: 86
+- Active questions: 165
+- Published DPP sets: 33
+- Published DPP question slots: 165
 - Subjects represented in published DPPs: 93
 - Coding problems: 13
 
@@ -43,7 +43,7 @@ production content unless you just generated it from that database.
 | Computer Science Engineering | 10 | 31 | 124 | 49 |
 | Construction Engineering | 1 | 1 | 4 | 1 |
 | Control Systems | 1 | 1 | 4 | 1 |
-| Cyber Security | 1 | 5 | 20 | 5 |
+| Cyber Security | 1 | 11 | 44 | 11 |
 | Data Science | 1 | 1 | 4 | 1 |
 | DevOps & SRE | 1 | 1 | 4 | 1 |
 | Electrical Engineering | 5 | 5 | 20 | 8 |

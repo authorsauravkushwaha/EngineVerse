@@ -64,16 +64,43 @@ def total_xp(user_id: str) -> int:
     return int(db.scalar("SELECT total_xp AS v FROM streaks WHERE user_id = ?", user_id, default=0) or 0)
 
 
-def award_xp(user_id: str, amount: int, reason: str, entity_type: str | None = None, entity_id: str | None = None) -> int:
+def award_xp(
+    user_id: str,
+    amount: int,
+    reason: str,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    *,
+    once: bool = False,
+) -> int:
+    """Records XP and updates the learner total atomically.
+
+    ``once`` is reserved for the explicit project-build claim. Quiz attempts are
+    deliberately repeatable, including wrong answers, so callers must not use
+    this flag for question XP.
+    """
     clean = max(0, min(500, round(amount)))
     if clean <= 0:
         return 0
+    if once and (reason, entity_type) != ("project.built", "project"):
+        raise ValueError("one-time XP is only supported for project build claims")
     ts = now_ms()
     with db.transaction():
-        db.execute(
-            "INSERT INTO xp_events (id,user_id,amount,reason,entity_type,entity_id,created_at) VALUES (?,?,?,?,?,?,?)",
-            ulid(), user_id, clean, reason, entity_type, entity_id, ts,
-        )
+        if once:
+            inserted = db.execute(
+                "INSERT INTO xp_events (id,user_id,amount,reason,entity_type,entity_id,created_at) "
+                "VALUES (?,?,?,?,?,?,?) ON CONFLICT(user_id,entity_id) "
+                "WHERE reason = 'project.built' AND entity_type = 'project' DO NOTHING",
+                ulid(), user_id, clean, reason, entity_type, entity_id, ts,
+            )
+            if not inserted:
+                return 0
+        else:
+            db.execute(
+                "INSERT INTO xp_events (id,user_id,amount,reason,entity_type,entity_id,created_at) "
+                "VALUES (?,?,?,?,?,?,?)",
+                ulid(), user_id, clean, reason, entity_type, entity_id, ts,
+            )
         new_total = total_xp(user_id) + clean
         db.execute(
             "INSERT INTO streaks (user_id,total_xp,level) VALUES (?,?,?) "
@@ -110,19 +137,42 @@ def mark_topic_viewed(user_id: str, topic_id: str, minutes: int = 0) -> None:
 
 
 def complete_topic(user_id: str, topic_id: str) -> None:
-    db.execute(
-        "INSERT INTO user_progress (user_id,topic_id,status,mastery,completed_at,last_viewed_at) "
-        "VALUES (?,?,'completed',60,?,?) "
-        "ON CONFLICT(user_id,topic_id) DO UPDATE SET status='completed', "
-        f"mastery = {db.sql_greatest('user_progress.mastery', '60')}, "
-        "completed_at = COALESCE(user_progress.completed_at, excluded.completed_at), "
-        "last_viewed_at = excluded.last_viewed_at",
-        user_id, topic_id, now_ms(), now_ms(),
-    )
-    award_xp(user_id, 20, "topic.completed", "topic", topic_id)
-    bump_activity(user_id, "notes_studied", minutes=5, xp=20)
-    evaluate_badges(user_id)
-    _refresh_certificates(user_id, topic_id)
+    """Complete a topic once; retries cannot mint more XP or activity.
+
+    ``completed_at`` is the durable idempotency marker. The row is first
+    materialized, then locked on PostgreSQL (SQLite uses BEGIN IMMEDIATE), so
+    concurrent requests serialize even when the learner had not touched the
+    topic before. A quiz may have set status=completed without setting this
+    explicit completion marker; that still earns the one-time completion award.
+    """
+    ts = now_ms()
+    lock = " FOR UPDATE" if db.uses_postgres() else ""
+    first_completion = False
+    with db.transaction():
+        db.execute(
+            "INSERT INTO user_progress (user_id,topic_id,status,mastery,completed_at,last_viewed_at) "
+            "VALUES (?,?,'started',0,NULL,?) ON CONFLICT(user_id,topic_id) DO NOTHING",
+            user_id, topic_id, ts,
+        )
+        current = db.query_one(
+            "SELECT completed_at FROM user_progress WHERE user_id = ? AND topic_id = ?" + lock,
+            user_id, topic_id,
+        )
+        first_completion = current is None or current["completed_at"] is None
+        db.execute(
+            "UPDATE user_progress SET status = CASE WHEN status = 'mastered' THEN 'mastered' ELSE 'completed' END, "
+            f"mastery = {db.sql_greatest('user_progress.mastery', '60')}, "
+            "completed_at = COALESCE(completed_at, ?), last_viewed_at = ? "
+            "WHERE user_id = ? AND topic_id = ?",
+            ts, ts, user_id, topic_id,
+        )
+        if first_completion:
+            award_xp(user_id, 20, "topic.completed", "topic", topic_id)
+            bump_activity(user_id, "notes_studied", minutes=5, xp=20)
+            evaluate_badges(user_id)
+
+    if first_completion:
+        _refresh_certificates(user_id, topic_id)
 
 
 def _refresh_certificates(user_id: str, topic_id: str) -> None:

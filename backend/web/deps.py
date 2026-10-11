@@ -101,7 +101,7 @@ def require_user(request: Request) -> Viewer:
 
 def session_id(request: Request) -> str:
     viewer = current_user(request)
-    return viewer.session_id if viewer else ""
+    return viewer.session_id if viewer else csrf.anonymous_subject(request)
 
 
 # ---------------------------------------------------------------------------
@@ -188,7 +188,9 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
     return context
 
 
-def render(request: Request, template: str, status_code: int = 200, **extra: Any):
+def render(
+    request: Request, template: str, status_code: int = 200, background=None, **extra: Any
+):
     """Renders a template.
 
     ``status_code`` is pulled out of the kwargs on purpose. Every kwarg lands in
@@ -197,20 +199,26 @@ def render(request: Request, template: str, status_code: int = 200, **extra: Any
     which is exactly what made the login and register error paths report success
     to clients that check the status code.
 
-    A signed-in response is marked non-cacheable. Most pages render the viewer's
-    own data - /today, /profile, /notifications, /mistakes - and the service
-    worker keeps a copy for offline use, so on a shared machine the next person
-    to open the app offline would be shown the previous user's dashboard. The
-    header is set here rather than by a per-route denylist because a new page
-    added next year would otherwise be forgotten; the server knows whether the
-    response belongs to somebody, so the server says so.
+    Authenticated pages are marked non-cacheable because they include private
+    account data. Anonymous HTML still carries a per-browser CSRF token, so it
+    is private to HTTP caches; the service worker may store only responses
+    explicitly marked anonymous in that browser's local cache.
     """
     context = base_context(request, **extra)
     response = templates.TemplateResponse(
-        request, template, context, status_code=status_code
+        request, template, context, status_code=status_code, background=background
     )
+    response.headers["Vary"] = "Cookie"
     if context.get("user") is not None:
         response.headers["Cache-Control"] = "private, no-store, max-age=0"
+    else:
+        response.headers["Cache-Control"] = "private, max-age=0, must-revalidate"
+        response.headers["X-Offline-Cache"] = "anonymous"
+        anonymous_csrf = getattr(request.state, "ev_anonymous_csrf", None)
+        if anonymous_csrf:
+            response.set_cookie(
+                csrf.cookie_name(), anonymous_csrf, **csrf.cookie_options()
+            )
     return response
 
 

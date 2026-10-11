@@ -82,7 +82,7 @@ def test_generated_starters_are_published_and_flagged_for_review(seeded):
     from seed_data import subject_paths
 
     expected = {slugify(topic["title"]) for topic in subject_paths.TOPICS}
-    assert len(expected) == 65
+    assert len(expected) == 71
     rows = db.query(
         "SELECT slug, status, accuracy_state FROM topics WHERE slug IN (%s) ORDER BY slug"
         % ",".join("?" for _ in expected),
@@ -105,20 +105,93 @@ def test_generated_starters_are_published_and_flagged_for_review(seeded):
     assert all(row["options"] == 4 and row["correct_options"] == 1 for row in questions)
 
 
-def test_dpp_rotation_reaches_every_subject_and_keeps_five_questions_per_day(seeded):
-    """The dated archive must rotate through every subject, not repeat a tiny bank."""
+def test_every_active_question_belongs_to_a_published_subject(seeded):
+    """A malformed subject slug must not silently create an orphan question."""
     missing = db.query(
+        "SELECT q.id FROM questions q LEFT JOIN subjects s ON s.id = q.subject_id "
+        "WHERE q.is_active = 1 AND (s.id IS NULL OR s.status <> 'published') ORDER BY q.id"
+    )
+    assert [row["id"] for row in missing] == []
+
+
+def test_dpp_scheduler_handles_a_partial_bank_without_duplicate_questions(seeded):
+    """A non-multiple-of-five bank is topped up from earlier days, not truncated."""
+    from scripts.seed import _schedule_dpp_questions
+
+    groups = [["a1", "a2", "a3"], ["b1"], ["c1"], ["d1"], ["e1"]]
+    days = _schedule_dpp_questions(groups)
+    expected = {question_id for group in groups for question_id in group}
+
+    assert len(days) == 2
+    assert all(len(day) == 5 for day in days)
+    assert all(len(day) == len(set(day)) for day in days)
+    assert {question_id for day in days for question_id in day} == expected
+    assert len({question_id[0] for question_id in days[0]}) == 5
+    with pytest.raises(RuntimeError, match="at least 5 active questions"):
+        _schedule_dpp_questions([["only-one"]])
+
+
+def test_dpp_rotation_covers_all_questions_and_keeps_five_mixed_questions_per_day(seeded):
+    """The archive should rotate the full bank, balanced across subjects."""
+    missing_subjects = db.query(
         "SELECT s.slug FROM subjects s WHERE s.status = 'published' AND NOT EXISTS ("
         "SELECT 1 FROM questions q JOIN dpp_questions dq ON dq.question_id = q.id "
         "JOIN dpp_sets d ON d.id = dq.set_id AND d.published = 1 "
         "WHERE q.subject_id = s.id AND q.is_active = 1) ORDER BY s.slug"
     )
-    assert [row["slug"] for row in missing] == []
+    assert [row["slug"] for row in missing_subjects] == []
+
+    active_questions = {row["id"] for row in db.query("SELECT id FROM questions WHERE is_active = 1")}
+    scheduled_questions = {row["id"] for row in db.query(
+        "SELECT DISTINCT q.id FROM questions q JOIN dpp_questions dq ON dq.question_id = q.id "
+        "JOIN dpp_sets d ON d.id = dq.set_id AND d.published = 1"
+    )}
+    assert scheduled_questions == active_questions
+
+    active_count = len(active_questions)
+    published_sets = int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0)
+    assert published_sets == (active_count + 4) // 5
+
     thin = db.query(
         "SELECT d.id, count(dq.question_id) AS n FROM dpp_sets d LEFT JOIN dpp_questions dq ON dq.set_id = d.id "
         "WHERE d.published = 1 GROUP BY d.id HAVING n <> 5"
     )
     assert [dict(row) for row in thin] == []
+
+    subject_count = int(db.scalar("SELECT count(*) FROM subjects WHERE status = 'published'") or 0)
+    first_pass_days = (subject_count + 4) // 5
+    repeated_subjects = db.query(
+        "SELECT d.id, q.subject_id, count(*) AS n FROM ("
+        "SELECT id FROM dpp_sets WHERE published = 1 ORDER BY date LIMIT ?"
+        ") d JOIN dpp_questions dq ON dq.set_id = d.id "
+        "JOIN questions q ON q.id = dq.question_id "
+        "GROUP BY d.id, q.subject_id HAVING n > 1",
+        first_pass_days,
+    )
+    assert [dict(row) for row in repeated_subjects] == []
+
+
+def test_dpp_archive_paginates_over_every_published_set(client, seeded):
+    """A set older than the recent-days widget must still have a visible archive link."""
+    expected = [row["date"] for row in db.query(
+        "SELECT date FROM dpp_sets WHERE published = 1 ORDER BY date DESC"
+    )]
+    page_size = 30
+    pages = (len(expected) + page_size - 1) // page_size
+    seen: list[str] = []
+    for page in range(1, pages + 1):
+        response = client.get(f"/dpp/archive?page={page}")
+        assert response.status_code == 200
+        seen.extend(re.findall(r'href="/dpp/(\d{4}-\d{2}-\d{2})"', response.text))
+        if pages > 1:
+            assert f"Page {page} of {pages}" in response.text
+    assert len(seen) == len(expected)
+    assert seen == expected
+
+    sitemap = client.get("/sitemap.xml")
+    assert sitemap.status_code == 200
+    assert "/dpp/archive</loc>" in sitemap.text
+    assert all(f"/dpp/{date}</loc>" in sitemap.text for date in expected)
 
 
 def test_cyber_security_notes_are_published_and_public(client, seeded):
@@ -141,19 +214,65 @@ def test_cyber_security_notes_are_published_and_public(client, seeded):
     assert client.get("/subjects/cryptography-security").status_code == 200
 
 
-def test_homepage_links_every_branch_and_subject(client, seeded):
-    """The homepage must expose the whole catalogue, not only its featured paths."""
+def test_homepage_and_explore_reach_every_branch_and_subject(client, seeded):
+    """The homepage points to a paginated catalogue that exposes every subject."""
     response = client.get("/")
     assert response.status_code == 200
     branches = db.query("SELECT slug FROM branches WHERE is_active = 1")
-    subjects = db.query("SELECT slug FROM subjects WHERE status = 'published'")
     for row in branches:
         assert f'href="/branches/{row["slug"]}"' in response.text
-    for row in subjects:
-        assert f'href="/subjects/{row["slug"]}"' in response.text
+    assert 'href="/explore">All subjects</a>' in response.text
+
+    expected = _subject_slugs()
+    seen: set[str] = set()
+    page = 1
+    while True:
+        listing = client.get(f"/explore?page={page}")
+        assert listing.status_code == 200
+        found = set(re.findall(r'href="/subjects/([a-z0-9-]+)"', listing.text))
+        assert found, f"subject catalogue page {page} has no subject links"
+        assert not (found & seen), f"subject catalogue page {page} repeats earlier subjects"
+        seen |= found
+        if 'rel="next"' not in listing.text:
+            break
+        page += 1
+        assert page < 100, "subject catalogue pagination did not terminate"
+
     assert len(branches) == 45
-    assert {row["slug"] for row in subjects} == _subject_slugs()
-    assert len(subjects) == 93
+    assert seen == expected
+    assert len(expected) == 93
+
+
+def test_projects_are_branch_discoverable_and_the_agent_brief_is_practical(client, seeded):
+    """Project links must follow their real subject branch, not a category placeholder."""
+    rows = db.query(
+        "SELECT p.slug, p.branch_id, s.branch_id AS subject_branch "
+        "FROM projects p LEFT JOIN subjects s ON s.id = p.subject_id "
+        "WHERE p.status = 'published' ORDER BY p.slug"
+    )
+    assert len(rows) == len(library_data.PROJECTS)
+    for project in rows:
+        assert project["branch_id"], f"{project['slug']} has no branch link"
+        assert project["branch_id"] == project["subject_branch"], project["slug"]
+        branch_page = client.get(f"/branches/{project['branch_id']}")
+        assert branch_page.status_code == 200
+        assert f'href="/projects/{project["slug"]}"' in branch_page.text
+
+    agent = client.get("/projects/citation-first-study-agent")
+    assert agent.status_code == 200
+    assert "search_public_notes" in agent.text
+    assert "prompt injection" in agent.text.lower()
+    assert "confirmation" in agent.text.lower()
+    assert db.scalar(
+        "SELECT count(*) FROM project_steps WHERE project_id = 'citation-first-study-agent'"
+    ) == 6
+    assert db.scalar(
+        "SELECT count(*) FROM project_resources WHERE project_id = 'citation-first-study-agent'"
+    ) == 3
+
+    filtered = client.get("/projects?branch=software-engineering")
+    assert filtered.status_code == 200
+    assert '/projects/citation-first-study-agent' in filtered.text
 
 
 def test_question_bank_pages_cover_the_entire_question_set(client, seeded):

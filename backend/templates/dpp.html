@@ -35,6 +35,7 @@
   <aside class="sidebar">
     <div class="panel tight"><h3>Other days</h3><div class="stack" data-recent-sets>
       {% for s in sets %}<a class="small {{ 'muted' if s.date == active_date }}" href="/dpp/{{ s.date }}">{{ s.title or s.date }}</a>{% endfor %}
+      <a class="small" href="/dpp/archive">Browse the full archive →</a>
     </div></div>
     {% if not user %}<div class="panel tight"><h3>Track your progress</h3>
       <p class="small muted">Sign in to record answers, build a streak and get a mistake notebook.</p>

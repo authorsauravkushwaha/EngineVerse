@@ -1,9 +1,10 @@
 # Android Trusted Web Activity
 
 This wraps the site you already serve. It does not add a second application,
-and it is not a Play Store submission. No listing has been created from this
-repository. Play review, if you start one later, is a separate process with
-its own outcome. Do not describe a listing as approved.
+and it is not a Play Store submission. The repository contains a local draft
+listing pack, but no Play Console submission has been created. Play review, if
+you start one later, is a separate process with its own outcome. Do not describe
+a listing as approved.
 
 ## What the site already serves
 

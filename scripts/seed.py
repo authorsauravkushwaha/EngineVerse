@@ -496,8 +496,16 @@ def seed_questions(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> di
                 continue
             question_id = slug
             ids[slug] = question_id
-            topic_id = topic_ids.get(entry.get("topic")) if entry.get("topic") else None
-            subject_id = subject_ids.get(entry["subject"])
+            subject_slug = entry.get("subject")
+            subject_id = subject_ids.get(subject_slug)
+            if not subject_id:
+                raise RuntimeError(
+                    f"question {slug!r} refers to missing subject {subject_slug!r}"
+                )
+            topic_slug = entry.get("topic")
+            topic_id = topic_ids.get(topic_slug) if topic_slug else None
+            if topic_slug and not topic_id:
+                raise RuntimeError(f"question {slug!r} refers to missing topic {topic_slug!r}")
             tags = list(entry.get("tags") or [])
             source = entry.get("source") or "EngineVerse Bank"
             if source not in tags:
@@ -524,19 +532,89 @@ def seed_questions(subject_ids: dict[str, str], topic_ids: dict[str, str]) -> di
     return ids
 
 
-def seed_dpp() -> int:
-    """Publish a five-question daily rotation that reaches every subject.
+def _schedule_dpp_questions(
+    questions_by_subject: list[list[str]], per_set: int = 5
+) -> list[list[str]]:
+    """Interleave subject question queues into full sets without duplicate ids."""
+    if per_set < 1:
+        raise ValueError("per_set must be positive")
+    groups = [list(group) for group in questions_by_subject if group]
+    question_ids = [question_id for group in groups for question_id in group]
+    if len(question_ids) != len(set(question_ids)):
+        raise ValueError("a question may appear in only one subject queue")
+    if len(question_ids) < per_set:
+        raise RuntimeError(f"DPP rotation needs at least {per_set} active questions")
 
-    One primary question is selected for every published subject. The number
-    of dates grows with the catalogue, so a learner can find every subject in
-    the archive instead of cycling through a tiny fixed sample.
+    subject_for = {
+        question_id: subject_index
+        for subject_index, group in enumerate(groups)
+        for question_id in group
+    }
+    positions = [0] * len(groups)
+    remaining = len(question_ids)
+    cursor = 0
+    scheduled_sets: list[list[str]] = []
+    while remaining:
+        daily: list[str] = []
+        used_subjects: set[int] = set()
+        while len(daily) < per_set and remaining:
+            for offset in range(len(groups)):
+                subject_index = (cursor + offset) % len(groups)
+                if subject_index not in used_subjects and positions[subject_index] < len(groups[subject_index]):
+                    break
+            else:
+                # Near the end, fewer than five subjects may still have new
+                # questions. Keep the set full with a distinct question from
+                # the subject that has the largest remaining queue.
+                pending = [index for index, group in enumerate(groups) if positions[index] < len(group)]
+                if not pending:
+                    break
+                subject_index = max(
+                    pending,
+                    key=lambda index: (
+                        len(groups[index]) - positions[index],
+                        -((index - cursor) % len(groups)),
+                    ),
+                )
+            daily.append(groups[subject_index][positions[subject_index]])
+            positions[subject_index] += 1
+            remaining -= 1
+            used_subjects.add(subject_index)
+            cursor = (subject_index + 1) % len(groups)
+        scheduled_sets.append(daily)
+
+    if len(scheduled_sets[-1]) < per_set:
+        final_set = scheduled_sets[-1]
+        needed = per_set - len(final_set)
+        already_in_final = set(final_set)
+        earlier = [question_id for daily in scheduled_sets[:-1] for question_id in daily
+                   if question_id not in already_in_final]
+        final_subjects = {subject_for[question_id] for question_id in final_set}
+        preferred = [question_id for question_id in earlier
+                     if subject_for[question_id] not in final_subjects]
+        preferred_set = set(preferred)
+        fillers = preferred + [question_id for question_id in earlier if question_id not in preferred_set]
+        if len(fillers) < needed:
+            raise RuntimeError("cannot fill final DPP set without repeating a question within the set")
+        final_set.extend(fillers[:needed])
+    if any(len(daily) != per_set for daily in scheduled_sets):
+        raise RuntimeError("DPP rotation could not form complete five-question sets")
+    return scheduled_sets
+
+
+def seed_dpp() -> int:
+    """Publish five-question sets that cover the active bank and mix subjects.
+
+    Questions are interleaved by subject: the first pass gives every subject a
+    place before a second question from any one subject appears. The dated
+    archive grows with the question bank, rather than leaving most active
+    questions reachable only from the question-bank page.
     """
     subjects = db.query("SELECT id, slug FROM subjects WHERE status='published' ORDER BY order_index, slug")
     if not subjects:
         return 0
 
-    primary: list[tuple[str, str]] = []
-    extras: list[str] = []
+    questions_by_subject: list[list[str]] = []
     for subject in subjects:
         rows = db.query(
             "SELECT q.id FROM questions q WHERE q.subject_id = ? AND q.is_active = 1 "
@@ -545,27 +623,16 @@ def seed_dpp() -> int:
         )
         if not rows:
             raise RuntimeError(f"subject {subject['slug']!r} has no question for the DPP rotation")
-        primary.append((subject["slug"], rows[0]["id"]))
-        extras.extend(row["id"] for row in rows[1:])
+        questions_by_subject.append([row["id"] for row in rows])
 
-    per_set = 5
-    day_count = (len(primary) + per_set - 1) // per_set
-    if len(primary) % per_set:
-        # Keep every set at the standard five-question length without dropping
-        # a subject's primary question from the rotation.
-        needed = per_set - (len(primary) % per_set)
-        extras = [question_id for question_id in extras if question_id not in {q for _, q in primary}]
-        extras = extras[:needed]
-    else:
-        extras = []
-
-    scheduled = [question_id for _, question_id in primary] + extras
+    scheduled_sets = _schedule_dpp_questions(questions_by_subject)
+    day_count = len(scheduled_sets)
     today = datetime.now(timezone.utc).date()
     sets = 0
     with db.transaction():
         for day_index in range(day_count):
             day = today - timedelta(days=day_count - day_index - 1)
-            window = scheduled[day_index * per_set:(day_index + 1) * per_set]
+            window = scheduled_sets[day_index]
             set_id = f"dpp-{day.isoformat()}"
             db.execute(
                 "INSERT INTO dpp_sets (id,date,title,subject_id,difficulty,duration_minutes,published,created_at) "
@@ -678,7 +745,8 @@ def seed_projects(subject_ids: dict[str, str], branch_ids: dict[str, str]) -> No
                 "problem_statement,objective,prerequisites,hardware,software,architecture,source_code,"
                 "database_design,testing,expected_output,improvements,resume_md,interview_questions,tech,skills,"
                 "build_count,status,order_index,created_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'0','published',?,?) ON CONFLICT(id) DO NOTHING",
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'0','published',?,?) "
+                "ON CONFLICT(id) DO UPDATE SET branch_id=excluded.branch_id, subject_id=excluded.subject_id",
                 slug, slug, entry["title"], branch_ids.get(entry["branch"] or ""),
                 subject_ids.get(entry["subject"] or ""), entry["difficulty"], entry["category"], entry["est_hours"],
                 entry["summary"], entry["problem_statement"], entry["objective"], jdump(entry["prerequisites"]),
@@ -756,7 +824,7 @@ def seed_resources(subject_ids: dict[str, str]) -> None:
 
 
 def _assert_known_refs(subject_ids: dict[str, str], topic_ids: dict[str, str],
-                       problem_ids: dict[str, str]) -> None:
+                       problem_ids: dict[str, str], branch_ids: dict[str, str]) -> None:
     """Fail the seed if any content row points at something that does not exist.
 
     Every seeder resolves a key with ``dict.get()`` and a miss becomes NULL. A
@@ -766,7 +834,9 @@ def _assert_known_refs(subject_ids: dict[str, str], topic_ids: dict[str, str],
     ``probability-statistics`` subject that was never created went unnoticed:
     a book, a formula, a roadmap step and a flashcard, all silently dropped.
 
-    Checking up front turns that into a clear error naming the offender.
+    Checking up front turns that into a clear error naming the offender. Project
+    branch and subject references are checked together because a valid-but-wrong
+    branch can quietly remove a project from its subject branch page.
     """
     problems: list[str] = []
 
@@ -775,6 +845,21 @@ def _assert_known_refs(subject_ids: dict[str, str], topic_ids: dict[str, str],
             return                       # a genuinely unassigned row is allowed
         if value not in known:
             problems.append(f"{where}: {what} {value!r} does not exist")
+
+    for index, entry in enumerate(library_data.PROJECTS):
+        branch_key = entry.get("branch")
+        subject_key = entry.get("subject")
+        where = f"PROJECTS[{index}] {entry.get('slug')!r}"
+        check(branch_key, branch_ids, "branch", where)
+        check(subject_key, subject_ids, "subject", where)
+        if branch_key in branch_ids and subject_key in subject_ids:
+            subject_branch = db.scalar(
+                "SELECT branch_id FROM subjects WHERE id = ?", subject_ids[subject_key], default=None
+            )
+            if subject_branch and branch_ids[branch_key] != subject_branch:
+                problems.append(
+                    f"{where}: branch {branch_key!r} does not match subject {subject_key!r}'s branch"
+                )
 
     for index, row in enumerate(library_data.VIDEOS):
         check(row[6], subject_ids, "subject", f"VIDEOS[{index}] {row[0]!r}")
@@ -1256,7 +1341,7 @@ def run(fresh: bool, *, demo: bool | None = None, destroy_users: bool = False) -
 
     # Runs before the library phase so a bad cross-reference fails the seed
     # with the offending row named, instead of quietly dropping it.
-    _assert_known_refs(subject_ids, topic_ids, problem_ids)
+    _assert_known_refs(subject_ids, topic_ids, problem_ids, branch_ids)
 
     print("Seeding library (videos, books, resources, roadmaps, flashcards) ...")
     seed_videos(subject_ids)

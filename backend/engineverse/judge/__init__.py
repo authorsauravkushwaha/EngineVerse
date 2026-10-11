@@ -26,7 +26,7 @@ MAX_OUTPUT = 65_536
 
 # Every language the platform offers. Whether one is actually runnable depends on
 # the host toolchain; `runnable_languages()` answers that at runtime.
-KNOWN_LANGUAGES = ("python", "javascript", "java", "cpp", "c", "bash", "ruby")
+KNOWN_LANGUAGES = ("python", "java", "javascript", "typescript", "cpp", "c", "go", "rust", "bash", "ruby")
 
 STATUSES = (
     "accepted", "wrong_answer", "runtime_error", "timeout",
@@ -157,11 +157,12 @@ def provider_info() -> dict:
     """
     provider = resolve_provider()
     info: dict = {"name": provider.name, "available": getattr(provider, "available", True)}
-    for flag in ("_have_namespace", "_have_mount_ns"):
+    for flag in ("_have_namespace", "_have_pid_ns", "_have_mount_ns"):
         if hasattr(provider, flag):
             info[flag.lstrip("_")] = bool(getattr(provider, flag))
     if hasattr(provider, "_have_namespace"):
         info["network_isolated"] = bool(provider._have_namespace)
+        info["pid_isolated"] = bool(getattr(provider, "_have_pid_ns", False))
         info["filesystem_isolated"] = bool(getattr(provider, "_have_mount_ns", False))
     if provider.name == "disabled":
         info["runs_on_this_server"] = False
@@ -173,8 +174,12 @@ def provider_info() -> dict:
             "delegated to ENGINEVERSE_JUDGE0_URL; this process does not verify that host's isolation"
         )
     else:
-        info["runs_on_this_server"] = True
-        info["isolation"] = "subprocess on this host; not a separate container"
+        can_run_here = bool(info["available"])
+        info["runs_on_this_server"] = can_run_here
+        if can_run_here:
+            info["isolation"] = "subprocess on this host; not a separate container"
+        else:
+            info["isolation"] = "execution refused; required local isolation is unavailable"
     return info
 
 

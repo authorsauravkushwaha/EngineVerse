@@ -217,13 +217,18 @@ def recent_practice_days(count: int = 14) -> list[dict]:
     return days
 
 
-def list_dpp_sets(limit: int = 30) -> list[dict]:
+def count_dpp_sets() -> int:
+    return int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0)
+
+
+def list_dpp_sets(limit: int = 30, offset: int = 0) -> list[dict]:
     return db.query(
         "SELECT d.*, s.name AS subject_name, s.slug AS subject_slug, "
         "(SELECT count(*) FROM dpp_questions dq WHERE dq.set_id = d.id) AS question_count "
         "FROM dpp_sets d LEFT JOIN subjects s ON s.id = d.subject_id "
-        "WHERE d.published = 1 ORDER BY d.date DESC LIMIT ?",
+        "WHERE d.published = 1 ORDER BY d.date DESC LIMIT ? OFFSET ?",
         limit,
+        offset,
     )
 
 

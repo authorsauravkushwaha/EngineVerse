@@ -16,6 +16,8 @@ this module will run there. Page code is unaffected either way.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Any
 
@@ -35,12 +37,23 @@ ENTITY_URLS = {
     "roadmap": "/roadmaps/{id}",
     "language": "/programming/{id}",
     "branch": "/branches/{id}",
+    "module": "/programming/{id}#{module}",
+    "flashcard": "/flashcards?card={id}",
     "user": "/portfolio/{id}",
 }
 
 
 def url_for(entity_type: str, entity_id: str) -> str:
+    if entity_type == "module":
+        language_slug, separator, module_slug = entity_id.partition("::")
+        if separator:
+            from urllib.parse import quote
+            return f"/programming/{quote(language_slug, safe='-')}#{quote(module_slug, safe='-')}"
+        return "/programming"
     template = ENTITY_URLS.get(entity_type, "/explore")
+    if entity_type == "flashcard":
+        from urllib.parse import quote
+        return template.format(id=quote(entity_id, safe="-"))
     return template.format(id=entity_id)
 
 
@@ -251,44 +264,66 @@ def indexed_count() -> int:
 # Bump whenever reindex_all() starts covering a new entity type or changes what
 # a body contains. The search index is derived data, so a deployment whose code
 # indexes more than its stored index holds must rebuild it; without this a site
-# upgraded in place silently keeps searching the old, narrower index. Notes were
-# exactly that case: added to the indexer, absent from every existing index.
-INDEX_SCHEMA_VERSION = 2
+# upgraded in place silently keeps searching the old, narrower index.
+INDEX_SCHEMA_VERSION = 3
 
 
-# The content tables the index is derived from. Row counts and the newest
-# updated_at across them make a cheap fingerprint: inserting a row changes the
-# count, editing one moves the timestamp.
-_FINGERPRINT_TABLES = (
-    "branches", "subjects", "topics", "notes", "formulas", "questions",
-    "coding_problems", "projects", "videos", "books", "resources",
-    "roadmaps", "programming_languages",
-)
+# The exact columns used to build each public search entity, in deterministic
+# order. The first column is each table's stable primary key and is used to order
+# rows before hashing. This includes joined content sources and intentionally
+# excludes flashcard backs: answers are never copied into the public search index.
+# Keep this list aligned with the source reads in reindex_all().
+_FINGERPRINT_TABLES = {
+    "branches": ("id", "slug", "name", "category", "description", "is_active"),
+    "subjects": ("id", "branch_id", "slug", "name", "description", "status", "difficulty", "semester_id"),
+    "topics": ("id", "subject_id", "slug", "title", "summary", "status", "difficulty", "tags"),
+    "notes": ("id", "topic_id", "status", "quality_level"),
+    "note_sections": ("id", "note_id", "title", "body", "order_index"),
+    "formulas": ("id", "slug", "name", "meaning", "category"),
+    "questions": ("id", "subject_id", "slug", "stem", "kind", "difficulty", "is_active"),
+    "coding_problems": ("id", "slug", "title", "statement", "difficulty", "topics"),
+    "projects": (
+        "id", "branch_id", "slug", "title", "summary", "problem_statement", "objective",
+        "prerequisites", "hardware", "software", "architecture", "database_design", "testing",
+        "expected_output", "improvements", "difficulty", "tech", "skills", "status",
+    ),
+    "project_steps": ("id", "project_id", "phase", "title", "body", "order_index"),
+    "project_resources": ("id", "project_id", "title", "note"),
+    "videos": ("id", "slug", "title", "channel", "category", "level"),
+    "books": ("id", "slug", "title", "author", "description"),
+    "resources": ("id", "slug", "title", "kind", "level", "description"),
+    "roadmaps": ("id", "slug", "title", "kind", "summary"),
+    "programming_languages": ("id", "slug", "name", "blurb"),
+    "language_modules": ("id", "language_id", "slug", "title", "summary", "body", "example", "exercise", "order_index"),
+    "flashcards": ("id", "subject_id", "front", "hint", "deck", "difficulty"),
+    "users": ("id", "username", "status"),
+    "profiles": ("user_id", "full_name", "headline", "branch_id", "privacy"),
+}
 
 
 def content_fingerprint() -> str:
-    """A cheap signature over the content tables the index is derived from.
+    """Hash indexed source fields so inserts, edits and deletes all invalidate it.
 
-    A handful of COUNT/SUM/MAX queries over single tables, no joins, so this is
-    safe to run on every boot. Two different content states can produce the same
-    fingerprint in principle, but the index is rebuilt whenever it differs and a
-    false positive only costs one rebuild.
-
-    Sum as well as max, because max alone only notices a timestamp that moves
-    forward past every other row; a backdated edit would leave it untouched.
-    Neither catches an in-place edit that changes no count and no timestamp -
-    `scripts/reindex.py` covers that case.
+    The old COUNT/SUM(updated_at) shortcut silently treated a table without an
+    ``updated_at`` column as empty. Row-count fingerprints then fixed inserts but
+    still missed in-place edits. A deterministic hash of only the columns used by
+    reindex_all() handles tables with and without timestamps, including edits to
+    note sections, language modules, project steps, and searchable profile privacy.
+    The catalogue is small enough for this single scan at startup; the hashes are
+    stable per table and contain no source text.
     """
     parts = []
-    for table in _FINGERPRINT_TABLES:
-        try:
-            row = db.query_one(
-                f"SELECT count(*) AS c, COALESCE(sum(updated_at), 0) AS s, "
-                f"COALESCE(max(updated_at), 0) AS m FROM {table}"
-            )
-        except db.sqlite3.OperationalError:
-            row = None
-        parts.append(f"{row['c'] if row else 0}:{row['s'] if row else 0}:{row['m'] if row else 0}")
+    for table, columns in _FINGERPRINT_TABLES.items():
+        fields = ", ".join(columns)
+        rows = db.query(f"SELECT {fields} FROM {table} ORDER BY {columns[0]}")
+        digest = hashlib.sha256()
+        for row in rows:
+            values = [row[column] for column in columns]
+            digest.update(json.dumps(
+                values, ensure_ascii=False, separators=(",", ":"), default=str,
+            ).encode("utf-8"))
+            digest.update(b"\n")
+        parts.append(f"{table}:{len(rows)}:{digest.hexdigest()}")
     return "|".join(parts)
 
 
@@ -418,11 +453,33 @@ def reindex_all() -> int:
         count += 1
 
     for row in db.query(
-        "SELECT p.slug, p.title, p.summary, p.difficulty, p.tech, b.slug AS branch FROM projects p "
-        "LEFT JOIN branches b ON b.id = p.branch_id WHERE p.status='published'"
+        "SELECT p.id, p.slug, p.title, p.summary, p.problem_statement, p.objective, "
+        "p.prerequisites, p.hardware, p.software, p.architecture, p.database_design, "
+        "p.testing, p.expected_output, p.improvements, p.difficulty, p.tech, p.skills, "
+        "b.slug AS branch FROM projects p LEFT JOIN branches b ON b.id = p.branch_id "
+        "WHERE p.status='published'"
     ):
+        parts = [row[key] or "" for key in (
+            "summary", "problem_statement", "objective", "prerequisites", "hardware",
+            "software", "architecture", "database_design", "testing", "expected_output",
+            "improvements", "tech", "skills",
+        )]
+        parts.extend(
+            f"{step['title']}. {step['body']}"
+            for step in db.query(
+                "SELECT title, body FROM project_steps WHERE project_id = ? ORDER BY order_index",
+                row["id"],
+            )
+        )
+        parts.extend(
+            f"{resource['title']}. {resource['note'] or ''}"
+            for resource in db.query(
+                "SELECT title, note FROM project_resources WHERE project_id = ? ORDER BY title",
+                row["id"],
+            )
+        )
         index_entity(entity_type="project", entity_id=row["slug"], title=row["title"],
-                     body=f"{row['summary'] or ''} {row['tech']}", branch=row["branch"] or "",
+                     body=" ".join(parts), branch=row["branch"] or "",
                      difficulty=row["difficulty"], tags=row["tech"])
         count += 1
 
@@ -446,8 +503,35 @@ def reindex_all() -> int:
                      body=f"{row['kind']}. {row['summary'] or ''}", tags=row["kind"])
         count += 1
 
-    for row in db.query("SELECT slug, name, blurb FROM programming_languages"):
+    for row in db.query("SELECT id, slug, name, blurb FROM programming_languages"):
         index_entity(entity_type="language", entity_id=row["slug"], title=row["name"], body=row["blurb"] or "")
+        count += 1
+        for module in db.query(
+            "SELECT slug, title, summary, body, example, exercise FROM language_modules "
+            "WHERE language_id = ? ORDER BY order_index, title", row["id"],
+        ):
+            index_entity(
+                entity_type="module", entity_id=f"{row['slug']}::{module['slug']}",
+                title=f"{row['name']}: {module['title']}",
+                body=" ".join(filter(None, (
+                    module["summary"], module["body"], module["example"], module["exercise"],
+                ))),
+                tags=row["name"],
+            )
+            count += 1
+
+    # Public search exposes prompts and hints, never the flashcard back/answer.
+    # The browse page intentionally separates answers behind a reveal control.
+    for row in db.query(
+        "SELECT f.id, f.front, f.hint, f.deck, f.difficulty, s.name AS subject "
+        "FROM flashcards f LEFT JOIN subjects s ON s.id = f.subject_id "
+        "ORDER BY f.id"
+    ):
+        index_entity(
+            entity_type="flashcard", entity_id=row["id"], title=row["front"],
+            body=" ".join(filter(None, (row["deck"], row["subject"], row["hint"]))),
+            difficulty=row["difficulty"], tags=row["deck"],
+        )
         count += 1
 
     for row in db.query("SELECT slug, name, category, description FROM branches WHERE is_active = 1"):

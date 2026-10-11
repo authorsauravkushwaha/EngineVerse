@@ -720,7 +720,7 @@ PROJECTS = [
     {
         "slug": "student-performance-dashboard",
         "title": "Student Performance Dashboard (Full Stack)",
-        "branch": "cse", "subject": "software-engineering",
+        "branch": "software-engineering", "subject": "software-engineering",
         "difficulty": "intermediate", "category": "software", "est_hours": 45,
         "summary": "A server-rendered web application with a relational database, authentication, charts and an "
                    "exportable report - the single best project for a first software engineering interview.",
@@ -846,7 +846,7 @@ PROJECTS = [
     {
         "slug": "arduino-weather-station",
         "title": "IoT Weather Station with Live Dashboard",
-        "branch": "electronics", "subject": "microprocessors",
+        "branch": "embedded-systems", "subject": "microprocessors",
         "difficulty": "beginner", "category": "hardware", "est_hours": 25,
         "summary": "Read temperature, humidity and pressure from sensors, publish readings over a network and "
                    "chart them on a self-hosted dashboard.",
@@ -946,7 +946,7 @@ PROJECTS = [
     {
         "slug": "solar-pump-controller",
         "title": "Solar Water Pump Controller",
-        "branch": "electrical", "subject": "power-electronics",
+        "branch": "electrical-engineering", "subject": "power-electronics",
         "difficulty": "advanced", "category": "hardware", "est_hours": 60,
         "summary": "Design the power electronics and control logic that runs a DC pump from a solar panel array at "
                    "its maximum power point.",
@@ -1042,7 +1042,7 @@ PROJECTS = [
     {
         "slug": "structural-load-analyser",
         "title": "Beam Load Analyser with Shear and Moment Diagrams",
-        "branch": "civil", "subject": "structural-analysis",
+        "branch": "structural", "subject": "structural-analysis",
         "difficulty": "intermediate", "category": "software", "est_hours": 35,
         "summary": "Compute reactions, shear force and bending moment for a simply supported beam under arbitrary "
                    "loads, and plot the diagrams.",
@@ -1126,7 +1126,7 @@ PROJECTS = [
     {
         "slug": "distillation-column-simulator",
         "title": "Binary Distillation Column Simulator",
-        "branch": "chemical", "subject": "mass-transfer",
+        "branch": "chemical-engineering", "subject": "mass-transfer",
         "difficulty": "advanced", "category": "software", "est_hours": 40,
         "summary": "Apply the McCabe-Thiele method numerically to find the number of theoretical stages for a binary "
                    "separation.",
@@ -1205,7 +1205,7 @@ PROJECTS = [
     {
         "slug": "portfolio-website",
         "title": "Personal Portfolio Website",
-        "branch": "cse", "subject": "web-technologies",
+        "branch": "information-technology", "subject": "web-technologies",
         "difficulty": "beginner", "category": "software", "est_hours": 15,
         "summary": "A fast, accessible, self-hosted personal site that a recruiter can read in thirty seconds.",
         "problem_statement": (
@@ -1282,6 +1282,129 @@ PROJECTS = [
              "Practical, free and directly applicable."),
         ],
     },
+    {
+        "slug": "citation-first-study-agent",
+        "title": "Citation-First Study Planner and Guarded Agent",
+        "branch": "software-engineering", "subject": "software-engineering",
+        "difficulty": "intermediate", "category": "software", "est_hours": 32,
+        "summary": "Build a small study-planning app that finds published lessons, cites its sources and keeps any optional agent inside a narrow, testable tool boundary.",
+        "problem_statement": (
+            "Learners keep deadlines in scattered notes and cannot tell which source supports an assistant's answer. "
+            "A useful study app should bring tasks and course material together without pretending that a fluent "
+            "answer is necessarily correct, or letting untrusted note text issue instructions to the application."
+        ),
+        "objective": (
+            "Build an authenticated planner with owner-scoped tasks and a search page for public course notes. "
+            "Return citations as links to the source lessons. The core retrieval version must work without a model "
+            "API key; an optional agent may call only `search_public_notes` and `draft_plan`, and must ask the learner "
+            "to confirm before any write."
+        ),
+        "prerequisites": ["Python functions and modules", "Basic SQL", "HTML forms and HTTP", "Git and a test runner"],
+        "hardware": "Any laptop. No GPU or paid model account is required.",
+        "software": "Python 3.11+, FastAPI, SQLite or PostgreSQL, pytest, Git and a browser. Keep any optional model credential on the server.",
+        "architecture": (
+            "Keep the first version deterministic: a browser talks to a schema-validated API, which calls an "
+            "owner-scoped planner service and a read-only search service. The optional agent is a separate "
+            "orchestration layer with a fixed tool registry, validated arguments, a short step budget and no direct "
+            "database or shell access. Retrieved note text is untrusted data, never an instruction source.\n\n"
+            "```\n"
+            "Browser --same-origin--> API --authz--> Planner service --> user-owned tasks\n"
+            "                               |\n"
+            "                               +--> Search service --> published notes + citation URLs\n"
+            "                               +--> Optional bounded agent --> allowlisted read/draft tools\n"
+            "```"
+        ),
+        "source_code": (
+            "Suggested layout:\n\n"
+            "```\n"
+            "app/\n"
+            "  routes/       # HTTP schemas, session checks and deliberate status codes\n"
+            "  services/     # planner rules and citation assembly\n"
+            "  storage/      # migrations and parameterized queries\n"
+            "  agent/        # fixed tool registry, argument validators, loop budget\n"
+            "  templates/    # accessible server-rendered screens\n"
+            "tests/          # unit, API, permission and agent-evaluation cases\n"
+            "```\n\n"
+            "Keep route handlers thin. The model, if enabled, never receives a database connection, secret, or "
+            "generic execute function."
+        ),
+        "database_design": (
+            "Start with `users(id, ...)`, `study_tasks(id, owner_id, title, due_at, status)` and "
+            "`task_sources(task_id, topic_id)` with foreign keys. Index tasks by `(owner_id, due_at)`. "
+            "Every task read and write filters by the authenticated owner in the same query; do not fetch by "
+            "caller-supplied id and check ownership only in the browser. Search only published note records, and "
+            "store a stable topic slug with each citation rather than an untrusted URL supplied by the model."
+        ),
+        "testing": (
+            "Unit-test date and scheduling rules, including due-today and invalid dates. API tests must prove one "
+            "account cannot read, edit or delete another account's task, and that oversized or malformed input is "
+            "rejected. Agent evaluations should include a no-source query, a fabricated-citation trap, a prompt "
+            "injection placed inside retrieved note text, an unknown tool name, invalid tool arguments, timeout and "
+            "attempted write without confirmation. Assert the returned citation is a real published lesson."
+        ),
+        "expected_output": (
+            "A runnable local app where a learner can create and complete a weekly plan, search published lessons, "
+            "and inspect a source link for every generated study suggestion. The no-model version remains useful; "
+            "optional model calls are disabled unless an operator deliberately configures them."
+        ),
+        "improvements": [
+            "Add a local full-text or vector index and compare retrieval quality against a small labelled query set.",
+            "Add calendar export with explicit preview and learner confirmation.",
+            "Add a restore drill and a privacy-conscious retention policy for completed tasks.",
+            "Measure citation precision on a held-out evaluation set and report the result rather than guessing.",
+        ],
+        "resume_md": (
+            "**Citation-First Study Planner** | Python, FastAPI, SQL\n"
+            "- Built an owner-scoped planning app with validated routes and parameterized persistence\n"
+            "- Grounded study suggestions in published lessons and returned stable source links\n"
+            "- Constrained optional agent tools and evaluated prompt injection, permissions and failure cases\n"
+            "- Add only measured test and retrieval-quality results; do not claim numbers you did not verify"
+        ),
+        "interview_questions": [
+            "Why must ownership be enforced in the query rather than only in the UI?",
+            "How does the application distinguish retrieved text from trusted instructions?",
+            "What can the agent do, and what does it deliberately not have permission to do?",
+            "How do you know a citation supports an answer, and what should happen when retrieval finds nothing?",
+            "Which evaluation case found the most important failure in your first design?",
+        ],
+        "tech": ["Python", "FastAPI", "SQLite or PostgreSQL", "pytest", "HTML and CSS"],
+        "skills": ["API design", "authentication and authorization", "database design", "retrieval evaluation", "agent safety"],
+        "steps": [
+            ("1. Scope and threat model", "Decide what the app is allowed to do",
+             "Write three user stories and a small data-flow diagram. Mark account data, public lesson text, "
+             "optional model credentials and logs separately. Keep the first release model-free and list what the "
+             "agent will never do: execute code, browse arbitrary URLs, or write without confirmation."),
+            ("2. Data and permissions", "Build the owner-scoped planner service",
+             "Create the task schema with foreign keys and an owner index. Implement list, create, complete and "
+             "delete operations as service functions. Bind SQL values through the database driver, and include the "
+             "authenticated owner id in every read or update query. Add cross-account tests before building a UI."),
+            ("3. Search and citations", "Return evidence before composing an answer",
+             "Search only published lessons. Each result should carry a canonical topic slug, title and excerpt; "
+             "render the source URL from that slug on the server. Add a no-result state and tests that reject any "
+             "citation that is not present in the retrieved result set."),
+            ("4. Build the app", "Connect forms, routes and useful error states",
+             "Add a weekly plan screen with keyboard-accessible forms and clear loading, empty and failure states. "
+             "Validate dates and lengths at the API boundary, use CSRF protection on mutations, and keep responses "
+             "generic where account existence should not be disclosed."),
+            ("5. Add the guarded agent", "Make the boundary smaller than the model's ambitions",
+             "Expose only two typed tools: read-only `search_public_notes` and `draft_plan`. Validate arguments, "
+             "limit steps and wall time, cap output, treat retrieved text as hostile input, and require a human "
+             "confirmation before a draft becomes a saved task. An unknown tool call must fail closed."),
+            ("6. Evaluate and ship", "Prove the app is useful and explain its limits",
+             "Run the permission, malformed-input and agent-evaluation cases in CI. Measure citation precision on "
+             "a held-out set, try the app with a keyboard and narrow screen, document local setup and secret "
+             "configuration, and include one honest failure analysis in the README. Never describe a small test set "
+             "as proof of production safety."),
+        ],
+        "resources": [
+            ("documentation", "FastAPI security tutorial", "https://fastapi.tiangolo.com/tutorial/security/",
+             "Official guidance for dependency-based authentication and security boundaries."),
+            ("documentation", "SQLite transactions", "https://www.sqlite.org/lang_transaction.html",
+             "Official reference for committing or rolling back a group of related task changes."),
+            ("guide", "OWASP Top 10 for LLM Applications", "https://genai.owasp.org/llm-top-10/",
+             "A threat catalogue for prompt injection, excessive agency and other risks; use it to design tests, not as a security certification."),
+        ],
+    },
 ]
 
 # =============================================================================
@@ -1298,9 +1421,18 @@ LANGUAGES = [
     ("javascript", "JavaScript", "js", "#f7df1e",
      "The language of the browser and, through Node.js, of many backends. Essential for anything user-facing on "
      "the web.", "javascript"),
+    ("typescript", "TypeScript", "ts", "#3178c6",
+     "JavaScript with a compile-time type system for larger browser and Node applications. Types clarify contracts, "
+     "but network data still needs runtime validation.", "typescript"),
     ("cpp", "C++", "cpp", "#00599c",
      "Direct memory control with modern abstractions. Used in competitive programming, game engines, embedded "
      "systems and anything where performance is non-negotiable.", "cpp"),
+    ("go", "Go", "go", "#00add8",
+     "A statically typed language with a compact standard library, practical concurrency, and a strong fit for "
+     "network services and developer tools.", "go"),
+    ("rust", "Rust", "rs", "#dea584",
+     "A systems language that uses ownership and types to prevent many memory-safety errors, while still requiring "
+     "careful authorization, validation, and dependency review.", "rust"),
     ("c", "C", "c", "#a8b9cc",
      "The language every other language is measured against. Learning C teaches you what a pointer, a stack frame "
      "and a memory allocation actually are.", "c"),

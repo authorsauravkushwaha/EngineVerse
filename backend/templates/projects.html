@@ -24,6 +24,7 @@
       <div class="tags"><span class="chip accent">{{ p.difficulty }}</span>
         <span class="chip">{{ p.est_hours }} h</span>
         <span class="chip">{{ p.category }}</span>
+        {% if p.branch_name %}<span class="chip">{{ p.branch_name }}</span>{% endif %}
         {% for tech in (p.tech | fromjson([]))[:4] %}<span class="chip">{{ tech }}</span>{% endfor %}</div>
     </a>
   {% else %}<div class="empty"><span class="em">🔍</span>No projects match.</div>{% endfor %}

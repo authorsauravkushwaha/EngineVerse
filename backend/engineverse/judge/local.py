@@ -1,31 +1,34 @@
-"""Built-in isolated runner.
+"""Built-in runner for development hosts that can provide the required isolation.
 
-Every submission runs in a brand-new OS process:
+Each submission runs in a fresh child process, but this is not a separate
+container and production refuses this provider. Before advertising itself as
+available, the provider probes a user/network namespace, a PID namespace with
+private procfs, and an actual tmpfs mount in a mount namespace. If any probe
+fails, or a required mount/limit fails during execution, the code is not started.
 
-* ``unshare --net --map-root-user`` - the process gets a private network
-  namespace with **no interfaces at all**, so it cannot reach the database, the
-  loopback API or the internet.
-* ``timeout -s KILL`` - hard wall-clock cap.
-* rlimits set **in Python** via ``preexec_fn`` - address space, CPU seconds,
-  file size, open files and process count.
-* privileges dropped to an unprivileged uid before any user code runs.
-* a fresh, empty, disposable working directory
-* a scrubbed environment: the child receives none of the application's secrets
-* output is capped byte-wise
+The run is bounded by:
 
-Why the limits are set in Python and not with ``ulimit`` in the shell script:
+* ``unshare --net --mount --pid --fork --mount-proc --map-root-user`` - the
+  child has no network interfaces and sees only its private process namespace.
+* Empty tmpfs mounts over the application checkout and account home, hiding
+  their contents and writes for the lifetime of the child namespace.
+* ``setrlimit`` set and verified in the child before ``exec``: process count,
+  address space, CPU seconds, file size, open files and core dumps.
+* A wall-clock deadline and a private process group killed as a unit.
+* A scrubbed environment containing no application secrets, and capped output.
+* A fresh disposable working directory containing only the submission inputs.
+
+A privileged parent drops supplementary groups and switches the child to the
+unprivileged ``nobody`` uid. An unprivileged parent cannot switch to another
+host uid; namespace, filesystem and resource controls still apply, but this is
+one reason the local provider is not a production boundary. Files outside the
+hidden paths and other host surfaces are not a full container/VM isolation.
+
+Why limits are set in Python rather than ``ulimit`` in the shell script:
 ``/bin/sh`` is dash on Debian-family images, and dash does not implement
-``ulimit -u`` or ``-t``. Those two lines failed with "Illegal option", the
-``2>/dev/null || true`` swallowed the error, and the child inherited an
-unbounded RLIMIT_NPROC - so a fork bomb took the whole application server down
-with it. Setting them through the ``resource`` module cannot be silently
-ignored.
-
-Privilege dropping stops submitted code from writing into the repository (it
-could previously create files next to the source) and from tampering with
-anything the application user owns. It does not stop it *reading*
-world-readable files; for that boundary use the containerised sandbox service
-in ``deploy/`` rather than this provider.
+``ulimit -u`` or ``-t``. Those lines once failed with "Illegal option" and were
+silently ignored, leaving fork and CPU limits unbounded. Required ``setrlimit``
+values are now read back and verified; a failure refuses the run.
 
 Interpreted languages get an explicit parse check so a syntax error is reported
 as ``compile_error`` instead of a confusing runtime failure.
@@ -116,7 +119,9 @@ def _set_limits_and_drop(max_processes: int, memory_kb: int, cpu_seconds: int) -
     Order matters: apply every rlimit while still privileged, then give up
     privileges last so nothing can raise a limit back afterwards.
     """
-    if resource is not None:
+    if resource is None:
+        raise RuntimeError("resource limits are unavailable on this host")
+    try:
         # Head-room on top of what this uid is already using, so a fork bomb
         # hits the wall quickly without starving the application server.
         nproc_budget = _processes_for_uid(os.getuid()) + max_processes
@@ -128,31 +133,34 @@ def _set_limits_and_drop(max_processes: int, memory_kb: int, cpu_seconds: int) -
             (resource.RLIMIT_NOFILE, 64),
             (resource.RLIMIT_CORE, 0),
         )
-        for which, value in limits:
-            try:
-                resource.setrlimit(which, (value, value))
-            except (ValueError, OSError):
-                # A limit the kernel refuses is not worth failing the run over,
-                # but it must never be swallowed silently the way ulimit was.
-                pass
-    if hasattr(os, "setgroups"):
+    except AttributeError as exc:
+        raise RuntimeError("a required resource limit is unavailable") from exc
+
+    for which, requested in limits:
+        try:
+            _soft, hard = resource.getrlimit(which)
+            # Respect a tighter ceiling imposed by the host/container rather
+            # than trying to raise it. Still verify the resulting value.
+            target = requested if hard == resource.RLIM_INFINITY else min(requested, hard)
+            if target < 0:
+                raise ValueError("negative resource limit")
+            resource.setrlimit(which, (target, target))
+            actual_soft, actual_hard = resource.getrlimit(which)
+        except (ValueError, OSError) as exc:
+            raise RuntimeError(f"could not apply required resource limit {which}") from exc
+        if actual_soft != target or actual_hard != target:
+            raise RuntimeError(f"required resource limit {which} was not enforced")
+
+    # A privileged application process must drop supplementary groups and both
+    # ids successfully. An unprivileged process cannot switch to another host
+    # uid; that weaker host boundary is disclosed and documented separately.
+    if os.getuid() == 0 or os.geteuid() == 0:
         try:
             os.setgroups([SANDBOX_GID])
-        except OSError:
-            pass
-    if os.getgid() != SANDBOX_GID:
-        try:
             os.setgid(SANDBOX_GID)
-        except OSError:
-            pass
-    if os.getuid() != SANDBOX_UID:
-        try:
             os.setuid(SANDBOX_UID)
-        except OSError:
-            # Only a privileged parent can hand the child to another uid. When
-            # the application itself runs unprivileged this is expected, and the
-            # rlimits above are what contain the submission instead.
-            pass
+        except OSError as exc:
+            raise RuntimeError("could not drop sandbox privileges") from exc
 
 from ..config import get_settings
 from . import RunResult
@@ -297,11 +305,50 @@ class LocalSandboxProvider:
         # available there, and every submission failed at runtime instead of
         # being refused up front.
         self._have_namespace = (
-            shutil.which("unshare") is not None
+            resource is not None
+            and shutil.which("unshare") is not None
             and shutil.which("timeout") is not None
-            and self._probe("--map-root-user")
+            and self._probe("--map-root-user", "--net")
         )
-        self._have_mount_ns = self._have_namespace and self._probe("--map-root-user", "--mount")
+        # Without a PID namespace, code could inspect host /proc entries and
+        # read environment values from same-UID application processes. Probe the
+        # PID namespace and a procfs remount as well, then require both at run time.
+        self._have_pid_ns = self._have_namespace and self._probe(
+            "--map-root-user", "--mount", "--pid", "--fork", "--mount-proc"
+        )
+        self._have_mount_ns = self._have_pid_ns and self._probe_mount_namespace()
+
+    @staticmethod
+    def _probe_mount_namespace() -> bool:
+        """Verify a mount succeeds, not only that a mount namespace exists.
+
+        A namespace can be creatable while the runtime still denies the mount
+        that hides the checkout. The probe uses a throwaway directory inside a
+        private namespace; exiting the probe discards its tmpfs mount.
+        """
+        mount_binary = shutil.which("mount")
+        if not mount_binary:
+            return False
+        mountpoint: Path | None = None
+        try:
+            mountpoint = Path(tempfile.mkdtemp(prefix="ev-mount-probe-"))
+            probe = subprocess.run(
+                [
+                    "unshare", "--map-root-user", "--mount", "--",
+                    mount_binary, "-t", "tmpfs", "-o", "size=1k", "tmpfs", str(mountpoint),
+                ],
+                capture_output=True,
+                timeout=5,
+            )
+            return probe.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        finally:
+            if mountpoint is not None:
+                try:
+                    mountpoint.rmdir()
+                except OSError:
+                    pass
 
     @staticmethod
     def _probe(*flags: str) -> bool:
@@ -323,16 +370,20 @@ class LocalSandboxProvider:
 
     @property
     def available(self) -> bool:
-        """True only when the host can actually isolate a submission.
+        """True only when network, process and filesystem isolation all work.
 
-        This used to return True unconditionally, so on a host that blocks
-        unprivileged user namespaces - hardened kernels, most containers, and
-        GitHub-hosted runners - the platform advertised a working code runner
-        and then failed every submission with runtime_error.
+        A network namespace without private procfs can expose host processes;
+        without a mount namespace, learner code can read the checkout and local
+        database. Fail closed rather than treating resource limits alone as a
+        security boundary.
         """
-        return self._have_namespace
+        return self._have_namespace and self._have_pid_ns and self._have_mount_ns
 
     def supports(self, language: str) -> bool:
+        # `run()` refuses unless both network and mount isolation work. Do not
+        # advertise a toolchain that cannot be used safely on this host.
+        if not self.available:
+            return False
         runner = RUNNERS.get(language)
         if not runner:
             return False
@@ -354,20 +405,26 @@ class LocalSandboxProvider:
         if runner is None:
             return RunResult(status="unsupported_language", stderr=f'No runner configured for "{language}".')
 
-        if not self._have_namespace:
-            # Refuse rather than degrade. The fallback here used to run the
-            # submission as `timeout sh run.sh` with no namespace at all, which
-            # means untrusted code on the application server with the real
-            # filesystem, the real environment and unrestricted network access.
-            # That is the one thing this module exists to prevent, and it was
-            # marked `pragma: no cover` so nothing ever exercised it. A host
-            # that cannot provide a namespace gets a clear failure instead.
+        if not self.available:
+            # Refuse rather than degrade. A network namespace prevents egress;
+            # the mount namespace is what hides the checkout, local database,
+            # and other application files. Limits alone are not a boundary for
+            # learner code that shares a host with application secrets.
+            missing = []
+            if resource is None:
+                missing.append("resource-limit support")
+            if not self._have_namespace and resource is not None:
+                missing.append("network namespace")
+            if self._have_namespace and not self._have_pid_ns:
+                missing.append("PID namespace with private procfs")
+            if not self._have_mount_ns:
+                missing.append("mount namespace")
             return RunResult(
                 status="sandbox_unavailable",
                 stderr=(
-                    "Code execution is disabled on this host: it cannot create an "
-                    "isolated namespace, and submissions are never run without one. "
-                    "Enable unprivileged user namespaces, or point "
+                    "Code execution is disabled on this host: required isolation is unavailable "
+                    f"({', '.join(missing)}). Submissions are never run with weaker isolation. "
+                    "Enable unprivileged user, network, PID and mount namespaces, or point "
                     "ENGINEVERSE_JUDGE0_URL at a sandbox service."
                 ),
             )
@@ -390,17 +447,14 @@ class LocalSandboxProvider:
             (workdir / "input.txt").write_text(stdin or "", encoding="utf-8")
             _hand_over(workdir)
 
-            script = []
-            if self._have_mount_ns:
-                # Inside the user namespace this shell is root, so it can mount.
-                # An empty tmpfs over these paths means a submission can neither
-                # read the source tree nor write anywhere the application user
-                # can. Best effort: if a mount is refused the run continues
-                # under the rlimits alone.
-                for hidden in _paths_to_hide():
-                    script.append(
-                        f"mount -t tmpfs -o size=1k tmpfs {_shell_quote(str(hidden))} 2>/dev/null || true"
-                    )
+            # A mount failure is fatal. Running without hiding the application
+            # tree would turn a sandbox into a secret-reading endpoint.
+            script = ["set -eu"]
+            for hidden in _paths_to_hide():
+                script.append(
+                    f"mount -t tmpfs -o size=1k tmpfs {_shell_quote(str(hidden))} 2>/dev/null "
+                    "|| { echo 'Required filesystem isolation mount failed.' >&2; exit 125; }"
+                )
             script += [
                 f"ulimit -v {vlimit_kb} 2>/dev/null || true",
                 f"ulimit -t {timeout_seconds} 2>/dev/null || true",
@@ -415,16 +469,14 @@ class LocalSandboxProvider:
             script.append(f"exec {_command(runner['run'])} < input.txt")
             (workdir / "run.sh").write_text("\n".join(script), encoding="utf-8")
 
-            if self._have_namespace:
-                argv = ["unshare", "--net"]
-                if self._have_mount_ns:
-                    argv.append("--mount")
-                argv += [
-                    "--map-root-user", "--",
-                    "timeout", "-s", "KILL", str(timeout_seconds), "sh", "run.sh",
+            if self.available:
+                argv = [
+                    "unshare", "--net", "--mount", "--pid", "--fork", "--mount-proc",
+                    "--map-root-user", "--", "timeout", "-s", "KILL",
+                    str(timeout_seconds), "sh", "run.sh",
                 ]
             else:  # unreachable: run() refuses before getting here
-                raise RuntimeError("refusing to execute a submission without a namespace")
+                raise RuntimeError("refusing to execute a submission without full namespace isolation")
 
             env = {
                 "PATH": "/usr/local/bin:/usr/bin:/bin",
@@ -510,6 +562,12 @@ class LocalSandboxProvider:
                     runtime_ms=runtime_ms,
                 )
             return RunResult(status="accepted", stdout=stdout, stderr=_clean(stderr), exit_code=0, runtime_ms=runtime_ms)
+        except subprocess.SubprocessError:  # the pre-exec control setup failed; user code never started
+            return RunResult(
+                status="sandbox_unavailable",
+                stderr="Required process limits could not be applied; the submission was not started.",
+                runtime_ms=_ms(started),
+            )
         except OSError as exc:  # pragma: no cover - environment failure
             return RunResult(status="internal_error", stderr=str(exc), runtime_ms=_ms(started))
         finally:

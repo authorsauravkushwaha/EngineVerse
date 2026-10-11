@@ -34,7 +34,8 @@
   <a class="btn btn-ghost" href="/practice/problems">Coding problems</a>
 </div>
 
-<section class="section"><h2>Recent sets</h2>
+<section class="section">
+  <div class="between"><h2>Recent sets</h2><a class="btn btn-ghost btn-sm" href="/dpp/archive">Browse all sets</a></div>
   <div class="grid g4" data-recent-sets>{% for s in sets %}
     <a class="card" href="/dpp/{{ s.date }}"><span class="title">{{ s.title or s.date }}</span>
       <span class="desc">{{ s.question_count }} questions · {{ s.duration_minutes }} min</span></a>{% endfor %}</div>

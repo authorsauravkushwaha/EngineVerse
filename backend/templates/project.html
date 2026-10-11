@@ -10,16 +10,21 @@
       <div class="tags"><span class="chip accent">{{ project.difficulty }}</span>
         <span class="chip">{{ project.est_hours }} hours</span>
         <span class="chip">{{ project.category }}</span>
+        {% if project.branch_slug %}<a class="chip" href="/branches/{{ project.branch_slug }}">{{ project.branch_name }}</a>{% endif %}
         {% for tech in (project.tech | fromjson([])) %}<span class="chip">{{ tech }}</span>{% endfor %}</div>
       {% if user %}
       <div class="row mt" style="gap:8px;flex-wrap:wrap">
         <button class="btn btn-primary btn-sm" data-bookmark="project" data-type="project"
           data-id="{{ project.id }}">☆ Save to portfolio</button>
-        <form method="post" action="/api/projects/track" data-json-form>
-          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-          <input type="hidden" name="projectSlug" value="{{ project.slug }}">
-          <button class="btn btn-soft btn-sm" type="submit">I built this (+5 XP)</button>
-        </form>
+        {% if has_built %}
+          <span class="chip ok">Build logged · +5 XP</span>
+        {% else %}
+          <form method="post" action="/api/projects/track" data-json-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <input type="hidden" name="projectSlug" value="{{ project.slug }}">
+            <button class="btn btn-soft btn-sm" type="submit">I built this (+5 XP)</button>
+          </form>
+        {% endif %}
       </div>
       {% endif %}
     </header>

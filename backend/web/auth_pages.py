@@ -6,11 +6,15 @@ stored only as a SHA-256 digest.
 """
 from __future__ import annotations
 
+import hashlib
+import hmac
+
 from fastapi import APIRouter, Form, Request
+from starlette.background import BackgroundTask
 from fastapi.responses import RedirectResponse
 
 from engineverse import auth, brand, catalog, db, progress
-from engineverse.security import validators
+from engineverse.security import csrf, ratelimit, validators
 from engineverse.security.audit import record
 from engineverse.security.passwords import check_password_strength
 from engineverse.security.rbac import assert_can
@@ -49,19 +53,19 @@ async def login_page(request: Request, next: str | None = None, error: str | Non
 @router.post("/login")
 async def login_submit(
     request: Request,
-    identifier: str = Form(""),
-    password: str = Form(""),
-    next: str = Form("/"),
-    remember: str = Form(""),
-    otp: str = Form(""),
-    mfa_token: str = Form(""),
+    identifier: str = Form("", max_length=320),
+    password: str = Form("", max_length=256),
+    next: str = Form("/", max_length=2048),
+    remember: str = Form("", max_length=16),
+    otp: str = Form("", max_length=64),
+    mfa_token: str = Form("", max_length=2048),
 ):
     target = _next_url(next)
     if not mfa_token and not password:
         return render(request, "login.html", next=target, error="Enter your password.", mode="login",
                       identifier=identifier, status_code=422)
     try:
-        user, cookie_value, session_id = auth.login(
+        user, cookie_value, _session_id = auth.login(
             identifier=identifier.strip(),
             password=password,
             ip=client_ip(request),
@@ -81,13 +85,7 @@ async def login_submit(
     progress.touch_streak(user["id"])
     response = RedirectResponse(target, status_code=303)
     attach_session_cookie(response, cookie_value)
-    from engineverse.security.sessions import public_cookie_kwargs
-
-    response.set_cookie(
-        "ev_csrf",
-        __import__("engineverse.security.csrf", fromlist=["issue_token"]).issue_token(session_id),
-        **public_cookie_kwargs(30 * 86400),
-    )
+    csrf.clear_anonymous_cookie(response)
     flash(response, f"Welcome back, {user['username']}.")
     return response
 
@@ -108,14 +106,14 @@ async def register_page(request: Request, next: str | None = None):
 @router.post("/register")
 async def register_submit(
     request: Request,
-    email: str = Form(...),
-    username: str = Form(...),
-    full_name: str = Form(...),
-    password: str = Form(...),
-    password_confirm: str = Form(""),
-    next: str = Form("/"),
-    branch: str = Form(""),
-    semester: str = Form(""),
+    email: str = Form(..., max_length=254),
+    username: str = Form(..., max_length=24),
+    full_name: str = Form(..., max_length=120),
+    password: str = Form(..., max_length=256),
+    password_confirm: str = Form("", max_length=256),
+    next: str = Form("/", max_length=2048),
+    branch: str = Form("", max_length=128),
+    semester: str = Form("", max_length=3),
 ):
     target = _next_url(next)
     if not brand.registration_open():
@@ -151,8 +149,7 @@ async def register_submit(
         # would get, with the same status code and no field hint, so the two are
         # indistinguishable. The real reason is logged, not shown.
         if exc.code == "email_taken":
-            record("auth.register_email_taken", ip=client_ip(request),
-                   meta={"email": email.strip()})
+            record("auth.register_email_taken", ip=client_ip(request))
             return render(request, "register.html", next=target, mode="register",
                           error=(
                               "We could not create that account. If you already have one, "
@@ -173,7 +170,7 @@ async def register_submit(
     if semester.isdigit():
         auth.update_onboarding(user["id"], {"semester": int(semester)})
 
-    cookie_value, session_id = create_session(
+    cookie_value, _session_id = create_session(
         user["id"], ip=client_ip(request),
         user_agent=request.headers.get("user-agent"),
     )
@@ -182,11 +179,7 @@ async def register_submit(
     )
     response = RedirectResponse("/onboarding" if not (branch or semester) else target, status_code=303)
     attach_session_cookie(response, cookie_value)
-    from engineverse.security.csrf import issue_token
-
-    from engineverse.security.sessions import public_cookie_kwargs
-
-    response.set_cookie("ev_csrf", issue_token(session_id), **public_cookie_kwargs(30 * 86400))
+    csrf.clear_anonymous_cookie(response)
     if mail_status == "sent":
         flash(response, "Account created. A confirmation link was sent. It is not shown on this page.")
     else:
@@ -201,9 +194,29 @@ async def logout_submit(request: Request):
         auth.logout(viewer.session_id, viewer.id, ip=client_ip(request))
     response = RedirectResponse("/", status_code=303)
     clear_session_cookie(response)
-    response.delete_cookie("ev_csrf", path="/")
+    csrf.clear_anonymous_cookie(response)
     flash(response, "Signed out.")
     return response
+
+
+def _deliver_password_reset(email: str, ip: str, site_url: str) -> None:
+    """Resolve the address and send mail after the generic response is complete."""
+    from engineverse import auth, notify
+
+    row = auth.find_by_email(email)
+    if row is None:
+        return
+
+    user_id = row["id"]
+    record("auth.reset_requested", actor_id=user_id, ip=ip,
+           entity_type="user", entity_id=user_id)
+    token = auth.issue_password_reset(user_id, ip=ip)
+    reset_url = f"{site_url}/reset-password?token={token}"
+    if not notify.send_password_reset(email=row["email"], reset_url=reset_url):
+        # A failed delivery must not leave behind a live token the user never
+        # received. Keep the token and message body out of the audit log.
+        auth.consume_password_reset(token)
+        record("auth.reset_delivery_failed", actor_id=user_id, entity_type="user", entity_id=user_id)
 
 
 @router.get("/forgot-password")
@@ -212,54 +225,48 @@ async def forgot_page(request: Request):
 
 
 @router.post("/forgot-password")
-async def forgot_submit(request: Request, email: str = Form(...)):
-    """Always reports success. Revealing which addresses exist is an oracle we
-    will not hand out.
-
-    The token itself is only ever emailed. It used to be rendered into this page
-    because there was no mail transport, which made the endpoint an
-    account-takeover hole: POST a victim's address, read the live reset link
-    back out of the response, change their password. With no transport
-    configured the honest answer is that reset is unavailable, so that is what
-    the page says.
-    """
+async def forgot_submit(request: Request, email: str = Form(..., max_length=254)):
+    """Request recovery without exposing account presence or SMTP latency."""
     from engineverse import config, notify
 
     settings = config.get_settings()
+    normalized_email = email.strip().lower()
+    identity_digest = hmac.new(
+        settings.effective_secret(), normalized_email.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
+    limit_key = f"forgot-identity:{identity_digest}"
+    local = ratelimit.check(limit_key, 3, 3600)
+    shared = ratelimit.shared_check(limit_key, 3, 3600, local_fallback=local)
+    limited = local if not local.allowed else shared
+    if not limited.allowed:
+        return render(request, "forgot.html", sent=True, reset_token="")
+
     auth.prune_password_resets()
-    row = auth.find_by_email(email.strip())
     token = ""
-    mailed = False
-    unavailable = False
-    # Opting in is not enough: production refuses it outright, because a flag
-    # left behind in a production environment must not become an account
-    # takeover endpoint.
-    reveal = settings.reveal_reset_token and not settings.is_production
-    if row:
-        ip = client_ip(request)
-        token = auth.issue_password_reset(row["id"], ip=ip)
-        record("auth.reset_requested", actor_id=row["id"], ip=ip,
-               entity_type="user", entity_id=row["id"])
-        reset_url = f"{settings.site_url}/reset-password?token={token}"
-        if notify.is_configured():
-            mailed = notify.send_password_reset(email=row["email"], reset_url=reset_url)
-            if not mailed:
-                # The relay refused it. Never fall back to showing the link --
-                # a reachable form that reveals tokens when the relay is down is
-                # a takeover endpoint that turns on by itself during an outage.
-                auth.consume_password_reset(token)
-                unavailable = True
-        elif reveal:
-            pass  # development: the page will show the link
-        else:
-            # No transport and not permitted to reveal it, so the token is dead
-            # weight. Consume it rather than leaving a live one in the table.
-            auth.consume_password_reset(token)
-            unavailable = True
+    background = None
+    mail_configured = notify.is_configured()
+    # The development reveal is available only when there is no mail transport;
+    # production always refuses it, even if an operator leaves the flag set.
+    reveal = settings.reveal_reset_token and settings.allows_demo_accounts and not mail_configured
+    if mail_configured:
+        # Even the account lookup and token creation happen after the generic
+        # response. That keeps database work as well as SMTP latency out of the
+        # response-time path for known versus unknown addresses.
+        background = BackgroundTask(
+            _deliver_password_reset, normalized_email, client_ip(request), settings.site_url
+        )
+    elif reveal:
+        row = auth.find_by_email(normalized_email)
+        if row:
+            ip = client_ip(request)
+            record("auth.reset_requested", actor_id=row["id"], ip=ip,
+                   entity_type="user", entity_id=row["id"])
+            token = auth.issue_password_reset(row["id"], ip=ip)
+
     return render(
         request, "forgot.html", sent=True,
-        reset_token=token if (row and reveal and not unavailable) else "",
-        mailed=mailed, reset_unavailable=unavailable,
+        reset_token=token,
+        background=background,
     )
 
 
@@ -269,7 +276,11 @@ async def reset_page(request: Request, token: str = ""):
 
 
 @router.post("/reset-password")
-async def reset_submit(request: Request, token: str = Form(...), password: str = Form(...)):
+async def reset_submit(
+    request: Request,
+    token: str = Form(..., max_length=512),
+    password: str = Form(..., max_length=256),
+):
     # Validated by exact hash match, expiry and single use. The same wording is
     # returned for an unknown, expired and already-used token so the form is not
     # an oracle for which links are live.
@@ -448,12 +459,17 @@ async def send_email_verification(request: Request):
 
 
 @router.post("/settings/mfa/start")
-async def mfa_start(request: Request, current_password: str = Form(...)):
+async def mfa_start(request: Request, current_password: str = Form(..., max_length=256)):
     from engineverse import brand
-    from engineverse.security import totp
+    from engineverse.security import ratelimit, totp
     from web.pages import settings_context
 
     viewer = require_user(request)
+    limited = ratelimit.shared_check(f"mfa-start:{viewer.id}", 5, 600)
+    if not limited.allowed:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "Too many authenticator setup attempts. Try again later.")
+        return response
     row = db.query_one("SELECT password_hash, totp_secret FROM users WHERE id = ?", viewer.id)
     if row is None or not auth.verify_password(current_password, row["password_hash"]):
         response = RedirectResponse("/settings#mfa", status_code=303)
@@ -479,26 +495,52 @@ async def mfa_start(request: Request, current_password: str = Form(...)):
 
 
 @router.post("/settings/mfa/confirm")
-async def mfa_confirm(request: Request, token: str = Form(...), otp: str = Form(...)):
-    from engineverse.security import totp
+async def mfa_confirm(
+    request: Request,
+    token: str = Form(..., max_length=512),
+    otp: str = Form(..., max_length=64),
+):
+    from engineverse.security import ratelimit, totp
     from web.pages import settings_context
 
     viewer = require_user(request)
+    limited = ratelimit.shared_check(f"mfa-confirm:{viewer.id}", 5, 600)
+    if not limited.allowed:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "Too many authenticator checks. Start again later.")
+        return response
     pending = totp.read_enroll_token(token, viewer.id)
     if pending is None:
         response = RedirectResponse("/settings#mfa", status_code=303)
-        flash(response, "That enrollment step expired. Start again.")
+        flash(response, "That enrollment step expired or was already used. Start again.")
         return response
-    if not totp.verify_totp(pending["s"], otp):
+    counter = totp.matching_counter(pending["s"], otp)
+    if counter is None:
+        record("auth.mfa_enroll_rejected", actor_id=viewer.id, ip=client_ip(request))
         response = RedirectResponse("/settings#mfa", status_code=303)
         flash(response, "That authenticator code was not accepted. Start enrollment again.")
         return response
-    db.execute(
-        "UPDATE users SET totp_secret = ?, updated_at = ? WHERE id = ?",
-        totp.pack(pending["s"], pending["c"]),
-        auth.now_ms(),
-        viewer.id,
-    )
+
+    failure = None
+    lock = " FOR UPDATE" if db.uses_postgres() else ""
+    with db.transaction():
+        current = db.query_one("SELECT totp_secret FROM users WHERE id = ?" + lock, viewer.id)
+        if current is None or current.get("totp_secret"):
+            failure = "An authenticator is already enrolled. Disable it before starting again."
+        elif not totp.consume_enroll_token(token, viewer.id):
+            failure = "That enrollment step expired or was already used. Start again."
+        else:
+            db.execute(
+                "UPDATE users SET totp_secret = ?, updated_at = ? "
+                "WHERE id = ? AND (totp_secret IS NULL OR totp_secret = '')",
+                totp.pack(pending["s"], pending["c"], last_counter=counter),
+                auth.now_ms(),
+                viewer.id,
+            )
+    if failure:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, failure)
+        return response
     record("auth.mfa_enrolled", actor_id=viewer.id, ip=client_ip(request))
     return render(
         request, "settings.html",
@@ -508,10 +550,19 @@ async def mfa_confirm(request: Request, token: str = Form(...), otp: str = Form(
 
 
 @router.post("/settings/mfa/disable")
-async def mfa_disable(request: Request, current_password: str = Form(...), otp: str = Form(...)):
-    from engineverse.security import totp
+async def mfa_disable(
+    request: Request,
+    current_password: str = Form(..., max_length=256),
+    otp: str = Form(..., max_length=64),
+):
+    from engineverse.security import ratelimit, totp
 
     viewer = require_user(request)
+    limited = ratelimit.shared_check(f"mfa-disable:{viewer.id}", 5, 600)
+    if not limited.allowed:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "Too many authenticator checks. Try again later.")
+        return response
     row = db.query_one("SELECT password_hash, totp_secret FROM users WHERE id = ?", viewer.id)
     if row is None or not row.get("totp_secret") or not auth.verify_password(current_password, row["password_hash"]):
         response = RedirectResponse("/settings#mfa", status_code=303)
@@ -522,7 +573,14 @@ async def mfa_disable(request: Request, current_password: str = Form(...), otp: 
         response = RedirectResponse("/settings#mfa", status_code=303)
         flash(response, "That authenticator code was not accepted.")
         return response
-    db.execute("UPDATE users SET totp_secret = NULL, updated_at = ? WHERE id = ?", auth.now_ms(), viewer.id)
+    changed = db.execute(
+        "UPDATE users SET totp_secret = NULL, updated_at = ? WHERE id = ? AND totp_secret = ?",
+        auth.now_ms(), viewer.id, row["totp_secret"],
+    )
+    if changed != 1:
+        response = RedirectResponse("/settings#mfa", status_code=303)
+        flash(response, "The authenticator changed while you were confirming. Try again.")
+        return response
     record("auth.mfa_disabled", actor_id=viewer.id, ip=client_ip(request))
     response = RedirectResponse("/settings#mfa", status_code=303)
     flash(response, "Authenticator removed. Sign-in is password-only again.")
@@ -532,11 +590,18 @@ async def mfa_disable(request: Request, current_password: str = Form(...), otp: 
 @router.post("/settings/password")
 async def change_password_submit(
     request: Request,
-    current_password: str = Form(...),
-    new_password: str = Form(...),
-    confirm_password: str = Form(""),
+    current_password: str = Form(..., max_length=256),
+    new_password: str = Form(..., max_length=256),
+    confirm_password: str = Form("", max_length=256),
 ):
+    from engineverse.security import ratelimit
+
     viewer = require_user(request)
+    limited = ratelimit.shared_check(f"password-change:{viewer.id}", 5, 600)
+    if not limited.allowed:
+        response = RedirectResponse("/settings#error-password", status_code=303)
+        flash(response, "Too many password-change attempts. Try again later.")
+        return response
     if new_password != confirm_password:
         response = RedirectResponse("/settings#error-password", status_code=303)
         flash(response, "The two new passwords do not match.")

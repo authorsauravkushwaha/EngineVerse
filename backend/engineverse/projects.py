@@ -91,11 +91,36 @@ def difficulties() -> list[dict]:
     )
 
 
-def record_build(user_id: str, project_id: str) -> None:
-    db.execute("UPDATE projects SET build_count = build_count + 1 WHERE id = ?", project_id)
-    from .progress import bump_activity
+def has_build(user_id: str, project_id: str) -> bool:
+    return bool(db.scalar(
+        "SELECT count(*) FROM xp_events WHERE user_id = ? AND reason = 'project.built' "
+        "AND entity_type = 'project' AND entity_id = ?",
+        user_id, project_id,
+    ))
 
-    bump_activity(user_id, "projects_touched", minutes=30, xp=5)
+
+def record_build(user_id: str, project_id: str) -> bool:
+    """Logs one explicit build claim per learner and project.
+
+    A unique partial index on the matching XP event is the idempotency record,
+    so simultaneous retries across workers cannot award twice. Merely viewing a
+    project never calls this function.
+    """
+    from .progress import award_xp, bump_activity, touch_streak
+
+    with db.transaction():
+        awarded = award_xp(user_id, 5, "project.built", "project", project_id, once=True)
+        if not awarded:
+            return False
+        changed = db.execute(
+            "UPDATE projects SET build_count = build_count + 1 WHERE id = ? AND status = 'published'",
+            project_id,
+        )
+        if not changed:
+            raise ValueError("unknown project")
+        bump_activity(user_id, "projects_touched", minutes=30, xp=awarded)
+        touch_streak(user_id)
+    return True
 
 
 def suggested_for(user_id: str | None, limit: int = 3) -> list[dict]:

@@ -216,7 +216,7 @@ QUESTIONS = [
       "5 x 5 x 5 x 2 = 250.",
       ["combinatorics", "counting"]),
 
-    q("probability-statistics", "Bayes' theorem", "hard",
+    q("engineering-mathematics-2", "Bayes' theorem", "hard",
       "A test for a disease with 1% prevalence has 99% sensitivity and 5% false positive rate. Given a positive result, the probability of actually having the disease is closest to:",
       ["99%", "67%", "50%", "17%"],
       3,

@@ -9,6 +9,7 @@ PUBLIC_ROUTES = [
     "/search?q=bernoulli",
     "/practice",
     "/dpp",
+    "/dpp/archive",
     "/practice/questions",
     "/programming",
     "/programming/python",
@@ -19,6 +20,7 @@ PUBLIC_ROUTES = [
     "/books",
     "/formulas",
     "/revision",
+    "/flashcards",
     "/roadmaps",
     "/community",
     "/placements",
@@ -89,6 +91,54 @@ class TestPublicRoutes:
     @pytest.mark.parametrize("path", INFRA_ROUTES)
     def test_infra(self, client, path):
         assert client.get(path).status_code == 200
+
+    def test_sitemap_uses_configured_origin_and_covers_published_content(self, client, monkeypatch):
+        from xml.etree import ElementTree
+
+        from engineverse import db
+        from engineverse.config import reload_settings
+
+        namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+        base = "https://canonical.example"
+        monkeypatch.setenv("ENGINEVERSE_SITE_URL", base)
+        reload_settings()
+        try:
+            response = client.get("/sitemap.xml", headers={"host": "attacker.example"})
+            assert response.status_code == 200
+            robots = client.get("/robots.txt", headers={"host": "attacker.example"})
+            assert robots.status_code == 200
+            assert f"Sitemap: {base}/sitemap.xml" in robots.text
+            assert "attacker.example" not in robots.text
+            locations = {
+                node.text for node in ElementTree.fromstring(response.content).iter(f"{namespace}loc")
+            }
+            assert f"{base}/dpp/archive" in locations
+            assert f"{base}/explore?page=2" in locations
+            assert f"{base}/practice/questions?page=2" in locations
+            assert f"{base}/dpp/archive?page=2" in locations
+            assert f"{base}/resources?page=2" in locations
+            assert f"{base}/videos?page=2" in locations
+            assert f"{base}/books?page=2" in locations
+            assert f"{base}/flashcards?page=2" in locations
+            first_card = db.query_one("SELECT id FROM flashcards ORDER BY id LIMIT 1")
+            assert f"{base}/flashcards?card={first_card['id']}" in locations
+
+            published_slugs = {
+                "branches": db.query("SELECT slug FROM branches WHERE is_active = 1"),
+                "subjects": db.query("SELECT slug FROM subjects WHERE status = 'published'"),
+                "topics": db.query("SELECT slug FROM topics WHERE status = 'published'"),
+                "roadmaps": db.query("SELECT slug FROM roadmaps"),
+                "projects": db.query("SELECT slug FROM projects WHERE status = 'published'"),
+                "practice/problems": db.query("SELECT slug FROM coding_problems"),
+                "programming": db.query("SELECT slug FROM programming_languages"),
+            }
+            for prefix, rows in published_slugs.items():
+                assert rows, f"expected seeded {prefix} content"
+                assert all(f"{base}/{prefix}/{row['slug']}" in locations for row in rows), prefix
+            assert "attacker.example" not in response.text
+        finally:
+            monkeypatch.undo()
+            reload_settings()
 
 
 class TestAuthenticatedRoutes:
@@ -211,15 +261,37 @@ class TestForms:
         body = signed_in.get("/settings").text
         assert 'name="csrf_token"' in body
 
-    def test_anonymous_login_and_register_are_exempt_by_design(self, client):
-        """There is no session to bind a token to before login. These are covered
-        by SameSite=Strict cookies plus rate limiting instead."""
-        response = client.post(
-            "/login",
-            data={"identifier": "asha@example.com", "password": "WrongPassword#123"},
-            follow_redirects=False,
+    def test_anonymous_login_requires_a_browser_bound_csrf_token(self, client):
+        page = client.get("/login")
+        data = {"identifier": "nobody@example.invalid", "password": "WrongPassword#123"}
+        forged = client.post("/login", data=data, follow_redirects=False)
+        assert forged.status_code == 403
+        accepted = client.post(
+            "/login", data={**data, "csrf_token": _csrf(page.text)}, follow_redirects=False
         )
-        assert response.status_code != 403
+        assert accepted.status_code == 401
+
+    def test_anonymous_csrf_token_from_another_browser_is_rejected(self, app, seeded):
+        from starlette.testclient import TestClient
+
+        with TestClient(app, raise_server_exceptions=False) as victim, TestClient(
+            app, raise_server_exceptions=False
+        ) as attacker:
+            victim_page = victim.get("/login")
+            attacker_page = attacker.get("/login")
+            set_cookie = victim_page.headers.get("set-cookie", "").lower()
+            assert "ev_csrf=" in set_cookie and "httponly" in set_cookie
+            assert victim.cookies.get("ev_csrf") != attacker.cookies.get("ev_csrf")
+            response = victim.post(
+                "/login",
+                data={
+                    "csrf_token": _csrf(attacker_page.text),
+                    "identifier": "nobody@example.invalid",
+                    "password": "WrongPassword#123",
+                },
+                follow_redirects=False,
+            )
+            assert response.status_code == 403
 
     def test_registration_rejects_a_weak_password(self, client):
         page = client.get("/register")
@@ -281,7 +353,7 @@ class TestSearch:
 # each role is the only way that class of bug surfaces.
 ROLE_PAGES = [
     "/", "/explore", "/about", "/install", "/offline", "/privacy", "/terms",
-    "/practice", "/dpp", "/practice/problems", "/practice/questions", "/programming",
+    "/practice", "/dpp", "/dpp/archive", "/practice/problems", "/practice/questions", "/programming",
     "/programming/python", "/projects", "/resources", "/videos", "/books", "/formulas",
     "/revision", "/roadmaps", "/tutor", "/community", "/placements", "/leaderboard",
     "/login", "/register", "/forgot-password", "/reset-password", "/streaks",
@@ -445,3 +517,72 @@ class TestLibraryPagination:
                 library.list_videos(category=category, limit=10000)
             ), f"count_videos(category={category}) disagrees with the list"
         assert library.count_books(q="physics") == len(library.list_books(q="physics", limit=10000))
+
+
+class TestPublicSearchDiscoverability:
+    def test_search_page_renders_flashcards_and_module_results(self, client, seeded):
+        from engineverse import db
+
+        card = db.query_one(
+            "SELECT id, front FROM flashcards ORDER BY id LIMIT 1"
+        )
+        response = client.get("/search", params={"q": card["front"], "type": "flashcard"})
+        assert response.status_code == 200
+        assert f'href="/flashcards?card={card["id"]}"' in response.text
+        assert "Flashcard" in response.text
+
+        module = db.query_one(
+            "SELECT l.slug AS language_slug, m.slug AS module_slug, m.title "
+            "FROM language_modules m JOIN programming_languages l ON l.id = m.language_id "
+            "ORDER BY l.slug, m.order_index LIMIT 1"
+        )
+        response = client.get("/search", params={"q": module["title"], "type": "module"})
+        assert response.status_code == 200
+        assert f'href="/programming/{module["language_slug"]}#{module["module_slug"]}"' in response.text
+        assert "Module" in response.text
+
+
+class TestPublicFlashcards:
+    def test_every_card_is_reachable_without_an_account(self, client, seeded):
+        import re
+
+        from engineverse import db, library
+
+        expected = {row["id"] for row in db.query("SELECT id FROM flashcards")}
+        assert len(expected) > 24
+        page_count = (len(expected) + 23) // 24
+        seen = set()
+        for page in range(1, page_count + 1):
+            response = client.get("/flashcards", params={"page": page})
+            assert response.status_code == 200
+            found = set(re.findall(r'data-flashcard-id="([^"]+)"', response.text))
+            assert found, f"public flashcard page {page} rendered no cards"
+            assert not found & seen, f"page {page} repeats earlier cards"
+            seen.update(found)
+        assert seen == expected, f"browse route missed {len(expected - seen)} cards"
+
+    def test_deck_and_search_filters_survive_pagination(self, client, seeded):
+        from engineverse import library
+
+        deck = library.decks()[0]["deck"]
+        expected_page_two = {
+            card["id"] for card in library.list_flashcards(deck=deck, limit=24, offset=24)
+        }
+        response = client.get("/flashcards", params={"deck": deck, "page": 2})
+        assert response.status_code == 200
+        assert "selected" in response.text
+        assert "&amp;" in response.text or deck in response.text
+        import re
+        found = set(re.findall(r'data-flashcard-id="([^"]+)"', response.text))
+        assert found == expected_page_two
+        assert f"deck={deck.replace(' ', '+')}" in response.text or deck in response.text
+
+    def test_search_result_card_has_a_public_detail_page(self, client, seeded):
+        from engineverse import db
+
+        card = db.query_one("SELECT id FROM flashcards ORDER BY id LIMIT 1")
+        response = client.get("/flashcards", params={"card": card["id"]})
+        assert response.status_code == 200
+        assert f'data-flashcard-id="{card["id"]}"' in response.text
+        assert "Reveal answer" in response.text
+        assert client.get("/flashcards?card=unknown-card").status_code == 404

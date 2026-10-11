@@ -7,7 +7,7 @@ from typing import Any
 from . import db
 from .drivers import compose
 from .judge import evaluate as judge_evaluate
-from .judge import provider_info, run_custom
+from .judge import provider_info, run_custom, runnable_languages
 from .security.ids import now_ms, ulid
 
 
@@ -22,16 +22,35 @@ def _json(value: Any, fallback: Any) -> Any:
         return fallback
 
 
+def _with_runtime_availability(language: dict | None) -> dict | None:
+    """Return a catalogue row with availability from the active judge provider.
+
+    The persisted flag is a seed-time property and may be stale on another
+    machine. UI and API consumers need to know whether the currently selected
+    provider can execute the language now.
+    """
+    if language is None:
+        return None
+    judge_slug = language.get("judge_slug")
+    language["runnable"] = bool(judge_slug and judge_slug in runnable_languages())
+    return language
+
+
 def list_languages() -> list[dict]:
-    return db.query(
+    rows = db.query(
         "SELECT id, slug, name, icon, color, blurb, judge_slug, runnable, "
         "(SELECT count(*) FROM language_modules lm WHERE lm.language_id = programming_languages.id) AS module_count "
         "FROM programming_languages ORDER BY order_index, name"
     )
+    available = set(runnable_languages())
+    for language in rows:
+        judge_slug = language.get("judge_slug")
+        language["runnable"] = bool(judge_slug and judge_slug in available)
+    return rows
 
 
 def language_by_slug(slug: str) -> dict | None:
-    return db.query_one("SELECT * FROM programming_languages WHERE slug = ?", slug)
+    return _with_runtime_availability(db.query_one("SELECT * FROM programming_languages WHERE slug = ?", slug))
 
 
 def modules_for_language(language_id: str) -> list[dict]:

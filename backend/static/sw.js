@@ -2,15 +2,14 @@
  * Cache-first for the app shell, network-first with cache fallback for pages,
  * never caches authenticated or mutating requests.
  */
-const VERSION = "engineverse-v4";
+const VERSION = "engineverse-v5";
 const SHELL = [
-  "/",
   "/static/css/app.css",
   "/static/js/app.js",
   "/static/js/engine3d.js",
   "/static/icons/favicon.svg",
+  "/static/offline.html",
   "/manifest.webmanifest",
-  "/offline",
 ];
 
 self.addEventListener("install", (event) => {
@@ -35,15 +34,16 @@ function cacheable(request) {
   return true;
 }
 
-// The path checks above are not sufficient on their own: most pages render the
-// signed-in user's own data, and a denylist has to be maintained by hand as
-// routes are added. The server marks a personalised response with
-// `Cache-Control: private, no-store`; honouring that is what actually keeps one
-// user's dashboard out of the cache another user can read offline.
+// The path checks above are not sufficient on their own. The server marks
+// authenticated HTML private/no-store. Anonymous HTML is private to HTTP
+// caches too (it carries a browser-bound CSRF token), but may be stored in this
+// browser's own offline cache when explicitly marked X-Offline-Cache: anonymous.
 function storable(response) {
   if (!response || !response.ok) return false;
   const cc = (response.headers.get("Cache-Control") || "").toLowerCase();
-  return !cc.includes("no-store") && !cc.includes("private");
+  if (cc.includes("no-store")) return false;
+  if (cc.includes("private") && response.headers.get("X-Offline-Cache") !== "anonymous") return false;
+  return true;
 }
 
 self.addEventListener("fetch", (event) => {
@@ -61,7 +61,7 @@ self.addEventListener("fetch", (event) => {
           caches.open(VERSION).then((c) => c.put(request, copy));
         }
         return res;
-      }).catch(() => caches.match("/offline")))
+      }).catch(() => caches.match("/static/offline.html")))
     );
     return;
   }
@@ -76,6 +76,6 @@ self.addEventListener("fetch", (event) => {
         caches.open(VERSION).then((c) => c.put(request, copy));
       }
       return res;
-    }).catch(() => caches.match(request).then((hit) => hit || caches.match("/offline")))
+    }).catch(() => caches.match(request).then((hit) => hit || caches.match("/static/offline.html")))
   );
 });
