@@ -193,6 +193,7 @@ def public_paths() -> list[str]:
         "/about",
         "/practice",
         "/dpp",
+        "/dpp/archive",
         "/programming",
         "/projects",
         "/resources",
@@ -220,7 +221,10 @@ def public_paths() -> list[str]:
     problems, _total = coding.list_problems(limit=400)
     paths += [f"/practice/problems/{row['slug']}" for row in problems]
     paths.append("/practice/problems")
-    paths += ["/practice/questions", "/revision", "/tutor"]
+    # /revision (signed-in) and /flashcards (anonymous) are the two faces of the
+    # nav's "Revise" tab; the static copy renders anonymously, so its nav points
+    # at /flashcards and that page has to exist or every nav link dangles.
+    paths += ["/practice/questions", "/revision", "/flashcards", "/tutor"]
     for row in db.query("SELECT date FROM dpp_sets ORDER BY date"):
         if row["date"]:
             paths.append(f"/dpp/{row['date']}")
@@ -536,6 +540,16 @@ def copy_static(site: Path, base: str) -> None:
         sw.unlink()
     app_js = dest / "js" / "app.js"
     app_js.write_text(patch_app_js(app_js.read_text(encoding="utf-8"), base), encoding="utf-8")
+    # Static HTML (the offline fallback page) is copied verbatim from the app,
+    # where its links are root-absolute ("/static/...", "/") and correct at the
+    # app root. Under a Pages base prefix those resolve outside the base and
+    # 404, so rewrite them exactly as rendered pages are rewritten. Only the
+    # exported copy becomes base-aware; the live app keeps its root-absolute
+    # links. This is a no-op when base is "/".
+    for html_file in dest.rglob("*.html"):
+        html_file.write_text(
+            rewrite_html(html_file.read_text(encoding="utf-8"), base), encoding="utf-8"
+        )
     manifest = {
         "name": "EngineVerse",
         "short_name": "EngineVerse",
