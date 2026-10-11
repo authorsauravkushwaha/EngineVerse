@@ -220,8 +220,8 @@ the canvas carries the intuition.
 
 ## Data layer
 
-`db/schema.sql` is the development schema (SQLite, 66 tables; a migrated
-database holds 73, because `db.migrate()` adds `schema_meta`, `search_log`,
+`db/schema.sql` is the development schema (SQLite, 68 tables; a migrated
+database holds 75, because `db.migrate()` adds `schema_meta`, `search_log`,
 `search_index` and that table's five FTS shadow tables) and
 `db/postgres/schema.pg.sql` mirrors it for production. They share the model
 exactly and differ only where scale demands it: hash partitioning on the hot
