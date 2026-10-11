@@ -571,7 +571,18 @@ def copy_static(site: Path, base: str) -> None:
 
 
 def mirror_script() -> str:
-    """Show a note's explanation without calling the server. Does not grade the answer."""
+    """Reveal a note's explanation without calling the server. Does not grade.
+
+    The reading copy has no server, so it cannot grade a quiz. Note quizzes
+    embed their explanation in the page, so revealing it is honest. A stage
+    checkpoint deliberately does not embed one - the answer and explanation
+    live server-side and are returned only after a real submission - so its
+    ``.explain`` is empty. Rather than fake a "Shown from the note" reveal over
+    an empty box, say plainly that this copy cannot check the answer. The
+    distinction is the empty ``.explain``: every seeded question has a
+    non-empty explanation and the note templates always render it, so only
+    checkpoints arrive here empty.
+    """
     return """
 <script>
 (function () {
@@ -582,10 +593,18 @@ def mirror_script() -> str:
       var card = form.closest("[data-quiz]");
       if (!card) return;
       var explain = card.querySelector(".explain");
-      if (explain) explain.classList.add("on");
       var badge = card.querySelector(".verdict-inline");
+      var embedded = explain && explain.textContent.trim().length > 0;
+      if (explain) {
+        if (!embedded) {
+          explain.textContent = "This checkpoint is graded when you sign in on a live "
+            + "EngineVerse install. The reading copy shows the question but cannot "
+            + "check your answer or reveal the explanation.";
+        }
+        explain.classList.add("on");
+      }
       if (badge) {
-        badge.textContent = "Shown from the note";
+        badge.textContent = embedded ? "Shown from the note" : "Graded on a live install";
         badge.className = "verdict-inline chip";
         badge.style.display = "inline-block";
       }
