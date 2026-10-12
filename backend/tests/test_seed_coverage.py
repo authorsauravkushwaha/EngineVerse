@@ -82,7 +82,7 @@ def test_generated_starters_are_published_and_flagged_for_review(seeded):
     from seed_data import subject_paths
 
     expected = {slugify(topic["title"]) for topic in subject_paths.TOPICS}
-    assert len(expected) == 257  # 71 breadth starters + 186 deeper lessons (2 x 93 subjects)
+    assert len(expected) == 350  # 71 breadth starters + 186 deeper lessons + 93 mastery lessons
     rows = db.query(
         "SELECT slug, status, accuracy_state FROM topics WHERE slug IN (%s) ORDER BY slug"
         % ",".join("?" for _ in expected),
@@ -1018,8 +1018,8 @@ def test_fresh_seed_reproduces_the_expected_curriculum_counts(seeded):
     assert int(db.scalar("SELECT count(*) FROM language_modules") or 0) == 68
     assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 27
     assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 81
-    assert int(db.scalar("SELECT count(*) FROM questions WHERE is_active = 1") or 0) == 432
-    assert int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0) == 87
+    assert int(db.scalar("SELECT count(*) FROM questions WHERE is_active = 1") or 0) == 525
+    assert int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0) == 105
     assert int(db.scalar("SELECT count(*) FROM projects WHERE status = 'published'") or 0) == 16
     assert int(db.scalar(
         "SELECT count(*) FROM projects WHERE status = 'published' AND language_id IS NOT NULL") or 0) == 9
