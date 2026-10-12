@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}{{ sheet.title }} — Practice sheets — {{ brand.site_name }}{% endblock %}
+{% block description %}{{ sheet.blurb }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/sheets">Practice sheets</a> › <span>{{ sheet.title }}</span></nav>
+<div class="between mb">
+  <div>
+    <h1>{{ sheet.title }}</h1>
+    <p class="muted">{{ sheet.blurb }}</p>
+    <div class="tags">
+      <span class="chip accent">{{ sheet.problem_count }} problems</span>
+      <span class="chip">{{ sheet.est_hours }} hours</span>
+      <span class="chip">{{ sheet.level }}</span>
+      {% for topic in sheet.topic_focus_data %}<span class="chip">{{ topic }}</span>{% endfor %}
+    </div>
+  </div>
+  <a class="btn btn-ghost" href="/practice/problems">All problems</a>
+</div>
+
+{% if user %}
+<div class="panel mb">
+  <div class="between">
+    <strong>{{ progress.solved }} of {{ progress.total }} solved</strong>
+    <span class="muted small">{{ progress.percent }}%</span>
+  </div>
+  <div class="bar mt" role="img" aria-label="{{ progress.percent }}% of this sheet solved">
+    <span style="width: {{ progress.percent }}%"></span>
+  </div>
+  {% if progress.percent == 100 %}
+  <p class="small mt">Sheet complete. Take the next one from <a href="/sheets">the sheets index</a>.</p>
+  {% endif %}
+</div>
+{% else %}
+<p class="small muted">Sign in to have your progress on this sheet tracked.
+  <a href="/login?next=/sheets/{{ sheet.slug }}">Sign in</a> · <a href="/register">Create an account</a></p>
+{% endif %}
+
+<div class="panel">
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>#</th><th>Problem</th><th>Patterns</th><th>Difficulty</th>
+        {% if user %}<th>Status</th>{% endif %}</tr></thead>
+      <tbody>
+        {% for p in problems %}
+        <tr>
+          <td>{{ loop.index }}</td>
+          <td><a href="/practice/problems/{{ p.slug }}"><strong>{{ p.title }}</strong></a>
+            {% if p.expected_time %}<br><span class="tiny muted">Target {{ p.expected_time }}</span>{% endif %}</td>
+          <td><div class="tags">{% for topic in p.topics_data[:2] %}<span class="chip">{{ topic }}</span>{% endfor %}</div></td>
+          <td><span class="chip diff-{{ p.difficulty }}">{{ p.difficulty }}</span></td>
+          {% if user %}
+          <td>{% if p.id in solved %}<span class="chip ok">Solved</span>{% else %}<span class="chip">—</span>{% endif %}</td>
+          {% endif %}
+        </tr>
+        {% else %}
+        <tr><td colspan="5"><div class="empty">This sheet has no problems yet.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if not runnable_now %}
+<div class="callout warning mt"><span class="label">Code execution is off on this server</span>
+  Submissions cannot be judged here right now. You can still read every problem, its examples and its editorial,
+  and the pages keep your place. Ask the site operator to enable a judge.</div>
+{% endif %}
+
+<section class="mt">
+  <h3>Other sheets</h3>
+  <div class="chips-row">
+    {% for other in all_sheets if other.slug != sheet.slug %}
+      <a class="chip" href="/sheets/{{ other.slug }}">{{ other.title }} ({{ other.problem_count }})</a>
+    {% endfor %}
+  </div>
+</section>
+{% endblock %}

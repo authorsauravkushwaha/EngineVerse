@@ -1,13 +1,42 @@
 {% extends "base.html" %}
 {% block title %}Coding problems — {{ brand.site_name }}{% endblock %}
 {% block content %}
-<div class="between mb"><div><h1>Coding problems</h1>
-  <p class="muted">LeetCode-style problems with a real judge. Run code in your browser, get an instant verdict.</p></div>
-  <a class="btn btn-ghost" href="/programming">Learn a language first</a></div>
+<div class="between mb"><div><h1>{% if active_sheet %}{{ active_sheet.title }}{% else %}Coding problems{% endif %}</h1>
+  <p class="muted">Judge-backed problems with a real verdict, worked examples, hints and an editorial on every
+    page - nothing links out to another site.</p></div>
+  <div class="row"><a class="btn btn-ghost" href="/sheets">Sheets</a>
+    <a class="btn btn-ghost" href="/programming">Learn a language first</a></div></div>
+
+{% if stream_sheets %}
+<p class="small muted">
+  Sheets for <strong>{{ my_branch.name }}</strong>:
+  {% for s in stream_sheets %}<a href="/practice/problems?sheet={{ s.slug }}">{{ s.title }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+  · <a href="/sheets">all sheets</a>
+</p>
+{% elif my_branch %}
+<p class="small muted">No sheet is written for <strong>{{ my_branch.name }}</strong> yet.
+  <a href="/sheets">See every sheet</a>.</p>
+{% else %}
+<p class="small muted">Pick your <a href="/streams">stream</a> and this page will point at the sheets written
+  for it. <a href="/sheets">See every sheet</a>.</p>
+{% endif %}
+
+{% if active_sheet %}
+<div class="callout mb"><span class="label">{{ active_sheet.title }}</span>
+  {{ active_sheet.blurb }}
+  {% if user %}<br><span class="small">{{ progress_note or '' }}</span>{% endif %}
+  <div class="mt"><a class="btn btn-soft btn-sm" href="/sheets/{{ active_sheet.slug }}">Open the sheet page</a>
+    <a class="btn btn-ghost btn-sm" href="/practice/problems">Show every problem</a></div>
+</div>
+{% endif %}
 
 <form class="panel mb" method="get">
   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;align-items:end">
     <div><label for="q">Search</label><input id="q" name="q" value="{{ active_q or '' }}"></div>
+    <div><label for="sheet">Sheet</label><select id="sheet" name="sheet">
+      <option value="">Every problem</option>
+      {% for s in sheet_options %}<option value="{{ s.slug }}" {{ 'selected' if active_sheet and active_sheet.slug == s.slug }}>{{ s.title }} ({{ s.problem_count }})</option>{% endfor %}
+      </select></div>
     <div><label for="difficulty">Difficulty</label><select id="difficulty" name="difficulty">
       <option value="">Any</option>{% for d in ('easy','medium','hard') %}
       <option value="{{ d }}" {{ 'selected' if active_difficulty == d }}>{{ d | titlecase }}</option>{% endfor %}</select></div>

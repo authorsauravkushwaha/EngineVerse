@@ -10,7 +10,17 @@
           <span id="solved-chip" class="chip ok {{ '' if submissions and submissions[0].is_accepted else 'hide' }}">Solved ✓</span>
           {% for t in (problem.topics | fromjson([])) %}<span class="chip">{{ t }}</span>{% endfor %}</div></div>
     </div>
+    {% if sheets %}
+    <p class="small muted">Part of
+      {% for s in sheets %}<a href="/sheets/{{ s.slug }}">{{ s.title }}</a>{% if not loop.last %} · {% endif %}{% endfor %}
+    </p>
+    {% endif %}
     <div class="panel prose">{{ problem.statement | md | safe }}</div>
+
+    <div class="callout mt"><span class="label">How this runs</span>
+      Write the function named in the stub. The judge appends a harness that reads the input, calls your function
+      and prints the result, so nothing you write needs its own I/O. Empty the editor and the samples below show
+      exactly what goes in and what should come out.</div>
 
     <details class="panel mt"><summary><strong>Hints</strong> ({{ (problem.hints | fromjson([])) | length }})</summary>
       <ol>{% for hint in (problem.hints | fromjson([])) %}<li>{{ hint }}</li>{% endfor %}</ol></details>

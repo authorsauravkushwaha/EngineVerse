@@ -1,0 +1,229 @@
+{% extends "base.html" %}
+{% block title %}{{ branch.name }} — study hub — {{ brand.site_name }}{% endblock %}
+{% block description %}Everything EngineVerse has for {{ branch.name }}: notes, practice, coding sheets, formulas, projects and revision.{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div>
+    <nav class="crumbs"><a href="/streams">Streams</a> › <span>{{ branch.name }}</span></nav>
+    <h1>{{ branch.name }}</h1>
+    <p class="muted">{{ branch.description }}</p>
+    <div class="tags">
+      <span class="chip accent">{{ category_name }}</span>
+      {% if my_branch and my_branch.id == branch.id %}<span class="chip ok">Your stream</span>{% endif %}
+      {% if active_semester %}<span class="chip">Semester {{ active_semester }}</span>{% endif %}
+    </div>
+  </div>
+  <form method="get" action="/stream" class="stack">
+    <label class="field"><span class="label">Jump to a stream</span>
+      <select name="to" id="stream-picker" data-navigate>
+        {% for group in categories %}
+        <optgroup label="{{ group.name }}">
+          {% for b in group.branches %}
+          <option value="/stream/{{ b.slug }}" {{ 'selected' if b.id == branch.id }}>{{ b.name }} ({{ b.subjects }})</option>
+          {% endfor %}
+        </optgroup>
+        {% endfor %}
+      </select>
+    </label>
+    <button class="btn btn-soft btn-sm" type="submit">Open</button>
+  </form>
+</div>
+
+{# The counts below are queries, not decoration: they exist so a learner can see
+   at a glance whether this stream has material, and so an empty shelf says so
+   instead of becoming a dead button. #}
+<section class="statgrid mb">
+  <a class="stat" href="#subjects"><span class="v">{{ cards.subjects }}</span><span class="k">Subjects</span></a>
+  <a class="stat" href="#subjects"><span class="v">{{ cards.topics }}</span><span class="k">Topics</span></a>
+  <a class="stat" href="#subjects"><span class="v">{{ cards.notes }}</span><span class="k">Notes</span></a>
+  <a class="stat" href="#practice"><span class="v">{{ cards.questions }}</span><span class="k">Questions</span></a>
+  <a class="stat" href="#code"><span class="v">{{ cards.projects }}</span><span class="k">Projects</span></a>
+  <a class="stat" href="#revise"><span class="v">{{ cards.formulas }}</span><span class="k">Formulas</span></a>
+</section>
+
+{% if user and progress.started %}
+<div class="panel mb">
+  <div class="between">
+    <strong>Your progress in this stream</strong>
+    <span class="muted small">{{ progress.completed }} of {{ progress.started }} started topics completed</span>
+  </div>
+  <div class="bar mt" role="img" aria-label="{{ progress.completed }} of {{ progress.started }} topics completed">
+    <span style="width: {{ ((progress.completed * 100) // progress.started) if progress.started else 0 }}%"></span>
+  </div>
+</div>
+{% endif %}
+
+<section id="subjects" class="mb">
+  <div class="between">
+    <h2>Subjects and notes</h2>
+    {% if shows_semester_hint %}
+    <form method="get" action="/stream/{{ branch.slug }}" class="row">
+      <label for="semester" class="small muted">Semester</label>
+      <select id="semester" name="semester" onchange="this.form.submit()">
+        <option value="">All</option>
+        {% for s in semesters %}
+        <option value="{{ s.id }}" {{ 'selected' if active_semester == s.id }}>{{ s.label }}</option>
+        {% endfor %}
+      </select>
+      <noscript><button class="btn btn-soft btn-sm">Show</button></noscript>
+    </form>
+    {% endif %}
+  </div>
+  {% if subjects %}
+  <div class="grid g3">
+    {% for subject in subjects %}
+      <div class="card">
+        <a class="card-body" href="/subjects/{{ subject.slug }}">
+          <span class="title">{{ subject.name }}</span>
+          <span class="desc">{{ subject.description }}</span>
+        </a>
+        <div class="tags">
+          {% if subject.code %}<span class="chip">{{ subject.code }}</span>{% endif %}
+          <span class="chip">{{ subject.notes }} notes</span>
+          <span class="chip">{{ subject.questions }} practice</span>
+          {% if subject.formulas %}<span class="chip">{{ subject.formulas }} formulas</span>{% endif %}
+          <span class="chip diff-{{ subject.difficulty }}">{{ subject.difficulty }}</span>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty"><span class="em">📚</span>
+    No published subject is tagged to this stream yet. That is a gap in the catalogue rather than a dead end -
+    try another stream, or <a href="/explore">browse all subjects</a>.</div>
+  {% endif %}
+</section>
+
+{% if reading %}
+<section class="mb">
+  <h2>Read next</h2>
+  <p class="muted small">In the catalogue's own order, so a first-year learner meets the first subject advertised
+    for the stream rather than whichever topic happens to be most viewed.</p>
+  <div class="grid g3">
+    {% for topic in reading %}
+      <a class="card" href="/topics/{{ topic.slug }}">
+        <span class="title">{{ topic.title }}</span>
+        <span class="desc">{{ topic.summary | excerpt(120) }}</span>
+        <div class="tags"><span class="chip accent">{{ topic.subject_name }}</span>
+          <span class="chip diff-{{ topic.difficulty }}">{{ topic.difficulty }}</span>
+          <span class="chip">{{ topic.est_minutes }} min</span></div>
+      </a>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section id="code" class="mb">
+  <h2>Coding practice for this stream</h2>
+  {% if sheets %}
+  <div class="grid g3">
+    {% for sheet in sheets %}
+      <div class="card">
+        <a class="card-body" href="/sheets/{{ sheet.slug }}">
+          <span class="title">{{ sheet.title }}</span>
+          <span class="desc">{{ sheet.blurb }}</span>
+        </a>
+        <div class="tags"><span class="chip accent">{{ sheet.problem_count }} problems</span>
+          <span class="chip">{{ sheet.level }}</span>
+          <span class="chip">{{ sheet.est_hours }}h</span></div>
+      </div>
+    {% endfor %}
+  </div>
+  <p class="small mt"><a href="/sheets">All {{ cards.projects and '' }}sheets</a> ·
+    <a href="/practice/problems">Every problem in the bank</a></p>
+  {% else %}
+  <div class="empty"><span class="em">⌨️</span>No sheet is written for this stream yet.
+    <a href="/practice/problems">Browse all problems</a> instead.</div>
+  {% endif %}
+</section>
+
+<section id="practice" class="mb">
+  <h2>Practice questions</h2>
+  {% if question_mix %}
+    <p class="muted small">{{ cards.questions }} active questions across
+      {{ questions_by_subject|length }} of this stream's subjects -
+      multiple choice, numericals, conceptual, debug and interview questions.</p>
+    <div class="chips-row">
+      {% for kind in question_mix %}<a class="chip" href="/practice/questions?kind={{ kind.kind }}">{{ kind.kind }} ({{ kind.count }})</a>{% endfor %}
+    </div>
+    <div class="tablewrap mt">
+      <table>
+        <thead><tr><th>Subject</th><th>Questions</th><th></th></tr></thead>
+        <tbody>
+          {% for row in questions_by_subject %}
+          <tr><td>{{ row.name }}</td><td>{{ row.count }}</td>
+            <td><a href="/practice/questions?subject={{ row.slug }}">Practise</a></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty"><span class="em">✎</span>No practice questions for this stream's subjects yet.
+      <a href="/dpp">Today's daily practice</a> is drawn from the whole catalogue.</div>
+  {% endif %}
+</section>
+
+<section class="mb">
+  <h2>Projects and career</h2>
+  <div class="grid g2">
+    <div class="panel">
+      <h3>Project briefs</h3>
+      {% if projects %}
+      <ul class="list">
+        {% for project in projects %}
+        <li><a href="/projects/{{ project.slug }}"><strong>{{ project.title }}</strong></a>
+          <span class="tiny muted">{{ project.difficulty }} · {{ project.est_hours }}h</span>
+          <div class="desc small muted">{{ project.summary | excerpt(110) }}</div></li>
+        {% endfor %}
+      </ul>
+      <p class="small"><a href="/projects">All project briefs</a></p>
+      {% else %}
+      <p class="muted small">No project briefs for this stream yet. <a href="/projects">See every brief</a>.</p>
+      {% endif %}
+    </div>
+    <div class="panel">
+      <h3>Roadmaps</h3>
+      {% if roadmaps %}
+      <ul class="list">
+        {% for roadmap in roadmaps %}
+        <li><a href="/roadmaps/{{ roadmap.slug }}"><strong>{{ roadmap.title }}</strong></a>
+          <span class="tiny muted">{{ roadmap.nodes }} steps{% if roadmap.target_role %} · {{ roadmap.target_role }}{% endif %}</span></li>
+        {% endfor %}
+      </ul>
+      <p class="small"><a href="/roadmaps">All roadmaps</a> · <a href="/placements">Placement prep</a></p>
+      {% else %}
+      <p class="muted small">No roadmap for this stream yet. <a href="/roadmaps">See all roadmaps</a>.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section id="revise" class="mb">
+  <h2>Revise</h2>
+  <div class="grid g3">
+    <a class="card" href="/flashcards{% if active_semester %}?branch={{ branch.slug }}{% endif %}">
+      <span class="title">Flashcards</span>
+      <span class="desc">{{ cards.flashcards }} cards from this stream's subjects, with spaced repetition once you
+        sign in.</span></a>
+    <a class="card" href="/formulas">
+      <span class="title">Formula centre</span>
+      <span class="desc">{{ cards.formulas }} formulas from this stream, searchable by subject and category.</span></a>
+    <a class="card" href="/dpp">
+      <span class="title">Daily practice</span>
+      <span class="desc">A fresh mixed set every day, with an archive you can work through at your own pace.</span></a>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Everything here is on this site</h3>
+  <p class="muted small">
+    Notes, worked examples, hints, editorials, an in-app code judge, question banks, formula sheets, flashcards and
+    project briefs - {{ offsite_total }} optional external reading links exist under
+    <a href="/resources/offsite">optional external reading</a>, and nothing in this hub needs them.
+  </p>
+  {% if not user %}
+  <p class="small"><a class="btn btn-primary" href="/register">Create a free account</a> to track progress,
+    keep a streak and have your own stream remembered.</p>
+  {% endif %}
+</section>
+{% endblock %}

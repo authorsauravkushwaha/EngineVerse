@@ -71,6 +71,17 @@
     if (e.key === "Escape") $$("[data-menu]").forEach((m) => m.removeAttribute("data-open"));
   });
 
+  // --------------------------------------------------- jump-to-stream picker
+  // The picker inside a <form> already works without JavaScript because the
+  // server accepts the same value (see /stream?to=). This just saves the extra
+  // click when scripting is available.
+  $$("select[data-navigate]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const target = select.value;
+      if (target && target.startsWith("/")) window.location.assign(target);
+    });
+  });
+
   // --------------------------------------------------------- live search box
   const searchInput = $("#global-search");
   const suggestBox = $("#suggest");

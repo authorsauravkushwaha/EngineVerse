@@ -10,6 +10,7 @@ from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from engineverse import (
     brand,
@@ -18,6 +19,7 @@ from engineverse import (
     coding,
     community,
     db,
+    hub,
     judge,
     ladders,
     library,
@@ -321,14 +323,36 @@ async def language_page(request: Request, language: str):
 
 @router.get("/practice/problems")
 async def problem_list(request: Request, difficulty: str | None = None, topic: str | None = None,
-                       q: str | None = None):
+                       q: str | None = None, sheet: str | None = None):
     viewer = current_user(request)
+    branch = hub.branch_by_id(viewer.branch_id) if viewer else None
+    if sheet:
+        chosen = coding.sheet_by_slug(sheet)
+        if chosen:
+            rows = coding.problems_for_sheet(chosen["id"])
+            if difficulty:
+                rows = [row for row in rows if row["difficulty"] == difficulty]
+            if topic:
+                rows = [row for row in rows if topic in (row["topics_data"] or [])]
+            return render(
+                request, "problems.html",
+                problems=rows, topics=coding.problem_topics(),
+                solved=coding.solved_problem_ids(viewer.id) if viewer else set(),
+                active_difficulty=difficulty, active_topic=topic, active_q=None,
+                active_sheet=chosen, sheet_options=coding.list_sheets(),
+                my_branch=branch,
+                stream_sheets=coding.list_sheets(audience=branch["category"]) if branch else [],
+            )
     return render(
         request, "problems.html",
         problems=coding.list_problems(difficulty=difficulty, topic=topic, q=q, limit=100)[0],
         topics=coding.problem_topics(),
         solved=coding.solved_problem_ids(viewer.id) if viewer else set(),
         active_difficulty=difficulty, active_topic=topic, active_q=q,
+        active_sheet=None,
+        sheet_options=coding.list_sheets(),
+        my_branch=branch,
+        stream_sheets=coding.list_sheets(audience=branch["category"]) if branch else [],
     )
 
 
@@ -352,6 +376,147 @@ async def problem_page(request: Request, slug: str):
         runnable_now=set(judge.runnable_languages()),
         submissions=coding.submissions_for(viewer.id, problem["id"], 10) if viewer else [],
         saved=coding.saved_code(viewer.id, problem["id"], "python") if viewer else None,
+        sheets=coding.sheets_for_problem(problem["id"]),
+        solved_by_user=bool(viewer) and problem["id"] in coding.solved_problem_ids(viewer.id)
+        if viewer else False,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Practice sheets and the per-stream study hub
+# ---------------------------------------------------------------------------
+
+def _group_streams(rows: list[dict]) -> list[dict]:
+    """Branches grouped by category, in the catalogue's own order.
+
+    Twelve cards is a page; forty-five is a wall. Grouping also answers the
+    question a learner actually has - "which of these is mine?" - without
+    needing the branch picker to be the first thing on the page.
+    """
+    grouped: dict[str, dict] = {}
+    for row in rows:
+        entry = grouped.setdefault(row["category"], {"key": row["category"], "name": row["category_name"], "branches": []})
+        entry["branches"].append(row)
+    return list(grouped.values())
+
+
+@router.get("/sheets")
+async def sheets_page(request: Request, audience: str | None = None):
+    """Curated problem sheets, ordered for the viewer's own stream.
+
+    A sheet names the branch categories it is for. Showing a mechanical learner
+    the dynamic-programming sheet first is not wrong, but showing them the
+    engineering-computing sheet first is the difference between a catalogue and
+    a study plan, so stream sheets come first for a viewer whose branch is known.
+    """
+    viewer = current_user(request)
+    branch = hub.branch_by_id(viewer.branch_id) if viewer else None
+    my_category = branch["category"] if branch else None
+    sheets = coding.list_sheets()
+    progress_by_sheet = coding.solved_by_sheet(viewer.id) if viewer else {}
+
+    def relevant(sheet: dict) -> bool:
+        if not my_category:
+            return True
+        names = [part.strip() for part in (sheet["audience"] or "").split(",")]
+        return "all" in names or my_category in names
+
+    mine = [sheet for sheet in sheets if relevant(sheet)]
+    others = [sheet for sheet in sheets if not relevant(sheet)]
+    for sheet in sheets:
+        sheet["progress"] = progress_by_sheet.get(sheet["id"], {"total": sheet["problem_count"], "solved": 0, "percent": 0})
+    if audience:
+        wanted = [sheet for sheet in sheets if audience in sheet["audience"].split(",") or sheet["audience"] == "all"]
+        mine, others = wanted, []
+    return render(
+        request, "sheets.html",
+        my_sheets=mine, other_sheets=others,
+        my_branch=branch, viewer_branch_category=my_category,
+        active_audience=audience,
+        audiences=[row["key"] for row in _group_streams(hub.list_streams())],
+        total_problems=int(db.scalar("SELECT count(*) AS c FROM coding_problems") or 0),
+    )
+
+
+@router.get("/sheets/{slug}")
+async def sheet_page(request: Request, slug: str):
+    sheet = coding.sheet_by_slug(slug)
+    if not sheet:
+        raise HTTPException(status_code=404, detail="Unknown sheet")
+    viewer = current_user(request)
+    problems = coding.problems_for_sheet(sheet["id"])
+    solved = coding.solved_problem_ids(viewer.id) if viewer else set()
+    return render(
+        request, "sheet.html", sheet=sheet, problems=problems, solved=solved,
+        progress=coding.sheet_progress(viewer.id, sheet["id"]) if viewer else {
+            "total": len(problems), "solved": 0, "percent": 0},
+        all_sheets=coding.list_sheets(),
+        runnable_now=set(judge.runnable_languages()),
+    )
+
+
+@router.get("/stream")
+async def my_stream(request: Request, to: str | None = None):
+    """Opens the hub on the viewer's own stream.
+
+    No branch on the profile falls back to the first in catalogue order rather
+    than to an error page: the hub is public, and a visitor who has not said
+    which stream they are in still gets the same page with a picker.
+
+    ``to`` is the stream picker's own value, so switching streams works with
+    JavaScript disabled as well as with it. It is only ever accepted as a
+    same-site ``/stream/...`` path, never as an arbitrary redirect target.
+    """
+    if to:
+        candidate = to.strip()
+        if candidate.startswith("/stream/") and "//" not in candidate and chr(92) not in candidate:
+            slug = candidate[len("/stream/"):].strip("/")
+            if slug and "/" not in slug and hub.branch_row(slug):
+                return RedirectResponse(f"/stream/{slug}", status_code=303)
+    viewer = current_user(request)
+    slug = hub.default_branch_slug(viewer.branch_id if viewer else None)
+    if not slug:
+        return RedirectResponse("/streams", status_code=303)
+    return RedirectResponse(f"/stream/{slug}", status_code=303)
+
+
+@router.get("/streams")
+async def streams_page(request: Request):
+    """Every stream with the size of its in-app shelf."""
+    viewer = current_user(request)
+    streams = hub.list_streams()
+    branch = hub.branch_by_id(viewer.branch_id) if viewer else None
+    return render(
+        request, "streams.html",
+        streams=streams, categories=_group_streams(streams),
+        my_branch=branch, my_slug=branch["slug"] if branch else "",
+    )
+
+
+@router.get("/stream/{slug}")
+async def stream_page(request: Request, slug: str, semester: int | None = None):
+    """Everything this stream can study, without leaving the site."""
+    branch = hub.branch_row(slug)
+    if not branch:
+        raise HTTPException(status_code=404, detail="Unknown stream")
+    viewer = current_user(request)
+    # The learner's own semester narrows the subject list when they ask for it,
+    # or when their profile has one and the branch actually tags subjects with
+    # it. hub._subjects_for falls back to the whole branch when nothing matches.
+    if semester is None and viewer and viewer.branch_id == branch["id"]:
+        semester = viewer.semester_id
+    data = hub.stream(branch["id"], semester_id=semester, viewer_id=viewer.id if viewer else None)
+    if not data:
+        raise HTTPException(status_code=404, detail="Unknown stream")
+    streams = hub.list_streams()
+    return render(
+        request, "stream.html",
+        **data,
+        streams=streams, categories=_group_streams(streams),
+        my_branch=hub.branch_by_id(viewer.branch_id) if viewer else None,
+        active_semester=semester,
+        semesters=catalog.list_semesters(),
+        shows_semester_hint=bool(data["subjects"]) and any(row["semester_id"] for row in data["subjects"]),
     )
 
 
@@ -435,11 +600,53 @@ def _pager(request: Request, total: int, *, size: int = LIBRARY_PAGE_SIZE) -> di
 
 
 @router.get("/resources")
-async def resources_page(request: Request, kind: str | None = None):
+async def resources_page(request: Request):
+    """The in-app resource hub.
+
+    Until now "Resources" was a shelf of links to other websites: documentation
+    hosts, open textbooks, course catalogues. That is a library catalogue, not a
+    resource for a student who was told the whole course lives here, and every
+    entry in it ended the session somewhere else.
+
+    This page is now a directory of what EngineVerse itself contains, by stream,
+    with the counts read from the database. The curated external shelf still
+    exists at ``/resources/offsite`` for anyone who wants it, but it is labelled
+    as optional reading and nothing else on the site depends on it.
+    """
+    viewer = current_user(request)
+    streams = hub.list_streams()
+    return render(
+        request, "resources.html",
+        streams=streams,
+        categories=_group_streams(streams),
+        my_branch=viewer.branch_id if viewer else None,
+        totals={
+            "subjects": catalog.site_stats().get("subjects", 0),
+            "notes": int(db.scalar("SELECT count(*) AS c FROM notes WHERE status = 'published'") or 0),
+            "questions": int(db.scalar("SELECT count(*) AS c FROM questions WHERE is_active = 1") or 0),
+            "problems": int(db.scalar("SELECT count(*) AS c FROM coding_problems") or 0),
+            "sheets": len(coding.list_sheets()),
+            "flashcards": int(db.scalar("SELECT count(*) AS c FROM flashcards") or 0),
+            "formulas": int(db.scalar("SELECT count(*) AS c FROM formulas") or 0),
+            "projects": int(db.scalar("SELECT count(*) AS c FROM projects WHERE status = 'published'") or 0),
+            "roadmaps": int(db.scalar("SELECT count(*) AS c FROM roadmaps") or 0),
+        },
+        offsite_total=library.count_resources(),
+    )
+
+
+@router.get("/resources/offsite")
+async def offsite_resources_page(request: Request, kind: str | None = None):
+    """The optional external shelf, kept but marked as optional.
+
+    These are host roots and long-lived index pages rather than deep links, and
+    ``scripts/check_links.py`` verifies them in CI. Nothing in the learning
+    path requires visiting any of them.
+    """
     total = library.count_resources(kind=kind)
     pager = _pager(request, total)
     return render(
-        request, "resources.html",
+        request, "resources_offsite.html",
         resources=library.list_resources(
             kind=kind, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
         ),
