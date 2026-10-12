@@ -31,6 +31,22 @@ from .deps import current_user, flash, render, require_user
 
 router = APIRouter()
 
+_DEAD_CHALLENGE_CODES = {
+    "mfa_expired", "mfa_replayed", "mfa_replay", "otp_expired", "otp_exhausted",
+    "otp_undeliverable", "otp_rate_limited",
+}
+
+
+def _otp_context(exc: auth.OtpRequired) -> dict:
+    return {
+        "otp_token": exc.token,
+        "otp_channel": exc.channel,
+        "otp_masked": exc.masked,
+        "otp_choices": exc.choices,
+        "otp_revealed_code": exc.revealed_code,
+        "otp_attempts_left": exc.attempts_left,
+    }
+
 
 def _next_url(value: str | None) -> str:
     """Only ever redirect to a same-origin relative path."""
@@ -73,14 +89,23 @@ async def login_submit(
             otp=otp,
             mfa_token=mfa_token,
         )
+    except auth.OtpRequired as exc:
+        return render(
+            request, "login.html", next=target, error=exc.message, mode="login",
+            identifier=identifier, mfa_token="", status_code=401, **_otp_context(exc),
+        )
     except auth.MfaRequired as exc:
         return render(
             request, "login.html", next=target, error=exc.message, mode="login",
             identifier=identifier, mfa_token=exc.token, status_code=401,
         )
     except auth.AuthError as exc:
+        dead = exc.code in _DEAD_CHALLENGE_CODES
         return render(request, "login.html", next=target, error=exc.message, mode="login",
-                      identifier=identifier, mfa_token=mfa_token, status_code=exc.status_code)
+                      identifier=identifier,
+                      mfa_token="" if dead else mfa_token,
+                      otp_token="" if dead else mfa_token,
+                      status_code=exc.status_code)
 
     progress.touch_streak(user["id"])
     response = RedirectResponse(target, status_code=303)
@@ -88,6 +113,42 @@ async def login_submit(
     csrf.clear_anonymous_cookie(response)
     flash(response, f"Welcome back, {user['username']}.")
     return response
+
+
+@router.post("/login/otp/resend")
+async def login_otp_resend(
+    request: Request,
+    otp_token: str = Form("", max_length=2048),
+    mfa_token: str = Form("", max_length=2048),
+    channel: str = Form("", max_length=16),
+    next: str = Form("/", max_length=2048),
+    identifier: str = Form("", max_length=320),
+):
+    target = _next_url(next)
+    token = otp_token or mfa_token
+    try:
+        challenge = auth.resend_login_otp(
+            token,
+            channel=channel or None,
+            ip=client_ip(request),
+            user_agent=request.headers.get("user-agent", ""),
+        )
+    except auth.OtpRequired as exc:
+        return render(
+            request, "login.html", next=target, error=exc.message, mode="login",
+            identifier=identifier, mfa_token="", status_code=401, **_otp_context(exc),
+        )
+    except auth.AuthError as exc:
+        dead = exc.code in _DEAD_CHALLENGE_CODES
+        return render(
+            request, "login.html", next=target, error=exc.message, mode="login",
+            identifier=identifier, mfa_token="" if dead else token,
+            otp_token="" if dead else token, status_code=exc.status_code,
+        )
+    return render(
+        request, "login.html", next=target, error=challenge.message, mode="login",
+        identifier=identifier, mfa_token="", status_code=401, **_otp_context(challenge),
+    )
 
 
 @router.get("/register")
@@ -455,6 +516,77 @@ async def send_email_verification(request: Request):
         )
     response = RedirectResponse("/settings#email", status_code=303)
     flash(response, "This instance has no mail transport, so the address cannot be confirmed from here.")
+    return response
+
+
+@router.post("/settings/phone")
+async def update_phone_submit(
+    request: Request,
+    phone: str = Form("", max_length=64),
+    current_password: str = Form(..., max_length=256),
+    remove: str = Form("", max_length=8),
+):
+    viewer = require_user(request)
+    try:
+        if remove or not phone.strip():
+            auth.remove_phone(viewer.id, current_password)
+            message = "Phone number removed."
+        else:
+            auth.set_phone(viewer.id, phone, current_password)
+            message = "Phone number saved. Verify it before using text sign-in codes."
+    except validators.ValidationError as exc:
+        response = RedirectResponse("/settings#phone", status_code=303)
+        flash(response, exc.message)
+        return response
+    except auth.AuthError as exc:
+        response = RedirectResponse("/settings#phone", status_code=303)
+        flash(response, exc.message)
+        return response
+    response = RedirectResponse("/settings#phone", status_code=303)
+    flash(response, message)
+    return response
+
+
+@router.post("/settings/phone/send")
+async def send_phone_verification(request: Request):
+    from engineverse.security import otp
+    from web.pages import settings_context
+
+    viewer = require_user(request)
+    try:
+        token = auth.start_phone_verification(viewer.id, ip=client_ip(request))
+    except auth.AuthError as exc:
+        return render(
+            request, "settings.html", **settings_context(viewer),
+            error=exc.message, status_code=exc.status_code,
+        )
+    details = otp.describe_challenge(token, otp.PHONE_PURPOSE, viewer.id) or {}
+    return render(
+        request, "settings.html", **settings_context(viewer),
+        phone_verification_token=token,
+        phone_verification_masked=details.get("masked", ""),
+    )
+
+
+@router.post("/settings/phone/verify")
+async def verify_phone_submit(
+    request: Request,
+    token: str = Form(..., max_length=2048),
+    code: str = Form(..., max_length=64),
+):
+    from web.pages import settings_context
+
+    viewer = require_user(request)
+    try:
+        auth.confirm_phone_verification(viewer.id, token, code)
+    except auth.AuthError as exc:
+        return render(
+            request, "settings.html", **settings_context(viewer),
+            error=exc.message, phone_verification_token=token,
+            status_code=exc.status_code,
+        )
+    response = RedirectResponse("/settings#phone", status_code=303)
+    flash(response, "Phone number confirmed. It can now receive sign-in codes.")
     return response
 
 

@@ -41,7 +41,11 @@ uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 `--no-demo` avoids creating sample accounts. Open <http://127.0.0.1:8000> and
 create an account through **Register**. Do not use development demo credentials
 on a public instance. The login page may show demo-account details only when the
-application is configured for development or tests.
+application is configured for development or tests. With the default
+`ENGINEVERSE_LOGIN_OTP=required`, a development instance with no mail or SMS
+transport shows the one-time sign-in code once on the page so the first run is
+usable. That reveal is limited to demo-enabled non-production environments; set
+up a transport before exposing the site to real users.
 
 For Windows/Git Bash, Docker Compose, PostgreSQL and production configuration,
 see [Deployment](docs/DEPLOYMENT.md) and [the Compose topology](deploy/README.md).
@@ -125,6 +129,10 @@ current implementation includes:
 - opaque sessions whose random tokens are stored as HMAC-SHA-256 hashes under
   `ENGINEVERSE_SECRET`, session- or browser-bound CSRF tokens, secure cookie
   flags when served over HTTPS, and revocation on sensitive account changes;
+- a compulsory six-digit one-time code at every password sign-in, delivered by
+  configured email or an operator-run SMS gateway. An enrolled TOTP authenticator
+  satisfies that sign-in step without stacking another delivered code; codes are
+  short-lived, single-use, keyed and sealed, and public reading remains public;
 - authentication-factor replay controls for TOTP steps, one-use recovery codes
   and short-lived one-use authentication/reset tokens. Practice answers are
   intentionally repeatable and continue to earn attempt-based XP;
@@ -135,8 +143,9 @@ current implementation includes:
   requests (5/hour/IP plus 3/hour per keyed address), reset-token checks
   (10 per 5 minutes), feedback
   (5 per hour per IP), practice answers (120 per minute per IP), and coding
-  execution (30 per minute); per-account limits also bound password/MFA/email
-  actions and community posts, replies, reports and votes;
+  execution (30 per minute); sign-in code resends are capped at 5 issues per
+  15 minutes with a 60-second resend cooldown; per-account limits also bound
+  password/MFA/email actions and community posts, replies, reports and votes;
 - proxy trust disabled by default. Enable it only behind a trusted proxy that
   overwrites forwarding headers.
 
@@ -144,6 +153,16 @@ These protections reduce risk but do not make an application invulnerable.
 Review the threat model, operational requirements, key rotation effects and
 known limitations in [docs/SECURITY.md](docs/SECURITY.md) before deployment.
 Never commit `.env`, database files, private keys or real learner data.
+
+### Known limitations
+
+Production refuses to start with compulsory sign-in codes unless at least one
+mail or SMS transport is configured. SMS is deliberately an operator-run HTTP
+gateway: EngineVerse does not provide a hosted SMS service, queue, delivery
+receipt or carrier fallback, so the operator owns its availability and abuse
+controls. A verified phone is optional; email remains the default channel when
+mail is configured. An enrolled TOTP authenticator satisfies the every-login
+check without a delivered code.
 
 ## Architecture
 

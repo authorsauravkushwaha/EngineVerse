@@ -32,6 +32,29 @@ class MfaRequired(Exception):
         self.message = message
 
 
+class OtpRequired(Exception):
+    """Password matched and a delivered one-time code is required."""
+
+    def __init__(
+        self,
+        token: str,
+        channel: str,
+        masked: str,
+        choices: list[str] | tuple[str, ...],
+        message: str = "Enter the 6-digit code we sent.",
+        revealed_code: str = "",
+        attempts_left: int = 5,
+    ) -> None:
+        super().__init__(message)
+        self.token = token
+        self.channel = channel
+        self.masked = masked
+        self.choices = list(choices)
+        self.message = message
+        self.revealed_code = revealed_code
+        self.attempts_left = attempts_left
+
+
 class AuthError(Exception):
     """A refused authentication or admin operation.
 
@@ -101,7 +124,7 @@ def find_by_id(user_id: str) -> dict | None:
 def find_by_email_or_username(identifier: str) -> dict | None:
     value = identifier.strip().lower()
     return db.query_one(
-        f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret FROM users "
+        f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret, phone, phone_verified FROM users "
         "WHERE (email = ? OR username = ?) AND deleted_at IS NULL",
         value,
         value,
@@ -246,6 +269,158 @@ def _reject_factor(row: dict, identifier: str, ip: str) -> None:
     raise AuthError("That authenticator code was not accepted.", 401, code="mfa_invalid")
 
 
+def _otp_choices(row: dict) -> list[str]:
+    """Return channels that can actually be selected for this account."""
+    from . import notify
+
+    # Email is always a choice: it is the normal default and a deployment may
+    # configure it after an account has enrolled a phone. A phone is offered
+    # only when both the number and the operator SMS gateway are ready.
+    choices: list[str] = ["email"]
+    if int(row.get("phone_verified") or 0) and notify.sms_is_configured():
+        choices.append("phone")
+    return choices
+
+
+def _otp_mask(row: dict, channel: str) -> str:
+    from .security import otp
+
+    return otp.mask_phone(row.get("phone") or "") if channel == "phone" else otp.mask_email(row["email"])
+
+
+def _otp_issue_allowed(user_id: str) -> None:
+    from .security import ratelimit
+
+    limited = ratelimit.shared_check(f"otp-issue:{user_id}", 5, 15 * 60)
+    if not limited.allowed:
+        raise AuthError(
+            "Too many sign-in codes have been requested. Try again later.",
+            429,
+            code="otp_rate_limited",
+        )
+
+
+def _begin_otp_challenge(row: dict, channel: str | None = None) -> OtpRequired:
+    """Issue and deliver the compulsory factor without creating a session."""
+    from . import notify
+    from .security import otp
+
+    choices = _otp_choices(row)
+    if channel and channel not in choices:
+        raise AuthError("That sign-in delivery option is not available.", 422, code="otp_channel_invalid")
+    if channel:
+        selected = channel
+    elif "email" in choices and notify.is_configured():
+        selected = "email"
+    elif "phone" in choices:
+        # With SMS as the only configured transport, use the verified phone on
+        # the first step while retaining both choices for a later switch.
+        selected = "phone"
+    else:
+        selected = "email"
+
+    _otp_issue_allowed(row["id"])
+    masked = _otp_mask(row, selected)
+    token, code = otp.issue_login_challenge(
+        row["id"], channel=selected, masked=masked, choices=choices
+    )
+    try:
+        delivered = (
+            notify.send_phone_otp(row["phone"], code, minutes=5)
+            if selected == "phone"
+            else notify.send_login_otp(row["email"], code, minutes=5)
+        )
+    except Exception:  # delivery is fail-closed even if an adapter misbehaves
+        delivered = False
+    record("auth.otp_issued", actor_id=row["id"], entity_type="user", entity_id=row["id"],
+           meta={"channel": selected})
+    if delivered:
+        record("auth.otp_delivered", actor_id=row["id"], entity_type="user", entity_id=row["id"],
+               meta={"channel": selected})
+        return OtpRequired(token, selected, masked, choices, attempts_left=otp.MAX_ATTEMPTS)
+
+    settings = get_settings()
+    can_reveal = (
+        settings.allows_demo_accounts
+        and not settings.is_production
+        and not notify.is_configured()
+        and not notify.sms_is_configured()
+    )
+    if can_reveal:
+        record("auth.otp_dev_revealed", actor_id=row["id"], entity_type="user", entity_id=row["id"],
+               meta={"channel": selected})
+        return OtpRequired(
+            token,
+            selected,
+            masked,
+            choices,
+            revealed_code=code,
+            attempts_left=otp.MAX_ATTEMPTS,
+        )
+
+    otp.kill_challenge(token, otp.LOGIN_PURPOSE, row["id"])
+    record("auth.otp_delivery_failed", actor_id=row["id"], entity_type="user", entity_id=row["id"],
+           meta={"channel": selected})
+    raise AuthError(
+        "We could not deliver a sign-in code. Try again later or contact the site operator.",
+        503,
+        code="otp_undeliverable",
+    )
+
+
+def describe_otp_challenge(token: str, user_id: str | None = None) -> OtpRequired | None:
+    """Build the safe code-step state after a failed code submission."""
+    from .security import otp
+
+    details = otp.describe_challenge(token, otp.LOGIN_PURPOSE, user_id)
+    if details is None:
+        return None
+    return OtpRequired(
+        token,
+        details["channel"],
+        details["masked"],
+        details["choices"],
+        attempts_left=details["attempts_left"],
+    )
+
+
+def _otp_row(user_id: str) -> dict | None:
+    return db.query_one(
+        f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret, phone, phone_verified "
+        "FROM users WHERE id = ? AND deleted_at IS NULL",
+        user_id,
+    )
+
+
+def _reject_otp(row: dict, identifier: str, ip: str, token: str, result: dict) -> None:
+    """Record a bad delivered code and either re-render or kill the challenge."""
+    from .security import otp
+
+    ts = now_ms()
+    failures = int(db.scalar("SELECT failed_login_count AS c FROM users WHERE id = ?", row["id"]) or 0) + 1
+    db.execute(
+        "UPDATE users SET failed_login_count = ?, locked_until = ?, updated_at = ? WHERE id = ?",
+        failures,
+        ts + 15 * 60_000 if failures >= 8 else None,
+        ts,
+        row["id"],
+    )
+    register_login_attempt(identifier, ip, False, "bad_otp")
+    record("auth.login_failed", actor_id=row["id"], ip=ip,
+           meta={"reason": "bad_otp", "failures": failures})
+
+    if result.get("status") == "exhausted":
+        raise AuthError("That sign-in code has been used too many times. Start again.", 401,
+                        code="otp_exhausted")
+    if failures >= 8:
+        otp.kill_challenge(token, otp.LOGIN_PURPOSE, row["id"])
+        raise AuthError("Too many failed attempts. The account is locked for 15 minutes.", 423)
+    challenge = describe_otp_challenge(token, row["id"])
+    if challenge is None:
+        raise AuthError("That sign-in code has expired. Start again.", 401, code="otp_expired")
+    raise challenge
+
+
 def login(
     *,
     identifier: str,
@@ -255,43 +430,81 @@ def login(
     otp: str = "",
     mfa_token: str = "",
 ) -> tuple[dict, str, str]:
-    """Verifies credentials. Returns ``(user_row, cookie_value, session_id)``.
-
-    Raises AuthError with a deliberately generic message so the response cannot
-    be used to enumerate accounts.
-    """
+    """Verify a password and the enrolled second factor, if any."""
+    from . import notify
+    from .security import otp as delivered_otp
     from .security import totp
 
     identifier = (identifier or "").strip().lower()
     if mfa_token:
+        # Authenticator challenges are intentionally checked first. A token is
+        # opaque and can only be resolved by its purpose-specific database row.
         user_id = totp.read_login_token(mfa_token)
-        if not user_id:
-            raise AuthError("That sign-in step expired. Start again.", 401, code="mfa_expired")
-        row = db.query_one(
-            f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret FROM users "
-            "WHERE id = ? AND deleted_at IS NULL",
-            user_id,
-        )
-        if row is None or not row.get("totp_secret"):
-            raise AuthError("That sign-in step expired. Start again.", 401, code="mfa_expired")
-        if row["status"] != "active":
-            raise AuthError("This account is suspended. Contact support.", 403)
-        identifier = row["email"]
-        locked_until = row.get("locked_until")
-        if locked_until and locked_until > now_ms():
-            raise AuthError("Account temporarily locked after repeated failures. Try again shortly.", 423)
-        blocked, retry_after = auth_blocked(identifier, ip)
-        if blocked:
-            raise AuthError(f"Too many failed attempts. Try again in {retry_after // 60 + 1} minute(s).", 429)
-        accepted, replacement = totp.verify_factor(row["totp_secret"], otp)
-        if not accepted:
-            _reject_factor(row, identifier, ip)
-        with db.transaction():
-            if not totp.consume_login_token(mfa_token, row["id"]):
+        if user_id:
+            row = db.query_one(
+                f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret FROM users "
+                "WHERE id = ? AND deleted_at IS NULL",
+                user_id,
+            )
+            if row is None or not row.get("totp_secret"):
+                raise AuthError("That sign-in step expired. Start again.", 401, code="mfa_expired")
+            if row["status"] != "active":
+                raise AuthError("This account is suspended. Contact support.", 403)
+            identifier = row["email"]
+            locked_until = row.get("locked_until")
+            if locked_until and locked_until > now_ms():
+                raise AuthError("Account temporarily locked after repeated failures. Try again shortly.", 423)
+            blocked, retry_after = auth_blocked(identifier, ip)
+            if blocked:
+                raise AuthError(f"Too many failed attempts. Try again in {retry_after // 60 + 1} minute(s).", 429)
+            accepted, replacement = totp.verify_factor(row["totp_secret"], otp)
+            if not accepted:
+                _reject_factor(row, identifier, ip)
+            with db.transaction():
+                if not totp.consume_login_token(mfa_token, row["id"]):
+                    raise AuthError("That sign-in step expired or was already used. Start again.", 401,
+                                    code="mfa_replayed")
+                _store_mfa_replacement(row, replacement)
+            return _finish_login(row, identifier, ip, user_agent)
+
+        # If it was not an authenticator token, try the delivered-code purpose.
+        challenge_row = totp.active_challenge(mfa_token, delivered_otp.LOGIN_PURPOSE)
+        if challenge_row:
+            row = _otp_row(str(challenge_row["user_id"]))
+            if row is None:
+                raise AuthError("That sign-in code has expired. Start again.", 401, code="otp_expired")
+            if row["status"] != "active":
+                raise AuthError("This account is suspended. Contact support.", 403)
+            identifier = row["email"]
+            locked_until = row.get("locked_until")
+            if locked_until and locked_until > now_ms():
+                raise AuthError("Account temporarily locked after repeated failures. Try again shortly.", 423)
+            blocked, retry_after = auth_blocked(identifier, ip)
+            if blocked:
+                raise AuthError(f"Too many failed attempts. Try again in {retry_after // 60 + 1} minute(s).", 429)
+            result = delivered_otp.check_code(mfa_token, delivered_otp.LOGIN_PURPOSE, row["id"], otp)
+            if result["status"] == "bad":
+                _reject_otp(row, identifier, ip, mfa_token, result)
+            if result["status"] == "ok":
+                return _finish_login(row, identifier, ip, user_agent)
+            if result["status"] == "exhausted":
+                raise AuthError("That sign-in code has been used too many times. Start again.", 401,
+                                code="otp_exhausted")
+            if result["status"] == "replayed":
                 raise AuthError("That sign-in step expired or was already used. Start again.", 401,
-                                code="mfa_replayed")
-            _store_mfa_replacement(row, replacement)
-        return _finish_login(row, identifier, ip, user_agent)
+                                code="otp_expired")
+            raise AuthError("That sign-in code has expired. Start again.", 401, code="otp_expired")
+
+        # The row may still exist but be expired or consumed. Distinguish a
+        # delivered-code token so the page can return to the password step with
+        # the OTP-specific dead-challenge reason.
+        old_challenge = db.query_one(
+            "SELECT purpose FROM security_challenges WHERE token_hash = ?",
+            totp._challenge_hash(mfa_token),
+        )
+        if old_challenge and old_challenge.get("purpose") == delivered_otp.LOGIN_PURPOSE:
+            raise AuthError("That sign-in code has expired. Start again.", 401, code="otp_expired")
+        raise AuthError("That sign-in step expired. Start again.", 401, code="mfa_expired")
 
     blocked, retry_after = auth_blocked(identifier, ip)
     if blocked:
@@ -344,7 +557,172 @@ def login(
             _store_mfa_replacement(row, replacement)
         else:
             raise MfaRequired(totp.issue_login_token(row["id"]))
+    elif get_settings().login_otp_required:
+        raise _begin_otp_challenge(row)
     return _finish_login(row, identifier, ip, user_agent)
+
+
+def resend_login_otp(
+    token: str,
+    *,
+    channel: str | None = None,
+    ip: str = "",
+    user_agent: str = "",
+) -> OtpRequired:
+    """Resend or switch the delivered factor without invalidating it on cooldown."""
+    from .security import otp, ratelimit, totp
+
+    current = totp.active_challenge(token, otp.LOGIN_PURPOSE)
+    if not current:
+        raise AuthError("That sign-in code has expired. Start again.", 401, code="otp_expired")
+    user_id = str(current["user_id"])
+    row = _otp_row(user_id)
+    if row is None or row["status"] != "active":
+        raise AuthError("That sign-in code has expired. Start again.", 401, code="otp_expired")
+    cooldown = ratelimit.shared_check(f"otp-resend:{user_id}", 1, 60)
+    if not cooldown.allowed:
+        raise AuthError("A new code was sent recently. Try again in a minute.", 429,
+                        code="otp_rate_limited")
+    # _begin_otp_challenge replaces the live row only after both limits have
+    # passed. A blocked cooldown therefore leaves the old code usable. Without
+    # an explicit switch, resend on the same channel as the live challenge.
+    if not channel:
+        details = otp.describe_challenge(token, otp.LOGIN_PURPOSE, user_id) or {}
+        channel = details.get("channel") or None
+    return _begin_otp_challenge(row, channel=channel)
+
+
+# ---------------------------------------------------------------------------
+# Phone number management
+# ---------------------------------------------------------------------------
+
+def _check_current_password(user_id: str, current_password: str) -> dict:
+    row = db.query_one("SELECT id, password_hash FROM users WHERE id = ? AND deleted_at IS NULL", user_id)
+    if row is None:
+        raise AuthError("Account not found.", 404)
+    if not current_password or not verify_password(current_password, row["password_hash"]):
+        raise AuthError("Your current password is incorrect.", 403)
+    return row
+
+
+def set_phone(user_id: str, phone: str, current_password: str | None = None) -> str:
+    """Save an unverified E.164 phone after a password check when supplied."""
+    from .security import otp
+
+    # Be tolerant of the natural ``(user_id, current_password, phone)`` calling
+    # order used by a few integrations while keeping the documented order
+    # ``(user_id, phone, current_password)``. Try the phone validator rather
+    # than looking only for a leading plus, because pasted values may contain
+    # formatting such as ``(+44)``.
+    if current_password is not None:
+        first_is_phone = True
+        second_is_phone = True
+        try:
+            validators.validate_phone(phone)
+        except validators.ValidationError:
+            first_is_phone = False
+        try:
+            validators.validate_phone(current_password)
+        except validators.ValidationError:
+            second_is_phone = False
+        if not first_is_phone and second_is_phone:
+            phone, current_password = current_password, phone
+        _check_current_password(user_id, current_password)
+    normalized = validators.validate_phone(phone)
+    try:
+        with db.transaction():
+            db.execute(
+                "UPDATE users SET phone = ?, phone_verified = 0, updated_at = ? WHERE id = ? AND deleted_at IS NULL",
+                normalized, now_ms(), user_id,
+            )
+            old = db.query_one(
+                "SELECT token_hash FROM security_challenges WHERE user_id = ? AND purpose = ? "
+                "AND consumed_at IS NULL",
+                user_id, otp.PHONE_PURPOSE,
+            )
+            if old:
+                # A changed number must not inherit a live challenge for the
+                # previous number.
+                db.execute("UPDATE security_challenges SET consumed_at = ? WHERE token_hash = ?",
+                           now_ms(), old["token_hash"])
+    except Exception as exc:
+        if "unique" in str(exc).lower() or "duplicate" in str(exc).lower():
+            raise AuthError("That phone number could not be saved.", 409, code="phone_taken") from exc
+        raise
+    record("auth.phone_set", actor_id=user_id, entity_type="user", entity_id=user_id)
+    return normalized
+
+
+def remove_phone(user_id: str, current_password: str | None = None) -> None:
+    from .security import otp
+
+    if current_password is not None:
+        _check_current_password(user_id, current_password)
+    db.execute("UPDATE users SET phone = NULL, phone_verified = 0, updated_at = ? WHERE id = ?", now_ms(), user_id)
+    row = db.query_one(
+        "SELECT token_hash FROM security_challenges WHERE user_id = ? AND purpose = ? AND consumed_at IS NULL",
+        user_id, otp.PHONE_PURPOSE,
+    )
+    if row:
+        db.execute("UPDATE security_challenges SET consumed_at = ? WHERE token_hash = ?", now_ms(), row["token_hash"])
+    record("auth.phone_removed", actor_id=user_id, entity_type="user", entity_id=user_id)
+
+
+def start_phone_verification(user_id: str, *, ip: str = "") -> str:
+    from . import notify
+    from .security import otp, ratelimit
+
+    row = db.query_one("SELECT phone, phone_verified FROM users WHERE id = ? AND deleted_at IS NULL", user_id)
+    if row is None or not row.get("phone"):
+        raise AuthError("Add a phone number before requesting verification.", 422, code="phone_missing")
+    if not notify.sms_is_configured():
+        raise AuthError("This instance has no SMS transport.", 503, code="sms_unavailable")
+    limited = ratelimit.shared_check(f"phone-verify:{user_id}", 5, 3600)
+    if not limited.allowed:
+        raise AuthError("Too many phone verification codes. Try again later.", 429,
+                        code="phone_rate_limited")
+    token, code = otp.issue_phone_challenge(
+        user_id, masked=otp.mask_phone(row["phone"]), phone=row["phone"]
+    )
+    try:
+        delivered = notify.send_phone_otp(row["phone"], code, minutes=10)
+    except Exception:
+        delivered = False
+    if not delivered:
+        otp.kill_challenge(token, otp.PHONE_PURPOSE, user_id)
+        raise AuthError("We could not send a phone verification code.", 503,
+                        code="phone_otp_undeliverable")
+    record("auth.phone_verification_issued", actor_id=user_id, entity_type="user", entity_id=user_id)
+    return token
+
+
+def confirm_phone_verification(user_id: str, token: str, code: str) -> bool:
+    from .security import otp
+
+    result = otp.check_code(token, otp.PHONE_PURPOSE, user_id, code)
+    if result["status"] == "ok":
+        payload = result.get("payload") or {}
+        phone = payload.get("phone")
+        changed = db.execute(
+            "UPDATE users SET phone_verified = 1, updated_at = ? "
+            "WHERE id = ? AND phone = ? AND phone IS NOT NULL",
+            now_ms(), user_id, phone,
+        )
+        if changed != 1:
+            raise AuthError("That phone number changed. Start verification again.", 409, code="phone_changed")
+        record("auth.phone_verified", actor_id=user_id, entity_type="user", entity_id=user_id)
+        return True
+    if result["status"] == "bad":
+        raise AuthError(
+            f"That code was not accepted. {result.get('attempts_left', 0)} attempts left.",
+            401,
+            code="phone_code_invalid",
+        )
+    if result["status"] == "exhausted":
+        raise AuthError("That phone verification code has been used too many times.", 401,
+                        code="otp_exhausted")
+    raise AuthError("That phone verification step expired or was already used.", 401,
+                    code="otp_expired")
 
 
 def logout(session_id: str, user_id: str, ip: str | None = None) -> None:

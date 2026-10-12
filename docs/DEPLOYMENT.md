@@ -14,12 +14,48 @@ With `ENGINEVERSE_ENV=production` the process will not start unless:
 - `ENGINEVERSE_DB_URL` is a `postgresql://` URL
 - `ENGINEVERSE_SITE_URL` is an `https://` origin
 - `ENGINEVERSE_REVEAL_RESET_TOKEN` is off
+- `ENGINEVERSE_LOGIN_OTP` is exactly `required` or `disabled`
+- when `ENGINEVERSE_LOGIN_OTP=required`, `ENGINEVERSE_SMTP_URL` or
+  `ENGINEVERSE_SMS_URL` is configured; otherwise startup refuses the deployment
+- an `ENGINEVERSE_SMS_URL` used in production is HTTPS (the SMS gateway is
+  operator-run, not a hosted EngineVerse service)
 - `ENGINEVERSE_JUDGE` is `disabled`, or `judge0` with `ENGINEVERSE_JUDGE0_URL`
 
 `auto`, `python` and `java` run learner code on this server. Production refuses
 them. A subprocess is not a separate container. `judge0` only means the
 submission is sent to a URL you operate. This process does not verify that
 host's isolation.
+
+## Delivering sign-in codes
+
+The default `ENGINEVERSE_LOGIN_OTP=required` asks for a fresh six-digit code
+at every password sign-in. The application does not use a hosted identity or
+SMS service. Configure at least one first-party transport before production:
+
+- SMTP is suitable for email-only deployments. For Gmail, create a dedicated
+  account and an app password with two-step verification; do not use the normal
+  account password. The URL-encoded app password can be supplied to the
+  standard-library SMTP client, for example:
+
+  ```dotenv
+  ENGINEVERSE_SMTP_URL=smtps://engineverse%40example.com:xxxx%2Dxxxx%2Dxxxx%2Dxxxx@smtp.gmail.com:465/?starttls=0
+  ENGINEVERSE_MAIL_FROM=EngineVerse <engineverse@example.com>
+  ```
+
+  Keep the app password in the deployment secret store, not in Git or a ticket.
+  Test delivery and the account's sending limits before opening registration.
+- `ENGINEVERSE_SMS_URL` points to an HTTP endpoint operated by the deployment.
+  It receives a POST with JSON `{"to":"+...","body":"..."}`. If the URL
+  contains `userinfo` password, it becomes an `Authorization: Bearer` header
+  and is stripped from the request URL. Production refuses a plain-HTTP SMS
+  URL. The gateway must protect its own logs and rate limits; EngineVerse does
+  not know carrier delivery status.
+
+A local development instance with no transport may reveal a code once when demo
+accounts are allowed. That fallback is never available in production or when a
+transport is configured but fails. To intentionally run password-only, set
+`ENGINEVERSE_LOGIN_OTP=disabled` and document that decision in the deployment
+review.
 
 `SITE_URL`, `JUDGE` and `JAVA_SANDBOX_JAR` are accepted as aliases when the
 `ENGINEVERSE_` names are unset. Compose sets the names the application reads.
