@@ -41,11 +41,14 @@ uvicorn main:app --app-dir backend --host 0.0.0.0 --port 8000 --reload
 `--no-demo` avoids creating sample accounts. Open <http://127.0.0.1:8000> and
 create an account through **Register**. Do not use development demo credentials
 on a public instance. The login page may show demo-account details only when the
-application is configured for development or tests. With the default
-`ENGINEVERSE_LOGIN_OTP=required`, a development instance with no mail or SMS
-transport shows the one-time sign-in code once on the page so the first run is
-usable. That reveal is limited to demo-enabled non-production environments; set
-up a transport before exposing the site to real users.
+application is configured for development or tests.
+
+Sign-in is password-only by default (`ENGINEVERSE_LOGIN_OTP=disabled`): no mail
+or SMS transport is needed, and a second factor is per account - enrol an
+authenticator app under **Settings -> Security** and that account is then asked
+for a six-digit code at every sign-in. Operators who want a *delivered* code at
+every sign-in can set `ENGINEVERSE_LOGIN_OTP=required`, which production accepts
+only alongside `ENGINEVERSE_SMTP_URL` or `ENGINEVERSE_SMS_URL`.
 
 For Windows/Git Bash, Docker Compose, PostgreSQL and production configuration,
 see [Deployment](docs/DEPLOYMENT.md) and [the Compose topology](deploy/README.md).

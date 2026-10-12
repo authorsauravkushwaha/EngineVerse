@@ -25,6 +25,7 @@ from engineverse.security.sessions import (
     clear_session_cookie,
     create_session,
     revoke_session,
+    session_lifetime_seconds,
 )
 
 from .deps import current_user, flash, render, require_user
@@ -63,7 +64,10 @@ def _next_url(value: str | None) -> str:
 async def login_page(request: Request, next: str | None = None, error: str | None = None):
     if current_user(request):
         return RedirectResponse("/", status_code=303)
-    return render(request, "login.html", next=next, error=error, mode="login")
+    # ``remember=True`` on first render keeps the box ticked, which is the
+    # friendlier default on a personal machine; the form itself is what decides,
+    # and every error path re-renders with whatever the learner chose.
+    return render(request, "login.html", next=next, error=error, mode="login", remember=True)
 
 
 @router.post("/login")
@@ -77,6 +81,9 @@ async def login_submit(
     mfa_token: str = Form("", max_length=2048),
 ):
     target = _next_url(next)
+    #: An unticked checkbox sends nothing at all, so "remembered" is whatever
+    #: the box asked for rather than a truthy string test.
+    remembered = remember.strip().lower() in {"1", "true", "yes", "on"}
     if not mfa_token and not password:
         return render(request, "login.html", next=target, error="Enter your password.", mode="login",
                       identifier=identifier, status_code=422)
@@ -88,28 +95,33 @@ async def login_submit(
             user_agent=request.headers.get("user-agent", ""),
             otp=otp,
             mfa_token=mfa_token,
+            remember=remembered,
         )
     except auth.OtpRequired as exc:
         return render(
             request, "login.html", next=target, error=exc.message, mode="login",
-            identifier=identifier, mfa_token="", status_code=401, **_otp_context(exc),
+            identifier=identifier, mfa_token="", remember=remembered, status_code=401,
+            **_otp_context(exc),
         )
     except auth.MfaRequired as exc:
         return render(
             request, "login.html", next=target, error=exc.message, mode="login",
-            identifier=identifier, mfa_token=exc.token, status_code=401,
+            identifier=identifier, mfa_token=exc.token, remember=remembered, status_code=401,
         )
     except auth.AuthError as exc:
         dead = exc.code in _DEAD_CHALLENGE_CODES
         return render(request, "login.html", next=target, error=exc.message, mode="login",
-                      identifier=identifier,
+                      identifier=identifier, remember=remembered,
                       mfa_token="" if dead else mfa_token,
                       otp_token="" if dead else mfa_token,
                       status_code=exc.status_code)
 
     progress.touch_streak(user["id"])
     response = RedirectResponse(target, status_code=303)
-    attach_session_cookie(response, cookie_value)
+    attach_session_cookie(
+        response, cookie_value,
+        max_age_seconds=session_lifetime_seconds(remembered),
+    )
     csrf.clear_anonymous_cookie(response)
     flash(response, f"Welcome back, {user['username']}.")
     return response
@@ -123,8 +135,10 @@ async def login_otp_resend(
     channel: str = Form("", max_length=16),
     next: str = Form("/", max_length=2048),
     identifier: str = Form("", max_length=320),
+    remember: str = Form(""),
 ):
     target = _next_url(next)
+    remembered = remember.strip().lower() in {"1", "true", "yes", "on"}
     token = otp_token or mfa_token
     try:
         challenge = auth.resend_login_otp(
@@ -136,18 +150,21 @@ async def login_otp_resend(
     except auth.OtpRequired as exc:
         return render(
             request, "login.html", next=target, error=exc.message, mode="login",
-            identifier=identifier, mfa_token="", status_code=401, **_otp_context(exc),
+            identifier=identifier, mfa_token="", remember=remembered, status_code=401,
+            **_otp_context(exc),
         )
     except auth.AuthError as exc:
         dead = exc.code in _DEAD_CHALLENGE_CODES
         return render(
             request, "login.html", next=target, error=exc.message, mode="login",
-            identifier=identifier, mfa_token="" if dead else token,
+            identifier=identifier, remember=remembered,
+            mfa_token="" if dead else token,
             otp_token="" if dead else token, status_code=exc.status_code,
         )
     return render(
         request, "login.html", next=target, error=challenge.message, mode="login",
-        identifier=identifier, mfa_token="", status_code=401, **_otp_context(challenge),
+        identifier=identifier, mfa_token="", remember=remembered, status_code=401,
+        **_otp_context(challenge),
     )
 
 

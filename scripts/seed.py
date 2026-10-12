@@ -27,6 +27,7 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
 from engineverse import auth, brand, community, db, diagrams, models3d, progress, search  # noqa: E402
 from engineverse.config import get_settings  # noqa: E402
 from engineverse.judge import local as judge_local  # noqa: E402
+from engineverse import drivers  # noqa: E402
 from engineverse.security.ids import ulid  # noqa: E402
 from engineverse.security.sanitize import slugify  # noqa: E402
 
@@ -39,6 +40,9 @@ from seed_data import diagrams_data  # noqa: E402
 from seed_data import notes_extra  # noqa: E402
 from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
+from seed_data import coding_core  # noqa: E402
+from seed_data import coding_sheets as sheet_data  # noqa: E402
+from seed_data import coding_streams  # noqa: E402
 from seed_data import topics_core  # noqa: E402
 from seed_data import topics_cse  # noqa: E402
 from seed_data import foundations as topics_foundations  # noqa: E402
@@ -747,10 +751,39 @@ def seed_language_checkpoints(language_ids: dict[str, str], question_ids: dict[s
     return count
 
 
+def _problem_bank() -> list[dict]:
+    """Every problem the platform ships, from all three banks.
+
+    ``practice_data`` holds the original hand-written 13 with stubs for four
+    languages; ``coding_core`` and ``coding_streams`` hold the sheet bank, which
+    declares one Python entry point per problem and generates its stub. The
+    seeder treats them identically, so a problem is a problem whichever module
+    it was written in.
+    """
+    bank = list(practice_data.CODING_PROBLEMS)
+    bank += list(coding_core.PROBLEMS)
+    bank += list(coding_streams.PROBLEMS)
+    seen: set[str] = set()
+    for entry in bank:
+        slug = entry["slug"]
+        if slug in seen:
+            raise SeedRefused(f"two problems share the slug {slug!r}")
+        seen.add(slug)
+        # A wrapper that does not exist composes no harness, so the submission
+        # would run without ever calling the learner's function and every test
+        # would fail with an empty output. Catch it here, not on the problem page.
+        wrapper = entry.get("wrapper", "raw")
+        if wrapper not in drivers.WRAPPERS:
+            raise SeedRefused(f"problem {slug!r} uses unknown wrapper {wrapper!r}")
+        if not entry.get("tests"):
+            raise SeedRefused(f"problem {slug!r} has no test cases")
+    return bank
+
+
 def seed_problems(language_ids: dict[str, str]) -> dict[str, str]:
     ids: dict[str, str] = {}
     with db.transaction():
-        for entry in practice_data.CODING_PROBLEMS:
+        for entry in _problem_bank():
             slug = entry["slug"]
             ids[slug] = slug
             examples = "\n\n".join(
@@ -766,7 +799,8 @@ def seed_problems(language_ids: dict[str, str]) -> dict[str, str]:
                 slug, slug, entry["title"],
                 f"{entry['statement']}\n\n### Examples\n\n{examples}",
                 entry["difficulty"], jdump(entry["topics"]), jdump(entry["hints"]), entry["editorial"],
-                entry["solution"].get("python", ""), jdump([entry["company"]]), "O(n)", "O(n)",
+                entry["solution"].get("python", ""), jdump([entry["company"]]),
+                entry.get("expected_time") or "O(n)", entry.get("expected_space") or "O(n)",
                 entry.get("wrapper", "raw"), now_ms(),
             )
             for language_slug, stub in entry["stub"].items():
@@ -786,6 +820,44 @@ def seed_problems(language_ids: dict[str, str]) -> dict[str, str]:
                     test.get("explain"), order,
                 )
     return ids
+
+
+def seed_sheets(problem_ids: dict[str, str], branch_ids: dict[str, str]) -> int:
+    """Writes the curated sheets and their membership.
+
+    ``sheet_data.validate()`` runs first: it refuses a sheet that names a problem
+    that does not exist, lists one twice, or leaves any problem out of every
+    sheet. A sheet that renders short is worse than a seed that fails loudly.
+    """
+    sheet_data.validate()
+    count = 0
+    with db.transaction():
+        for sheet in sheet_data.SHEETS:
+            # ``audience`` is the general mechanism: sheet_data lists branch
+            # categories, and the hub filters on them. A sheet may also name one
+            # branch directly, which is what branch_id is for.
+            branch_id = branch_ids.get(sheet.get("branch_slug", ""))
+            db.execute(
+                "INSERT INTO coding_sheets (id,slug,title,blurb,level,audience,branch_id,est_hours,"
+                "topic_focus,order_index,status) VALUES (?,?,?,?,?,?,?,?,?,?,'published') "
+                "ON CONFLICT(id) DO UPDATE SET title=excluded.title, blurb=excluded.blurb, "
+                "level=excluded.level, audience=excluded.audience, est_hours=excluded.est_hours, "
+                "topic_focus=excluded.topic_focus, order_index=excluded.order_index, status='published'",
+                sheet["slug"], sheet["slug"], sheet["title"], sheet["blurb"], sheet["level"],
+                sheet["audience"], branch_id, sheet["est_hours"], jdump(sheet["topic_focus"]),
+                sheet["order_index"],
+            )
+            db.execute("DELETE FROM coding_sheet_problems WHERE sheet_id = ?", sheet["slug"])
+            for order, slug in enumerate(sheet["problems"]):
+                problem_id = problem_ids.get(slug)
+                if problem_id is None:
+                    raise SeedRefused(f"sheet {sheet['slug']!r} references unseeded problem {slug!r}")
+                db.execute(
+                    "INSERT INTO coding_sheet_problems (sheet_id,problem_id,order_index) VALUES (?,?,?)",
+                    sheet["slug"], problem_id, order,
+                )
+            count += 1
+    return count
 
 
 # ---------------------------------------------------------------------------
@@ -1310,7 +1382,7 @@ TABLES = [
     "modules", "topics", "notes", "note_sections", "diagrams", "models_3d", "formulas", "questions",
     "question_options",
     "dpp_sets", "dpp_questions", "programming_languages", "language_modules", "language_stages",
-    "language_checkpoints", "coding_problems",
+    "language_checkpoints", "coding_problems", "coding_sheets", "coding_sheet_problems",
     "coding_problem_stubs", "coding_testcases", "projects", "project_steps", "project_resources", "videos",
     "books", "resources", "roadmaps", "roadmap_nodes", "flashcards", "plans", "site_config", "badges",
     "users", "user_progress", "xp_events", "submissions", "coding_submissions", "bookmarks",
@@ -1411,11 +1483,12 @@ def run(fresh: bool, *, demo: bool | None = None, destroy_users: bool = False) -
     print("Seeding programming languages and problems ...")
     language_ids = seed_languages()
     problem_ids = seed_problems(language_ids)
+    sheets = seed_sheets(problem_ids, branch_ids)
     checkpoints = seed_language_checkpoints(language_ids, question_ids)
     staged_modules = int(db.scalar("SELECT count(*) AS c FROM language_modules") or 0)
     stages = int(db.scalar("SELECT count(*) AS c FROM language_stages") or 0)
     print(f"  {len(language_ids)} languages, {staged_modules} staged modules across {stages} stages, "
-          f"{len(problem_ids)} problems, {checkpoints} checkpoint questions")
+          f"{len(problem_ids)} problems in {sheets} sheets, {checkpoints} checkpoint questions")
 
     print("Seeding projects ...")
     project_count = seed_projects(subject_ids, branch_ids, language_ids)

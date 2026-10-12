@@ -100,7 +100,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></a>{% endif %}
         <div class="menu" data-menu>
-          <button class="avatar" aria-haspopup="true" aria-expanded="false">{{ user.initial }}</button>
+          <button class="avatar" aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ user.username }}">{{ user.initial }}</button>
           <div class="menu-pop" role="menu">
             <div class="menu-head">
               <strong>{{ user.full_name }}</strong>
@@ -117,6 +117,17 @@
             </form>
           </div>
         </div>
+        {# The two controls below are the plain-text answer to "am I signed in?".
+           A learner who has just signed in should not have to discover that the
+           answer is hidden behind an avatar they have to click. #}
+        <a class="whoami" href="/profile" title="Signed in as @{{ user.username }}">
+          <span class="whoami-name">{{ user.username }}</span>
+          <span class="whoami-label">Profile</span>
+        </a>
+        <form method="post" action="/logout" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-soft btn-sm" type="submit">Sign out</button>
+        </form>
       {% else %}
         <a class="btn btn-ghost" href="/login">Sign in</a>
         <a class="btn btn-primary" href="/register">Start free</a>

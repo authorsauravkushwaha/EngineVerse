@@ -574,6 +574,39 @@ CREATE TABLE IF NOT EXISTS coding_submissions (
 CREATE INDEX IF NOT EXISTS idx_csub_user ON coding_submissions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_csub_problem ON coding_submissions(problem_id, is_accepted);
 
+-- Curated problem sheets: the in-app counterpart of "grind these 75 before you
+-- interview". A sheet is data, like a problem: adding one is a seeder change,
+-- not an application change, and the page that renders it reads membership from
+-- these two tables.
+--
+-- ``audience`` is a comma-separated list of branch categories from
+-- ``branches.category`` ("cse", "electronics", ...) or the single word "all".
+-- It is how a stream gets pointed at the sheets that fit it - a mechanical
+-- learner is sent to engineering-computing, not to dynamic programming.
+CREATE TABLE IF NOT EXISTS coding_sheets (
+  id          TEXT PRIMARY KEY,
+  slug        TEXT NOT NULL UNIQUE,
+  title       TEXT NOT NULL,
+  blurb       TEXT NOT NULL DEFAULT '',
+  level       TEXT NOT NULL DEFAULT 'core',     -- core|stream|interview
+  audience    TEXT NOT NULL DEFAULT 'all',
+  branch_id   TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  est_hours   INTEGER NOT NULL DEFAULT 6,
+  topic_focus TEXT NOT NULL DEFAULT '[]',
+  order_index INTEGER NOT NULL DEFAULT 0,
+  status      TEXT NOT NULL DEFAULT 'published'
+);
+CREATE INDEX IF NOT EXISTS idx_sheet_level ON coding_sheets(level, order_index);
+
+CREATE TABLE IF NOT EXISTS coding_sheet_problems (
+  sheet_id    TEXT NOT NULL REFERENCES coding_sheets(id) ON DELETE CASCADE,
+  problem_id  TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
+  order_index INTEGER NOT NULL DEFAULT 0,
+  note        TEXT,
+  PRIMARY KEY (sheet_id, problem_id)
+);
+CREATE INDEX IF NOT EXISTS idx_sheetprob_problem ON coding_sheet_problems(problem_id);
+
 -- ---------------------------------------------------------------------------
 -- 6. PROJECTS
 -- ---------------------------------------------------------------------------

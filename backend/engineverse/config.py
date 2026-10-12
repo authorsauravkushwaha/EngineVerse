@@ -88,6 +88,9 @@ class Settings:
     # --- sessions ---------------------------------------------------------
     session_max_age_days: int = field(default_factory=lambda: int(os.environ.get("ENGINEVERSE_SESSION_DAYS", "30")))
     session_idle_days: int = field(default_factory=lambda: int(os.environ.get("ENGINEVERSE_SESSION_IDLE_DAYS", "7")))
+    #: Lifetime of a sign-in where "keep me signed in" was left unticked. Short
+    #: on purpose: a borrowed lab machine should not stay signed in for a month.
+    session_short_hours: int = field(default_factory=lambda: int(os.environ.get("ENGINEVERSE_SESSION_SHORT_HOURS", "12")))
     cookie_secure: bool = field(default_factory=lambda: _bool("ENGINEVERSE_COOKIE_SECURE", False))
     #: Trust X-Forwarded-For only from a private or loopback peer. Default off.
     trust_proxy: bool = field(default_factory=lambda: _bool("ENGINEVERSE_TRUST_PROXY", False))
@@ -105,13 +108,18 @@ class Settings:
         )
     )
 
-    # --- outbound mail and compulsory sign-in codes -----------------------
-    # ``required`` is deliberately the safe default. A deployment that wants
-    # password-only sign-in must opt out explicitly with ``disabled``; the
-    # production checks below still make a required deployment prove that it
-    # has a delivery transport.
+    # --- outbound mail and optional sign-in codes -------------------------
+    # ``disabled`` is the default: sign-in is password-only, and an account
+    # that wants a second factor enrols an authenticator under /settings (which
+    # needs no outbound transport at all).
+    #
+    # ``required`` adds a delivered six-digit code to every password sign-in.
+    # It is opt-in because it can only work on an instance that has a working
+    # SMTP or SMS transport: an operator who copied the example .env without
+    # configuring mail would otherwise lock every learner out of their own
+    # account, and the production checks below exist to refuse exactly that.
     login_otp: str = field(default_factory=lambda: os.environ.get(
-        "ENGINEVERSE_LOGIN_OTP", "required").strip().lower())
+        "ENGINEVERSE_LOGIN_OTP", "disabled").strip().lower())
     # This is an operator-run HTTP gateway, not a hosted SMS provider. Its
     # request contract lives in engineverse.notify.send_sms.
     sms_url: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_SMS_URL", "").strip())

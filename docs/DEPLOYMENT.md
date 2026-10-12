@@ -26,11 +26,24 @@ them. A subprocess is not a separate container. `judge0` only means the
 submission is sent to a URL you operate. This process does not verify that
 host's isolation.
 
-## Delivering sign-in codes
+## Sign-in factors and (optional) delivered codes
 
-The default `ENGINEVERSE_LOGIN_OTP=required` asks for a fresh six-digit code
-at every password sign-in. The application does not use a hosted identity or
-SMS service. Configure at least one first-party transport before production:
+The default `ENGINEVERSE_LOGIN_OTP=disabled` is password-only sign-in. Passwords
+are verified against a scrypt hash, sessions are opaque HttpOnly cookies, and
+repeated failures lock the account temporarily. No transport is required, and
+nothing about sign-in depends on a third party.
+
+Two stronger options exist:
+
+- **Per-account authenticator (recommended).** Any learner can enrol a TOTP
+  authenticator under **Settings -> Security**. That account is then asked for a
+  six-digit code from the app at every sign-in, with one-time recovery codes.
+  This needs no mail or SMS at all.
+- **Delivered code at every sign-in.** Set `ENGINEVERSE_LOGIN_OTP=required` to
+  ask for a fresh six-digit code after every password check, for *every*
+  account. The application does not use a hosted identity or SMS service, so
+  production refuses to start in this mode until at least one first-party
+  transport is configured:
 
 - SMTP is suitable for email-only deployments. For Gmail, create a dedicated
   account and an app password with two-step verification; do not use the normal
@@ -53,9 +66,7 @@ SMS service. Configure at least one first-party transport before production:
 
 A local development instance with no transport may reveal a code once when demo
 accounts are allowed. That fallback is never available in production or when a
-transport is configured but fails. To intentionally run password-only, set
-`ENGINEVERSE_LOGIN_OTP=disabled` and document that decision in the deployment
-review.
+transport is configured but fails.
 
 `SITE_URL`, `JUDGE` and `JAVA_SANDBOX_JAR` are accepted as aliases when the
 `ENGINEVERSE_` names are unset. Compose sets the names the application reads.

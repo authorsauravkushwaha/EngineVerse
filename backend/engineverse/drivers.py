@@ -40,6 +40,14 @@ WRAPPERS = (
     "tree",
     "graph",
     "lru",
+    "int-n",
+    "int-int",
+    "string-list",
+    "matrix",
+    "intervals",
+    "grid",
+    "list-pair",
+    "two-lines",
 )
 
 # How each wrapper feeds the entry point, shown on the problem page.
@@ -60,6 +68,15 @@ WRAPPER_DOCS = {
              "node, then the end node.",
     "lru": "Line 1: capacity. Then one `put k v` or `get k` command per line; "
            "every `get` result is printed, space-separated.",
+    "int-n": "One integer.",
+    "int-int": "Two integers on one line.",
+    "string-list": "One line of space-separated words.",
+    "matrix": "Line 1: rows and columns. Then one line of space-separated integers per row.",
+    "intervals": "Line 1: how many pairs. Then one `start end` pair per line. "
+                 "When the answer is a list of pairs it is printed one pair per line.",
+    "grid": "Line 1: rows and columns. Then one line of characters per row.",
+    "list-pair": "Two lines of space-separated integers.",
+    "two-lines": "Two lines of text.",
 }
 
 _ENTRY_RE = re.compile(r"^\s*(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -254,6 +271,95 @@ for _line in _sys.stdin.read().split("\\n"):
 _s = _rest[0] if _rest else ""
 _e = _rest[1] if len(_rest) > 1 else ""
 print({entry}(_g, _s, _e))
+"""
+
+    if wrapper == "int-n":
+        return f"""
+import sys as _sys
+print({entry}(int(_sys.stdin.read().strip() or "0")))
+"""
+
+    if wrapper == "int-int":
+        return f"""
+import sys as _sys
+_t = [int(x) for x in _sys.stdin.read().split()]
+print({entry}(_t[0] if _t else 0, _t[1] if len(_t) > 1 else 0))
+"""
+
+    if wrapper == "string-list":
+        return f"""
+import sys as _sys
+_t = _sys.stdin.readline().split()
+print({entry}(_t))
+"""
+
+    if wrapper == "matrix":
+        return f"""
+import sys as _sys
+_d = _sys.stdin.read().split("\\n")
+_h = _d[0].split() if _d and _d[0].strip() else []
+_rows = int(_h[0]) if _h else 0
+_grid = []
+for _line in _d[1:_rows + 1]:
+    _grid.append([int(x) for x in _line.split()] if _line.strip() else [])
+_r = {entry}(_grid)
+# A matrix problem can return a matrix, or a single number such as a
+# determinant the caller asked for.
+if isinstance(_r, (list, tuple)) and _r and isinstance(_r[0], (list, tuple)):
+    for _row in _r:
+        print(" ".join(str(v) for v in _row))
+else:
+    print(_r)
+"""
+
+    if wrapper == "intervals":
+        return f"""
+import sys as _sys
+_d = [line for line in _sys.stdin.read().split("\\n") if line.strip()]
+_n = int(_d[0].strip()) if _d else 0
+_pairs = []
+for _line in _d[1:_n + 1]:
+    _p = [int(x) for x in _line.split()]
+    if len(_p) >= 2:
+        _pairs.append(_p[:2])
+_r = {entry}(_pairs)
+# A sheet problem can return a list of pairs, or a single answer such as a
+# boolean or a count. Both are printed, and the shape decides how: iterating a
+# bool to print it "one pair per line" is a crash, not a verdict.
+if isinstance(_r, (list, tuple)) and _r and isinstance(_r[0], (list, tuple)):
+    for _pair in _r:
+        print(" ".join(str(v) for v in _pair))
+else:
+    print(_r)
+"""
+
+    if wrapper == "grid":
+        return f"""
+import sys as _sys
+_d = _sys.stdin.read().split("\\n")
+_h = _d[0].split() if _d and _d[0].strip() else []
+_rows = int(_h[0]) if _h else 0
+_grid = [list(_line.strip()) for _line in _d[1:_rows + 1] if _line.strip()]
+_r = {entry}(_grid)
+print(" ".join(str(v) for v in _r) if isinstance(_r, (list, tuple)) else _r)
+"""
+
+    if wrapper == "list-pair":
+        return f"""
+import sys as _sys
+_d = _sys.stdin.read().split("\\n")
+_a = [int(x) for x in _d[0].split()] if _d and _d[0].strip() else []
+_b = [int(x) for x in _d[1].split()] if len(_d) > 1 and _d[1].strip() else []
+print({entry}(_a, _b))
+"""
+
+    if wrapper == "two-lines":
+        return f"""
+import sys as _sys
+_d = _sys.stdin.read().split("\\n")
+_a = _d[0].strip() if _d else ""
+_b = _d[1].strip() if len(_d) > 1 else ""
+print({entry}(_a, _b))
 """
 
     if wrapper == "lru":

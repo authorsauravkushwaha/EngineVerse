@@ -29,6 +29,7 @@
     <input type="hidden" name="identifier" value="{{ identifier or '' }}">
     <input type="hidden" name="otp_token" value="{{ otp_token }}">
     <input type="hidden" name="mfa_token" value="{{ otp_token }}">
+    <input type="hidden" name="remember" value="{{ '1' if remember else '' }}">
     {% if otp_choices|length > 1 %}
     <fieldset class="field"><legend>Send a new code by</legend>
       {% for choice in otp_choices %}
@@ -45,6 +46,8 @@
     <input type="hidden" name="next" value="{{ next or '/' }}">
     <input type="hidden" name="identifier" value="{{ identifier or '' }}">
     <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
+    <input type="hidden" name="remember" value="{{ '1' if remember else '' }}">
+    <input type="hidden" name="remember" value="{{ '1' if remember else '' }}">
     <div class="field"><label for="otp">Authenticator code</label>
       <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="32" autofocus></div>
     <p class="small muted">A recovery code works here too. It can be used once.</p>
@@ -59,7 +62,10 @@
              maxlength="254" autofocus></div>
     <div class="field"><label for="password">Password</label>
       <input id="password" name="password" type="password" required autocomplete="current-password"></div>
-    <label class="checkbox"><input type="checkbox" name="remember" value="1" checked> Keep me signed in</label>
+    <label class="checkbox"><input type="checkbox" name="remember" value="1"
+      {{ 'checked' if remember is not defined or remember }}> Keep me signed in on this device</label>
+    <p class="tiny muted">Unticked, this browser is signed in for {{ short_session_hours }} hours instead of
+      {{ long_session_days }} days.</p>
     <button class="btn btn-primary btn-block" type="submit">Sign in</button>
   </form>
   {% endif %}
