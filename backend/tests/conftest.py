@@ -16,6 +16,20 @@ for entry in (str(BACKEND), str(REPO_ROOT)):
     if entry not in sys.path:
         sys.path.insert(0, entry)
 
+# Hundreds of pre-existing tests exercise password-only login. OTP-specific
+# tests opt into the required mode explicitly with monkeypatch.
+#
+# This has to be set while the conftest is imported, before pytest imports the
+# test modules, and not inside a fixture. engineverse.config reads the
+# repository's .env into the environment with os.environ.setdefault the first
+# time it is imported, and the test modules import it during collection, so a
+# fixture that ran later would find the variable already set: a working copy
+# made with `cp .env.example .env` asks for a code at every sign-in, and every
+# shared sign-in fixture would be answered with 401. Setting it here still lets
+# an explicitly exported ENGINEVERSE_LOGIN_OTP win, because .env is loaded with
+# setdefault too.
+os.environ.setdefault("ENGINEVERSE_LOGIN_OTP", "disabled")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _isolated_database(tmp_path_factory):
@@ -26,9 +40,6 @@ def _isolated_database(tmp_path_factory):
     os.environ["ENGINEVERSE_DB_PATH"] = str(db_path)
     os.environ["ENGINEVERSE_SECRET"] = "test-secret-key-for-pytest-only-0123456789"
     os.environ["ENGINEVERSE_ENV"] = "test"
-    # Hundreds of pre-existing tests exercise password-only login. OTP-specific
-    # tests opt into the required mode explicitly.
-    os.environ.setdefault("ENGINEVERSE_LOGIN_OTP", "disabled")
 
     from engineverse import config
 
