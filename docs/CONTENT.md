@@ -92,10 +92,11 @@ curriculum_subjects 2836 · subjects 93 · modules 93 · topics 313 · notes 125
 note_sections 8138 · diagrams 313 · models_3d 313 · formulas 272 · questions 432
 question_options 1728 · dpp_sets 87 · dpp_questions 435 · programming_languages 9
 language_modules 68 · language_stages 27 · language_checkpoints 81
-coding_problems 13 · coding_problem_stubs 16 · coding_testcases 54 · projects 16
+coding_problems 95 · coding_sheets 12 · coding_sheet_problems 125 ·
+coding_problem_stubs 98 · coding_testcases 403 · projects 16
 project_steps 92 · project_resources 27 · videos 400 · books 395 · resources 544
 roadmaps 5 · roadmap_nodes 57 · flashcards 281 · plans 3 · site_config 12
-badges 12 · search index 3199
+badges 12 · search index 3281
 ```
 
 Every active branch has at least one published subject, every published subject
@@ -140,6 +141,31 @@ Section bodies are assembled from the original and expanded topic entries, and
 the coverage tests assert all thirteen sections on every standard note. Notes are
 keyed by topic slug; `seed.py` raises if authored content names a topic that no
 longer exists, so a renamed topic cannot silently drop content.
+
+### The coding bank
+
+Problems live in three authored modules and are assembled by `seed.py`:
+
+| Module | Holds |
+|---|---|
+| `seed_data/practice_data.py` | The 13 original problems, with their hand-written stubs and wrappers. |
+| `seed_data/coding_core.py` | 44 interview-pattern problems (arrays, windows, trees, graphs, DP, SQL). |
+| `seed_data/coding_streams.py` | 38 problems written for a branch: signals, control, surveying, process calculations and the like. Each names its audience category. |
+| `seed_data/coding_sheets.py` | The 12 curated sheets: title, audience categories, estimated hours and the ordered problem slugs. |
+
+`scripts/check_problems.py` runs every reference solution against its own test
+cases through the same wrapper the judge uses, so an expected output that no
+correct program can produce fails in the scripts rather than in a learner's
+editor. `--sheets` additionally asserts that every problem in the bank appears in
+at least one sheet. A sheet that names a slug outside the bank is refused by
+`coding_sheets.validate()` at seed time.
+
+A new problem needs a test case, an entry point and a reference solution; a
+problem whose input is not one of the wrapper shapes also needs a wrapper in
+`engineverse/drivers.py` (see above). It does *not* carry an XP value: XP is
+decided by the judge result (30 first accepted, 8 on a later accepted run, 3 for
+a wrong answer), so the same problem pays the same amount whichever sheet it is
+reached through.
 
 ```bash
 python scripts/seed.py --fresh    # drop and rebuild

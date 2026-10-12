@@ -68,14 +68,24 @@ what is seeded today, not a completeness guarantee.
 | **Diagrams and models** | 313 topic-linked SVG diagrams and 313 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
 | **Practice** | 432 active questions and 87 published Daily Practice Problem sets (435 slots); every active question, all 93 subjects and all nine language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
 | **Programming paths** | 9 learning paths and 68 public, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, Go, Rust and SQL. Each path is staged — Foundations, then Working Practice, then Advanced Engineering — across 27 stages, and each stage ends with three checkpoint questions (81 total) answered through the normal practice flow, with feedback, explanation and XP only after submission. |
-| **Coding practice** | 13 problems with language stubs and test cases. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
+| **Coding practice** | 95 problems with language stubs and test cases, grouped into 12 curated sheets (arrays, two pointers and windows, stacks and search, linked lists, trees and heaps, graphs, dynamic programming, SQL and stream sets) plus a 30-problem interview set. Every problem appears in at least one sheet, and every sheet is reachable at `/sheets` in a recommended order with hints, editorials and progress. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
+| **My stream** | Each branch has a study hub at `/stream/{slug}` that gathers the subjects, notes, formula sheets, flashcards, question mix, sheets and projects that branch actually has, with the counts taken from the database rather than promised. `/stream` opens on the branch saved in the profile and `/streams` switches between them, so a signed-out visitor can look too. Every stream also reaches the branch-neutral pattern sheets and the interview set, so no branch gets an empty page. |
 | **Projects** | 16 project briefs with ordered steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent — including a substantial capstone brief linked to each of the nine language paths. |
 | **Revision and roadmaps** | 281 public flashcards are browsable at `/flashcards` and searchable without indexing their answers; personal SM-2 schedules are at `/revision`. The seed also includes 5 roadmaps and 57 roadmap nodes. |
 | **Study helper** | A retrieval-grounded tutor that composes answers from EngineVerse's own indexed material and cites its sources. It does not make an external model call by default and should say when the catalogue has no relevant coverage. |
 
+Studying does not require leaving the site. Notes, worked examples, diagrams and
+3D models, formula sheets, flashcards, the practice bank, the coding judge and
+the projects are all served from this application, and `/resources` is a
+directory of those in-app shelves rather than a page of outbound links. An older
+shelf of external reading still exists at `/resources/offsite` and is labelled as
+optional: no navigation, lesson or practice flow depends on it, and a deployment
+that never visits it loses no learning material.
+
 The generated [curriculum coverage report](docs/CURRICULUM_COVERAGE.md) lists the
-current snapshot by branch. Use `python scripts/coverage_report.py` after seeding
-to regenerate it for a database. Do not read the counts as evidence that every
+current snapshot by branch and by stream. Use
+`python scripts/coverage_report.py` after seeding to regenerate it for a
+database. Do not read the counts as evidence that every
 subject has a complete semester or degree curriculum.
 
 ## Practical programming

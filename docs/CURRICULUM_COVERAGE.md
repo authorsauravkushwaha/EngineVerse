@@ -25,7 +25,8 @@ production content unless you just generated it from that database.
 - Published DPP question slots: 435
 - Subjects represented in published DPPs: 93
 - Language tracks represented in published DPPs: 9
-- Coding problems: 13
+- Coding problems: 95
+- Curated coding sheets: 12 (125 problem slots; 0 problems in no sheet)
 - Programming languages: 9
 - Language modules: 68 (68 assigned to a stage)
 - Language stages: 27
@@ -34,6 +35,26 @@ production content unless you just generated it from that database.
 - Project steps: 92
 - Project resources: 27
 - Language-linked capstone briefs: 9
+
+## Coding sheets by stream
+
+Each row is one branch category. A sheet is reachable from a stream when it
+is written for everyone or names that category; the problem count is the
+distinct bank problems those sheets reach, so a problem in two sheets is
+counted once.
+
+| Stream | Sheets | Problems reachable |
+|---|---:|---:|
+| Computer Science & IT | 10 | 77 |
+| Electronics & Electrical | 10 | 80 |
+| Mechanical & Manufacturing | 9 | 74 |
+| Civil & Infrastructure | 8 | 65 |
+| Chemical & Materials | 10 | 80 |
+| Bio & Other Engineering | 9 | 73 |
+
+A stream with no sheet of its own still gets the sheets written for every
+branch - the pattern sheets and the interview set - so a learner is never left
+with an empty page.
 
 ## Programming paths
 
