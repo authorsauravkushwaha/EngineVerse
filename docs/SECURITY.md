@@ -157,9 +157,16 @@ replayed proof must not create another authenticated action:
   clipboard feature should require a direct user gesture, show the destination,
   and never poll or silently replace copied content.
 
-## Compulsory sign-in codes
+## Sign-in factors
 
-When `ENGINEVERSE_LOGIN_OTP=required` (the default), a successful password
+The default is password-only sign-in: a successful password check creates the
+session directly. Two opt-in factors exist. An enrolled TOTP authenticator
+(Settings -> Security) is per account and needs no outbound transport. Setting
+`ENGINEVERSE_LOGIN_OTP=required` instead adds a delivered six-digit code to every
+account's password sign-in, and production refuses to start in that mode without
+a transport to deliver it.
+
+When `ENGINEVERSE_LOGIN_OTP=required`, a successful password
 match for an account without an enrolled TOTP authenticator starts a second,
 short-lived six-digit challenge. The site remains publicly readable; this is a
 sign-in control, not a site-wide gate. An enrolled TOTP authenticator satisfies

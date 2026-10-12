@@ -221,6 +221,13 @@ def public_paths() -> list[str]:
     problems, _total = coding.list_problems(limit=400)
     paths += [f"/practice/problems/{row['slug']}" for row in problems]
     paths.append("/practice/problems")
+    # The nav's "My stream" and "Sheets" entries point here, and the exported
+    # copy renders anonymously: /stream answers a signed-out visitor with a
+    # redirect, so the stream index and every stream page are exported directly
+    # and the nav links resolve to pages rather than to a redirect target.
+    paths += ["/streams", "/sheets", "/resources/offsite"]
+    paths += [f"/stream/{row['slug']}" for row in catalog.list_branches()]
+    paths += [f"/sheets/{row['slug']}" for row in coding.list_sheets(limit=100)]
     # /revision (signed-in) and /flashcards (anonymous) are the two faces of the
     # nav's "Revise" tab; the static copy renders anonymously, so its nav points
     # at /flashcards and that page has to exist or every nav link dangles.

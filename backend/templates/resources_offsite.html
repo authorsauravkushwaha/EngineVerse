@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Optional external reading — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<nav class="crumbs"><a href="/resources">Resources</a> › <span>Optional external reading</span></nav>
+<h1>Optional external reading</h1>
+<div class="callout warning">
+  <span class="label">You do not need any of this</span>
+  Every graded problem, note, formula sheet, flashcard and project brief lives inside {{ brand.site_name }}.
+  This page exists for readers who want the official documentation or an open textbook alongside the notes, and
+  nothing in the learning path links to it. These entries leave the site in a new tab.
+</div>
+<p class="muted">Official documentation, free courses and tools. Nothing pirated, nothing behind a paywall we
+  cannot justify.</p>
+<div class="chips-row">
+  <a class="chip {{ 'on' if not active_kind }}" href="/resources/offsite">All</a>
+  {% for k in kinds %}<a class="chip {{ 'on' if active_kind == k.kind }}" href="/resources/offsite?kind={{ k.kind }}">{{ k.kind }} ({{ k.count }})</a>{% endfor %}
+</div>
+<div class="grid g3">
+  {% for r in resources %}
+    <a class="card" href="{{ r.url }}" target="_blank" rel="noopener noreferrer nofollow">
+      <span class="title">{{ r.title }}</span><span class="desc">{{ r.description }}</span>
+      <div class="tags"><span class="chip accent">{{ r.kind }}</span>
+        <span class="chip">{{ r.level }}</span>
+        <span class="chip {{ 'ok' if r.is_free else '' }}">{{ 'Free' if r.is_free else 'Paid' }}</span></div>
+    </a>
+  {% else %}<div class="empty"><span class="em">🔍</span>Nothing here yet.</div>{% endfor %}
+</div>
+{% include "_pager.html" %}
+{% endblock %}

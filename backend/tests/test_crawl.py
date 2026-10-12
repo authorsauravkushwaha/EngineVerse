@@ -56,6 +56,8 @@ PARAM_SOURCES = {
     "/programming/{language}": "SELECT slug AS language FROM programming_languages",
     "/projects/{slug}": "SELECT slug FROM projects",
     "/roadmaps/{slug}": "SELECT slug FROM roadmaps",
+    "/sheets/{slug}": "SELECT slug FROM coding_sheets",
+    "/stream/{slug}": "SELECT slug FROM branches",
     "/subjects/{slug}": "SELECT slug FROM subjects",
     "/topics/{slug}": "SELECT slug FROM topics",
 }
@@ -67,8 +69,11 @@ def _every_url() -> list[str]:
         name = pattern.rsplit("{", 1)[1].rstrip("}")
         for row in db.query(sql):
             urls.append(pattern.replace("{" + name + "}", str(row[name])))
-    # Deep enough to reach the last page of every paginated shelf.
+    # Deep enough to reach the last page of every paginated shelf. /resources
+    # itself is the in-app directory now; the paginated link shelf it forwards
+    # to for ?page= is at /resources/offsite.
     urls += [f"/resources?page={page}" for page in range(1, 20)]
+    urls += [f"/resources/offsite?page={page}" for page in range(1, 20)]
     urls += [f"/books?page={page}" for page in range(1, 15)]
     urls += [f"/videos?page={page}" for page in range(1, 15)]
     return urls

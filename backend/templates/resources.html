@@ -1,22 +1,89 @@
 {% extends "base.html" %}
 {% block title %}Resources — {{ brand.site_name }}{% endblock %}
+{% block description %}Every subject, note, question, problem, formula sheet, flashcard and project brief on {{ brand.site_name }}, by engineering stream.{% endblock %}
 {% block content %}
-<h1>Resources</h1>
-<p class="muted">Official documentation, free courses and tools. Nothing pirated, nothing behind a paywall we
-  cannot justify.</p>
-<div class="chips-row">
-  <a class="chip {{ 'on' if not active_kind }}" href="/resources">All</a>
-  {% for k in kinds %}<a class="chip {{ 'on' if active_kind == k.kind }}" href="/resources?kind={{ k.kind }}">{{ k.kind }} ({{ k.count }})</a>{% endfor %}
+<div class="between mb">
+  <div>
+    <h1>Resources</h1>
+    <p class="muted">Everything you need for your degree is already on this site. Pick your stream and it opens
+      with your subjects, notes, practice sets and projects in one place.</p>
+  </div>
+  <a class="btn btn-ghost" href="{{ '/stream' if user else '/streams' }}">
+    {{ 'My stream' if user else 'Find my stream' }}</a>
 </div>
-<div class="grid g3">
-  {% for r in resources %}
-    <a class="card" href="{{ r.url }}" target="_blank" rel="noopener noreferrer nofollow">
-      <span class="title">{{ r.title }}</span><span class="desc">{{ r.description }}</span>
-      <div class="tags"><span class="chip accent">{{ r.kind }}</span>
-        <span class="chip">{{ r.level }}</span>
-        <span class="chip {{ 'ok' if r.is_free else '' }}">{{ 'Free' if r.is_free else 'Paid' }}</span></div>
-    </a>
-  {% else %}<div class="empty"><span class="em">🔍</span>Nothing here yet.</div>{% endfor %}
-</div>
-{% include "_pager.html" %}
+
+<section class="statgrid mb">
+  <a class="stat" href="/explore"><span class="v">{{ totals.subjects }}</span><span class="k">Subjects</span></a>
+  <a class="stat" href="/explore"><span class="v">{{ totals.notes }}</span><span class="k">Notes</span></a>
+  <a class="stat" href="/practice/questions"><span class="v">{{ totals.questions }}</span><span class="k">Questions</span></a>
+  <a class="stat" href="/practice/problems"><span class="v">{{ totals.problems }}</span><span class="k">Coding problems</span></a>
+  <a class="stat" href="/sheets"><span class="v">{{ totals.sheets }}</span><span class="k">Sheets</span></a>
+  <a class="stat" href="/flashcards"><span class="v">{{ totals.flashcards }}</span><span class="k">Flashcards</span></a>
+  <a class="stat" href="/formulas"><span class="v">{{ totals.formulas }}</span><span class="k">Formulas</span></a>
+  <a class="stat" href="/projects"><span class="v">{{ totals.projects }}</span><span class="k">Projects</span></a>
+  <a class="stat" href="/roadmaps"><span class="v">{{ totals.roadmaps }}</span><span class="k">Roadmaps</span></a>
+</section>
+
+<section class="mb">
+  <h2>By stream</h2>
+  <p class="muted small">Each stream page collects that branch's subjects, notes, coding sheets, question bank,
+    formulas, flashcards, projects and roadmaps. Pick yours; the rest stay one click away.</p>
+  <div class="grid g3">
+    {% for group in categories %}
+      <div class="panel">
+        <h3>{{ group.name }}</h3>
+        <ul class="list">
+          {% for branch in group.branches %}
+          <li>
+            <a href="/stream/{{ branch.slug }}"><strong>{{ branch.name }}</strong></a>
+            {% if branch.id == my_branch %}<span class="chip ok">Yours</span>{% endif %}
+            <div class="tiny muted">{{ branch.subjects }} subjects · {{ branch.notes }} notes ·
+              {{ branch.questions }} questions{% if branch.formulas %} · {{ branch.formulas }} formulas{% endif %}</div>
+          </li>
+          {% endfor %}
+        </ul>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+
+<section class="mb">
+  <h2>Browse by kind</h2>
+  <div class="grid g3">
+    <a class="card" href="/explore"><span class="title">Subjects and notes</span>
+      <span class="desc">The full catalogue, four reading depths per topic, from a first look to an industry note.</span></a>
+    <a class="card" href="/practice/questions"><span class="title">Question bank</span>
+      <span class="desc">Multiple choice, numericals, conceptual, debugging and interview questions, filterable by
+        subject and kind.</span></a>
+    <a class="card" href="/practice/problems"><span class="title">Coding problems</span>
+      <span class="desc">A real judge in the browser: run against the samples, submit against every test, keep the
+        verdict.</span></a>
+    <a class="card" href="/sheets"><span class="title">Practice sheets</span>
+      <span class="desc">Curated sets by pattern and by stream, including an interview core of thirty.</span></a>
+    <a class="card" href="/programming"><span class="title">Language paths</span>
+      <span class="desc">Staged modules with checkpoints from foundations to advanced engineering work.</span></a>
+    <a class="card" href="/dpp"><span class="title">Daily practice</span>
+      <span class="desc">A fresh mixed set each day, with a full archive to work through.</span></a>
+    <a class="card" href="/formulas"><span class="title">Formula centre</span>
+      <span class="desc">Searchable formulas with variables, units and where each one applies.</span></a>
+    <a class="card" href="/flashcards"><span class="title">Flashcards and revision</span>
+      <span class="desc">Public decks to browse, spaced repetition once you sign in.</span></a>
+    <a class="card" href="/projects"><span class="title">Projects</span>
+      <span class="desc">Briefs with ordered steps, skills and a capstone for each language path.</span></a>
+    <a class="card" href="/roadmaps"><span class="title">Roadmaps</span>
+      <span class="desc">Term-by-term and career paths, with the steps written out.</span></a>
+    <a class="card" href="/placements"><span class="title">Placement preparation</span>
+      <span class="desc">Interview sets, company patterns and the sheet that covers them.</span></a>
+    <a class="card" href="/tutor"><span class="title">Study tutor</span>
+      <span class="desc">Answers composed only from this site's own material, with its sources cited.</span></a>
+  </div>
+</section>
+
+<section class="panel">
+  <h3>Optional external reading</h3>
+  <p class="muted small">The {{ offsite_total }} official documentation sites, open textbooks and tool pages the
+    catalogue keeps are listed separately and clearly marked. Nothing in the learning path needs them, and no
+    graded work sends you away from this site.</p>
+  <p><a class="btn btn-soft btn-sm" href="/resources/offsite">Open optional external reading</a></p>
+</section>
 {% endblock %}

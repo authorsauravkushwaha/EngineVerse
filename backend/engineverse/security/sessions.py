@@ -52,13 +52,39 @@ def _hash_token(token: str) -> str:
     ).hexdigest()
 
 
-def create_session(user_id: str, *, ip: str | None = None, user_agent: str | None = None) -> tuple[str, str]:
+def session_lifetime_seconds(remember: bool) -> int:
+    """How long a new sign-in should last.
+
+    Ticking "keep me signed in" gets the configured long lifetime (30 days by
+    default). Leaving it unticked gets a short one, so a session created on a
+    shared or borrowed machine stops working the same day instead of a month
+    later. Either way the number is used for both the session row's absolute
+    expiry and the cookie's ``Max-Age``, so a cookie cannot outlive its row.
+    """
+    settings = get_settings()
+    if remember:
+        return settings.session_max_age_days * _DAY // 1000
+    return max(1, settings.session_short_hours) * 3600
+
+
+def create_session(
+    user_id: str,
+    *,
+    ip: str | None = None,
+    user_agent: str | None = None,
+    lifetime_seconds: int | None = None,
+) -> tuple[str, str]:
     """Creates a session row and returns ``(cookie_value, session_id)``."""
     session_id = ulid()
     token = os.urandom(32).hex()
     created = now_ms()
     settings = get_settings()
-    expires = created + settings.session_max_age_days * _DAY
+    seconds = (
+        settings.session_max_age_days * _DAY // 1000
+        if lifetime_seconds is None
+        else max(60, int(lifetime_seconds))
+    )
+    expires = created + seconds * 1000
     db.execute(
         "INSERT INTO sessions (id, token_hash, user_id, created_at, expires_at, last_seen_at, ip, user_agent) "
         "VALUES (?,?,?,?,?,?,?,?)",
@@ -170,9 +196,15 @@ def public_cookie_kwargs(max_age_seconds: int) -> dict:
     }
 
 
-def attach_session_cookie(response: Response, cookie_value: str) -> None:
+def attach_session_cookie(response: Response, cookie_value: str, *, max_age_seconds: int | None = None) -> None:
+    """Sets the session cookie, with a lifetime matching its session row."""
     settings = get_settings()
-    response.set_cookie(SESSION_COOKIE, cookie_value, **cookie_options(settings.session_max_age_days * 86_400))
+    seconds = (
+        settings.session_max_age_days * 86_400
+        if max_age_seconds is None
+        else max(60, int(max_age_seconds))
+    )
+    response.set_cookie(SESSION_COOKIE, cookie_value, **cookie_options(seconds))
 
 
 def clear_session_cookie(response: Response) -> None:

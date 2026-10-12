@@ -55,8 +55,13 @@
     </a>
 
     <nav class="mainnav" aria-label="Main">
+      {# "My stream" is the way into the catalogue for a student who thinks in
+         terms of their branch rather than in terms of subjects. It is the first
+         item because it is the one that answers "where is my course?" #}
+      <a href="{{ '/stream' if user else '/streams' }}" class="{{ 'on' if path.startswith('/stream') }}">My stream</a>
       <a href="/explore" class="{{ 'on' if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}">Learn</a>
       <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}">Practice</a>
+      <a href="/sheets" class="{{ 'on' if path.startswith('/sheets') }}">Sheets</a>
       <a href="/programming" class="{{ 'on' if path.startswith('/programming') }}">Code</a>
       <a href="/projects" class="{{ 'on' if path.startswith('/projects') }}">Projects</a>
       <a href="{{ '/revision' if user else '/flashcards' }}" class="{{ 'on' if path.startswith('/revision') or path.startswith('/flashcards') or path.startswith('/formulas') or path.startswith('/roadmaps') }}">Revise
@@ -67,7 +72,7 @@
     </nav>
 
     <form class="searchbox" action="/search" method="get" role="search">
-      <input type="search" name="q" value="{{ query.get('q', '') }}" placeholder="Search notes, cards, code, projects..."
+      <input type="search" name="q" value="{{ query.get('q', '') }}" placeholder="Search notes, problems, sheets..."
              autocomplete="off" aria-label="Search {{ brand.site_name }}" id="global-search">
       <button type="submit" aria-label="Search">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
@@ -100,7 +105,7 @@
           <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></a>{% endif %}
         <div class="menu" data-menu>
-          <button class="avatar" aria-haspopup="true" aria-expanded="false">{{ user.initial }}</button>
+          <button class="avatar" aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ user.username }}">{{ user.initial }}</button>
           <div class="menu-pop" role="menu">
             <div class="menu-head">
               <strong>{{ user.full_name }}</strong>
@@ -117,6 +122,17 @@
             </form>
           </div>
         </div>
+        {# The two controls below are the plain-text answer to "am I signed in?".
+           A learner who has just signed in should not have to discover that the
+           answer is hidden behind an avatar they have to click. #}
+        <a class="whoami" href="/profile" title="Signed in as @{{ user.username }}">
+          <span class="whoami-name">{{ user.username }}</span>
+          <span class="whoami-label">Profile</span>
+        </a>
+        <form method="post" action="/logout" class="inline-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-soft btn-sm" type="submit">Sign out</button>
+        </form>
       {% else %}
         <a class="btn btn-ghost" href="/login">Sign in</a>
         <a class="btn btn-primary" href="/register">Start free</a>
@@ -148,16 +164,18 @@
     </div>
     <div>
       <h4>Learn</h4>
+      <a href="{{ '/stream' if user else '/streams' }}">My stream</a>
       <a href="/explore">All subjects</a>
       <a href="/formulas">Formula centre</a>
-      <a href="/videos">Video library</a>
-      <a href="/books">Books</a>
       <a href="/resources">Resources</a>
+      <a href="/videos">Video library</a>
+      <a href="/books">Reference list</a>
     </div>
     <div>
       <h4>Practise</h4>
       <a href="/dpp">Daily practice</a>
       <a href="/practice/problems">Coding problems</a>
+      <a href="/sheets">Practice sheets</a>
       <a href="/programming">Learn to code</a>
       <a href="/mistakes">Mistake notebook</a>
       <a href="/revision">Flashcards</a>
@@ -202,17 +220,17 @@
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
     Home
   </a>
-  <a href="/explore" class="{{ 'on' if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}" {% if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') %}aria-current="page"{% endif %}>
+  <a href="{{ '/stream' if user else '/streams' }}" class="{{ 'on' if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}" {% if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') %}aria-current="page"{% endif %}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 19.5V6.2A2.2 2.2 0 0 1 6.2 4H20v15.5"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg>
-    Learn
+    My stream
   </a>
   <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}" {% if path.startswith('/practice') or path.startswith('/dpp') %}aria-current="page"{% endif %}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
     Practice
   </a>
-  <a href="/projects" class="{{ 'on' if path.startswith('/projects') }}" {% if path.startswith('/projects') %}aria-current="page"{% endif %}>
+  <a href="/sheets" class="{{ 'on' if path.startswith('/sheets') or path.startswith('/projects') }}" {% if path.startswith('/sheets') or path.startswith('/projects') %}aria-current="page"{% endif %}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 7l3-3 4 4-3 3"/><path d="M13 8 4.5 16.5a2 2 0 0 0 0 2.8l.2.2a2 2 0 0 0 2.8 0L16 11"/></svg>
-    Projects
+    Sheets
   </a>
   <a href="{% if user %}/profile{% else %}/login{% endif %}" class="{{ 'on' if path.startswith('/profile') or path.startswith('/settings') or path.startswith('/login') }}">
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 19.2a7 7 0 0 1 14 0"/></svg>

@@ -202,6 +202,18 @@ strong, b { font-weight: 720; }
   width: 36px; height: 36px; border-radius: 50%; background: var(--surface); color: var(--accent-ink);
   border: 1px solid var(--edge); font-weight: 750; cursor: pointer; font-size: .95rem; box-shadow: var(--neu-sm);
 }
+/* The signed-in identity, stated in words rather than hidden behind an avatar:
+   a learner who has just signed in should be able to see that they are signed
+   in. On narrow screens the name is dropped and the label carries the meaning. */
+.whoami {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 0;
+  padding: 5px 10px; border-radius: 12px; background: var(--well); line-height: 1.15;
+  box-shadow: var(--neu-in-sm); text-decoration: none; max-width: 150px;
+}
+.whoami:hover { text-decoration: none; }
+.whoami-name { font-size: .84rem; font-weight: 700; color: var(--text); overflow: hidden; text-overflow: ellipsis; max-width: 130px; }
+.whoami-label { font-size: .68rem; color: var(--accent-ink); font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+.inline-form { display: inline; margin: 0; }
 .menu { position: relative; }
 .menu-pop {
   position: absolute; right: 0; top: calc(100% + 10px); width: 230px; background: var(--surface);
@@ -840,6 +852,8 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
   .topbar.open .mainnav a { padding: 11px 14px; }
   .searchbox { max-width: none; }
   .streak span, .xpchip .xpv { display: none; }
+  .whoami-name { display: none; }
+  .whoami { padding: 6px 9px; }
   .bottomnav {
     display: flex; position: fixed; z-index: 90;
     left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));

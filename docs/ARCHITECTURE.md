@@ -9,9 +9,9 @@ runs on hardware you control.
                         ┌────────────────────────────────────────────┐
    browser / PWA ──────►│  Python (FastAPI + Jinja2 SSR)             │
    (no build step)      │                                            │
-                        │  web/pages.py       ~50 server-rendered    │
+                        │  web/pages.py       52 server-rendered     │
                         │  web/auth_pages.py  auth + settings + CMS  │
-                        │  web/api.py         37 JSON endpoints      │
+                        │  web/api.py         38 JSON endpoints      │
                         │  engineverse/*      services & domain      │
                         └───────┬───────────────────────┬────────────┘
                                 │                       │
@@ -62,7 +62,8 @@ rest of the codebase sees.
 | `engineverse/catalog.py` | Branches → subjects → topics → notes → diagrams → 3D models → formulas |
 | `engineverse/models3d.py` | The 3D scene vocabulary and its validator |
 | `engineverse/practice.py` | Questions, DPP sets, grading, the mistake notebook |
-| `engineverse/coding.py` | Coding problems, stubs, run/submit, XP awards |
+| `engineverse/hub.py` | The per-stream study hub: which subjects, sheets, projects and readings a branch gets |
+| `engineverse/coding.py` | Coding problems, curated sheets, stubs, run/submit, XP awards |
 | `engineverse/drivers.py` | The stdin/stdout harness appended to each submission |
 | `engineverse/judge/` | Sandbox providers: local, Java bridge, Judge0 |
 | `engineverse/library.py` | Videos, books, resources, flashcards |

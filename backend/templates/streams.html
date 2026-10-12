@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Engineering streams — {{ brand.site_name }}{% endblock %}
+{% block description %}Every engineering stream EngineVerse covers, with the subjects, notes, practice and projects behind it.{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div>
+    <h1>Engineering streams</h1>
+    <p class="muted">Pick your branch and get its subjects, notes, coding sheets, formulas and projects on one
+      page. Nothing here sends you to another website.</p>
+  </div>
+  {# Signed in, "My stream" is one click away. Signed out, this page *is* the
+     chooser, so the button would only link back to itself. #}
+  {% if user %}<a class="btn btn-ghost" href="/stream">My stream</a>{% endif %}
+</div>
+
+{% if my_branch %}
+<p class="small muted">Your profile says <strong>{{ my_branch.name }}</strong>.
+  <a href="/stream/{{ my_branch.slug }}">Open your hub</a> · <a href="/settings#path">Change stream</a></p>
+{% else %}
+<p class="small muted">Set your stream in <a href="/onboarding">onboarding</a> or
+  <a href="/settings#path">Settings</a> and this site will remember it for you.</p>
+{% endif %}
+
+{% for group in categories %}
+<section class="mb">
+  <h2>{{ group.name }}</h2>
+  <div class="grid g3">
+    {% for branch in group.branches %}
+      <div class="card">
+        <a class="card-body" href="/stream/{{ branch.slug }}">
+          <span class="title">{{ branch.name }}{% if my_branch and branch.id == my_branch.id %} <span class="chip ok">Yours</span>{% endif %}</span>
+          <span class="desc">{{ branch.description }}</span>
+        </a>
+        <div class="tags">
+          <span class="chip accent">{{ branch.subjects }} subjects</span>
+          <span class="chip">{{ branch.notes }} notes</span>
+          <span class="chip">{{ branch.questions }} questions</span>
+          {% if branch.projects %}<span class="chip">{{ branch.projects }} projects</span>{% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endfor %}
+
+<section class="panel">
+  <h3>Not sure which stream is yours?</h3>
+  <p class="muted small">Your branch is the one on your college enrolment - Computer Science Engineering,
+    Electronics &amp; Communication, Mechanical, Civil, Chemical, and so on. If your branch is missing from this
+    list, tell us with the feedback box in the footer and it gets added to the catalogue rather than to a
+    hard-coded page.</p>
+</section>
+{% endblock %}

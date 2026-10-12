@@ -20,10 +20,26 @@
       <span class="chip">{{ row.total }} questions</span></a>{% endfor %}</div></section>
 
 <section class="section"><h2>2. Coding rounds</h2>
-  <div class="grid g4">{% for p in problems[:16] %}
+  <p class="muted small">Work the sheets in order. Each one is a pattern rather than a random problem, which is
+    what makes the practice transfer.</p>
+  <div class="grid g3">
+    {% for sheet in interview_sheets %}
+    <div class="card">
+      <a class="card-body" href="/sheets/{{ sheet.slug }}">
+        <span class="title">{{ sheet.title }}</span>
+        <span class="desc">{{ sheet.blurb }}</span>
+      </a>
+      <div class="tags"><span class="chip accent">{{ sheet.problem_count }} problems</span>
+        <span class="chip">{{ sheet.est_hours }}h</span></div>
+    </div>
+    {% endfor %}
+  </div>
+  <h3 class="mt">Individual problems</h3>
+  <div class="grid g4">{% for p in problems[:12] %}
     <a class="card" href="/practice/problems/{{ p.slug }}"><span class="title">{{ p.title }}</span>
       <span class="chip diff-{{ p.difficulty }}">{{ p.difficulty }}</span></a>{% endfor %}</div>
-  <a class="btn btn-ghost mt" href="/practice/problems">All problems →</a></section>
+  <a class="btn btn-ghost mt" href="/practice/problems">All problems →</a>
+  <a class="btn btn-ghost mt" href="/sheets">All sheets →</a></section>
 
 <section class="section"><h2>3. Projects to talk about</h2>
   <div class="grid g3">{% for p in projects %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Practice sheets — {{ brand.site_name }}{% endblock %}
+{% block description %}Curated problem sheets: arrays and hashing, two pointers, graphs, dynamic programming, plus the sets written for each engineering stream.{% endblock %}
+{% block content %}
+<div class="between mb">
+  <div>
+    <h1>Practice sheets</h1>
+    <p class="muted">Hand-picked, ordered sets of problems from the {{ total_problems }} in the bank. Work one top to
+      bottom, or jump straight to the sheet your stream needs.</p>
+  </div>
+  <a class="btn btn-ghost" href="/practice/problems">All problems</a>
+</div>
+
+{% if my_branch %}
+  <p class="small muted">Ordered for <strong>{{ my_branch.name }}</strong>, the stream on your profile.
+    <a href="/stream/{{ my_branch.slug }}">Open your study hub</a> · <a href="/settings#path">Change stream</a></p>
+{% else %}
+  <p class="small muted">Pick a stream in <a href="/settings#path">Settings</a> or during
+    <a href="/onboarding">onboarding</a> and this page will put your stream's sheets first.</p>
+{% endif %}
+
+<section class="mb">
+  <h2>{{ 'Sheets for your stream' if my_branch else 'Start here' }}</h2>
+  <div class="grid g3">
+    {% for sheet in my_sheets %}
+      <div class="card">
+        <a class="card-body" href="/sheets/{{ sheet.slug }}">
+          <span class="title">{{ sheet.title }}</span>
+          <span class="desc">{{ sheet.blurb }}</span>
+        </a>
+        <div class="tags">
+          <span class="chip accent">{{ sheet.problem_count }} problems</span>
+          <span class="chip">{{ sheet.est_hours }}h</span>
+          <span class="chip">{{ sheet.level }}</span>
+          {% if user and sheet.progress.total %}
+          <span class="chip {{ 'ok' if sheet.progress.percent == 100 else '' }}">{{ sheet.progress.solved }}/{{ sheet.progress.total }} solved</span>
+          {% endif %}
+        </div>
+        {% if user and sheet.progress.total %}
+        <div class="bar" role="img" aria-label="{{ sheet.progress.percent }}% solved">
+          <span style="width: {{ sheet.progress.percent }}%"></span>
+        </div>
+        {% endif %}
+      </div>
+    {% else %}
+      <div class="empty"><span class="em">📄</span>No sheets match that stream.</div>
+    {% endfor %}
+  </div>
+</section>
+
+{% if other_sheets %}
+<section class="mb">
+  <h2>Everything else</h2>
+  <p class="muted small">Not aimed at your stream, and still worth doing: the patterns here show up in every
+    engineering interview that asks you to write code.</p>
+  <div class="grid g3">
+    {% for sheet in other_sheets %}
+      <div class="card">
+        <a class="card-body" href="/sheets/{{ sheet.slug }}">
+          <span class="title">{{ sheet.title }}</span>
+          <span class="desc">{{ sheet.blurb }}</span>
+        </a>
+        <div class="tags">
+          <span class="chip">{{ sheet.problem_count }} problems</span>
+          <span class="chip">{{ sheet.est_hours }}h</span>
+          <span class="chip">{{ sheet.level }}</span>
+          {% if user and sheet.progress.total %}
+          <span class="chip {{ 'ok' if sheet.progress.percent == 100 else '' }}">{{ sheet.progress.solved }}/{{ sheet.progress.total }} solved</span>
+          {% endif %}
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+</section>
+{% endif %}
+
+<section class="panel">
+  <h3>How to use a sheet</h3>
+  <ol class="prose">
+    <li>Read the problem statement on the page. Every problem ships its own worked examples and, if you want them,
+      hints and a full editorial - nothing links out.</li>
+    <li>Write the solution in the in-app editor and press <strong>Run</strong> against the sample tests first.</li>
+    <li>Press <strong>Submit</strong> to run every test on the judge. Passing awards XP and marks the problem solved
+      on the sheet.</li>
+    <li>If a test fails, the verdict tells you which case failed and what was expected. Wrong attempts still earn
+      XP, because a wrong attempt you learned from is worth more than a skipped problem.</li>
+  </ol>
+</section>
+{% endblock %}

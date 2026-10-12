@@ -18,7 +18,7 @@ from .security.audit import record
 from .security.ids import now_ms, today, ulid
 from .security.passwords import check_password_strength, hash_password, needs_rehash, verify_password
 from .security.ratelimit import auth_blocked, register_login_attempt
-from .security.sessions import create_session
+from .security.sessions import create_session, session_lifetime_seconds
 
 DAY = 86_400_000
 
@@ -225,13 +225,19 @@ def register(
 # Login
 # --------------------------------------------------------------------------
 
-def _finish_login(row: dict, identifier: str, ip: str, user_agent: str) -> tuple[dict, str, str]:
+def _finish_login(
+    row: dict, identifier: str, ip: str, user_agent: str, *, remember: bool = True
+) -> tuple[dict, str, str]:
     ts = now_ms()
     db.execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, updated_at = ? WHERE id = ?", ts, row["id"])
     register_login_attempt(identifier, ip, True)
-    cookie_value, session_id = create_session(row["id"], ip=ip, user_agent=user_agent)
+    cookie_value, session_id = create_session(
+        row["id"], ip=ip, user_agent=user_agent,
+        lifetime_seconds=session_lifetime_seconds(remember),
+    )
     touch_streak(row["id"])
-    record("auth.login", actor_id=row["id"], entity_type="user", entity_id=row["id"], ip=ip)
+    record("auth.login", actor_id=row["id"], entity_type="user", entity_id=row["id"], ip=ip,
+           meta={"remembered": bool(remember)})
     user = {k: row[k] for k in ("id", "email", "username", "role", "status", "email_verified", "created_at")}
     return user, cookie_value, session_id
 
@@ -429,8 +435,15 @@ def login(
     user_agent: str = "",
     otp: str = "",
     mfa_token: str = "",
+    remember: bool = True,
 ) -> tuple[dict, str, str]:
-    """Verify a password and the enrolled second factor, if any."""
+    """Verify a password and the enrolled second factor, if any.
+
+    ``remember`` selects the session lifetime: the long one when the sign-in
+    form's "keep me signed in" box was ticked, the short one otherwise. It is
+    carried across the second-factor steps by the form that renders them, so a
+    code-confirmed sign-in keeps the same choice.
+    """
     from . import notify
     from .security import otp as delivered_otp
     from .security import totp
@@ -465,7 +478,7 @@ def login(
                     raise AuthError("That sign-in step expired or was already used. Start again.", 401,
                                     code="mfa_replayed")
                 _store_mfa_replacement(row, replacement)
-            return _finish_login(row, identifier, ip, user_agent)
+            return _finish_login(row, identifier, ip, user_agent, remember=remember)
 
         # If it was not an authenticator token, try the delivered-code purpose.
         challenge_row = totp.active_challenge(mfa_token, delivered_otp.LOGIN_PURPOSE)
@@ -486,7 +499,7 @@ def login(
             if result["status"] == "bad":
                 _reject_otp(row, identifier, ip, mfa_token, result)
             if result["status"] == "ok":
-                return _finish_login(row, identifier, ip, user_agent)
+                return _finish_login(row, identifier, ip, user_agent, remember=remember)
             if result["status"] == "exhausted":
                 raise AuthError("That sign-in code has been used too many times. Start again.", 401,
                                 code="otp_exhausted")
@@ -559,7 +572,7 @@ def login(
             raise MfaRequired(totp.issue_login_token(row["id"]))
     elif get_settings().login_otp_required:
         raise _begin_otp_challenge(row)
-    return _finish_login(row, identifier, ip, user_agent)
+    return _finish_login(row, identifier, ip, user_agent, remember=remember)
 
 
 def resend_login_otp(

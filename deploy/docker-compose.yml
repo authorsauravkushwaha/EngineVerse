@@ -37,13 +37,14 @@ services:
       ENGINEVERSE_ENV: production
       ENGINEVERSE_SITE_URL: ${ENGINEVERSE_SITE_URL:-${SITE_URL:?set ENGINEVERSE_SITE_URL or SITE_URL to the public https origin}}
       ENGINEVERSE_JUDGE: disabled
-      # Sign-in codes. The default stays "required": production refuses to boot
-      # when it is required and neither transport below is configured, which is
-      # the intended loud failure. A deployment that wants password-only
-      # sign-in sets ENGINEVERSE_LOGIN_OTP=disabled in deploy/.env deliberately.
-      # release runs the same production checks as the web process, so it needs
-      # these too or the boot check would refuse a correctly configured site.
-      ENGINEVERSE_LOGIN_OTP: ${ENGINEVERSE_LOGIN_OTP:-required}
+      # Sign-in codes. The default is "disabled" (password-only sign-in, which
+      # needs no transport). A deployment that wants a delivered code at every
+      # sign-in sets ENGINEVERSE_LOGIN_OTP=required in deploy/.env and must also
+      # configure one of the transports below: production refuses to boot when
+      # codes are required and neither is set. release runs the same production
+      # checks as the web process, so it needs these too or the boot check would
+      # refuse a correctly configured site.
+      ENGINEVERSE_LOGIN_OTP: ${ENGINEVERSE_LOGIN_OTP:-disabled}
       ENGINEVERSE_SMTP_URL: ${ENGINEVERSE_SMTP_URL:-}
       ENGINEVERSE_SMS_URL: ${ENGINEVERSE_SMS_URL:-}
       ENGINEVERSE_MAIL_FROM: "${ENGINEVERSE_MAIL_FROM:-EngineVerse <no-reply@localhost>}"
@@ -75,7 +76,7 @@ services:
       # production refuses to boot when codes are required and neither SMTP nor
       # SMS is configured, and a transport configured here but not there would
       # be delivered by one process and refused by the other.
-      ENGINEVERSE_LOGIN_OTP: ${ENGINEVERSE_LOGIN_OTP:-required}
+      ENGINEVERSE_LOGIN_OTP: ${ENGINEVERSE_LOGIN_OTP:-disabled}
       ENGINEVERSE_SMTP_URL: ${ENGINEVERSE_SMTP_URL:-}
       ENGINEVERSE_SMS_URL: ${ENGINEVERSE_SMS_URL:-}
       ENGINEVERSE_MAIL_FROM: "${ENGINEVERSE_MAIL_FROM:-EngineVerse <no-reply@localhost>}"

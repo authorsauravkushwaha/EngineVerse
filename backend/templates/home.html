@@ -6,10 +6,17 @@
   <div class="hero">
     <span class="hero-badge">{{ brand.tagline }}</span>
     <h1>Master engineering like you're training for the <span class="grad">real world</span>.</h1>
-    <p class="lead">Notes. Practice. Programming. Projects. DPPs. Career preparation. One engineering platform.</p>
+    <p class="lead">Notes, judged coding practice, daily problem sets, formula sheets, flashcards, projects and
+      placement preparation for every engineering stream - all of it on this site, so you never have to leave it to
+      study.</p>
     <div class="hero-cta">
-      <a class="btn btn-primary" href="/register">Start learning free</a>
-      <a class="btn btn-ghost" href="/explore">Explore engineering</a>
+      {% if user %}
+        <a class="btn btn-primary" href="/stream">Open my stream</a>
+        <a class="btn btn-ghost" href="/explore">Explore engineering</a>
+      {% else %}
+        <a class="btn btn-primary" href="/register">Start learning free</a>
+        <a class="btn btn-ghost" href="/streams">Find my stream</a>
+      {% endif %}
     </div>
     <p class="tiny muted hero-note">Core notes, practice and projects stay free. No third-party scripts. No trackers.</p>
     <div class="statgrid">

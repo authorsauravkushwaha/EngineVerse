@@ -18,11 +18,34 @@ for path in (ROOT, os.path.join(ROOT, "backend")):
     if path not in sys.path:
         sys.path.insert(0, path)
 
-from engineverse import db  # noqa: E402
+from engineverse import catalog, db  # noqa: E402
+
+# Order the stream sections the way the site lists them rather than
+# alphabetically, so the report reads like the navigation.
+CATEGORY_ORDER = ("core", "cse", "electronics", "mechanical", "civil", "chemical", "bio", "other")
 
 
 def _count(sql: str, *params: object) -> int:
     return int(db.scalar(sql, *params, default=0) or 0)
+
+
+def _audience_args(category: str) -> list[str]:
+    """Wildcards for one category inside the sheets' comma-separated audience.
+
+    A plain ``LIKE '%bio%'`` would match a sheet aimed at ``biotech``, so the
+    four cases (the whole value, first, last, middle) are spelled out.
+    """
+    return [category, f"{category},%", f"%,{category}", f"%,{category},%"]
+
+
+def _audience_sql(column: str = "audience") -> str:
+    return f"({column} = 'all' OR {column} = ? OR {column} LIKE ? OR {column} LIKE ? OR {column} LIKE ?)"
+
+
+def _has_sheets() -> bool:
+    """The sheet tables are newer than the original schema; an old database
+    simply does not have them, and the report says so instead of crashing."""
+    return db.table_exists("coding_sheets") and db.table_exists("coding_sheet_problems")
 
 
 def render() -> str:
@@ -64,6 +87,18 @@ def render() -> str:
             "WHERE d.published = 1"
         ),
         "coding_problems": _count("SELECT count(*) AS c FROM coding_problems"),
+        "coding_sheets": _count("SELECT count(*) AS c FROM coding_sheets WHERE status = 'published'")
+        if _has_sheets()
+        else 0,
+        "sheet_slots": _count("SELECT count(*) AS c FROM coding_sheet_problems") if _has_sheets() else 0,
+        # A problem in no sheet is invisible to anyone browsing by sheet rather
+        # than by difficulty, which is most learners, so it is called out.
+        "unplaced_problems": _count(
+            "SELECT count(*) AS c FROM coding_problems cp WHERE NOT EXISTS "
+            "(SELECT 1 FROM coding_sheet_problems sp WHERE sp.problem_id = cp.id)"
+        )
+        if _has_sheets()
+        else 0,
         "languages": _count("SELECT count(*) AS c FROM programming_languages"),
         "language_modules": _count("SELECT count(*) AS c FROM language_modules"),
         "staged_modules": _count(
@@ -118,6 +153,11 @@ def render() -> str:
         f"- Subjects represented in published DPPs: {totals['dpp_subjects']}",
         f"- Language tracks represented in published DPPs: {totals['dpp_languages']}",
         f"- Coding problems: {totals['coding_problems']}",
+        f"- Curated coding sheets: {totals['coding_sheets']} "
+        f"({totals['sheet_slots']} problem slots; "
+        f"{totals['unplaced_problems']} problems in no sheet)"
+        if _has_sheets()
+        else "- Curated coding sheets: this database predates the sheet tables",
         f"- Programming languages: {totals['languages']}",
         f"- Language modules: {totals['language_modules']} "
         f"({totals['staged_modules']} assigned to a stage)",
@@ -129,6 +169,52 @@ def render() -> str:
         f"- Project resources: {totals['project_resources']}",
         f"- Language-linked capstone briefs: {totals['capstones']}",
         "",
+        "## Coding sheets by stream",
+        "",
+        "Each row is one branch category. A sheet is reachable from a stream when it",
+        "is written for everyone or names that category; the problem count is the",
+        "distinct bank problems those sheets reach, so a problem in two sheets is",
+        "counted once.",
+        "",
+        "| Stream | Sheets | Problems reachable |",
+        "|---|---:|---:|",
+    ]
+    if _has_sheets():
+        present = [
+            row["category"]
+            for row in db.query(
+                "SELECT DISTINCT category FROM branches WHERE is_active = 1 AND category IS NOT NULL"
+            )
+        ]
+        present.sort(
+            key=lambda key: (
+                CATEGORY_ORDER.index(key) if key in CATEGORY_ORDER else len(CATEGORY_ORDER),
+                key,
+            )
+        )
+        for category in present:
+            args = _audience_args(category)
+            sheets = _count(
+                "SELECT count(*) AS c FROM coding_sheets WHERE status = 'published' AND "
+                + _audience_sql(),
+                *args,
+            )
+            reachable = _count(
+                "SELECT count(DISTINCT sp.problem_id) AS c FROM coding_sheet_problems sp "
+                "JOIN coding_sheets s ON s.id = sp.sheet_id "
+                "JOIN coding_problems cp ON cp.id = sp.problem_id "
+                "WHERE s.status = 'published' AND " + _audience_sql("s.audience"),
+                *args,
+            )
+            lines.append(f"| {catalog.category_name(category)} | {sheets} | {reachable} |")
+    else:
+        lines.append("| — | 0 | 0 |")
+    lines.extend([
+        "",
+        "A stream with no sheet of its own still gets the sheets written for every",
+        "branch - the pattern sheets and the interview set - so a learner is never left",
+        "with an empty page.",
+        "",
         "## Programming paths",
         "",
         "Each path progresses through Foundations, Working Practice and Advanced Engineering. "
@@ -137,7 +223,7 @@ def render() -> str:
         "",
         "| Language | Modules | Foundations | Working Practice | Advanced Engineering | Checkpoints | Capstone |",
         "|---|---:|---:|---:|---:|---:|---|",
-    ]
+    ])
     for language in db.query("SELECT id, name FROM programming_languages ORDER BY order_index, name"):
         language_id = language["id"]
 

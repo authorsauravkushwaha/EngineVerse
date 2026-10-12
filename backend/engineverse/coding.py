@@ -314,3 +314,105 @@ def problem_topics() -> list[dict]:
         for topic in _json(row["topics"], []):
             counts[topic] = counts.get(topic, 0) + 1
     return [{"topic": key, "count": value} for key, value in sorted(counts.items(), key=lambda kv: -kv[1])]
+
+
+# ---------------------------------------------------------------------------
+# Curated sheets
+# ---------------------------------------------------------------------------
+
+def list_sheets(*, level: str | None = None, audience: str | None = None,
+                limit: int = 40) -> list[dict]:
+    """Published sheets with their size.
+
+    ``audience`` filters to sheets that name a branch category (or "all"), which
+    is what the stream hub and the problems page use to show a mechanical
+    learner the sheets that fit them without hiding the rest.
+    """
+    clauses = ["s.status = 'published'"]
+    args: list[Any] = []
+    if level:
+        clauses.append("s.level = ?")
+        args.append(level)
+    if audience:
+        clauses.append("(s.audience = 'all' OR s.audience LIKE ? OR s.audience LIKE ? OR s.audience LIKE ?)")
+        args += [f"{audience},%", f"%,{audience}", f"%,{audience},%"]
+    args.append(limit)
+    rows = db.query(
+        "SELECT s.id, s.slug, s.title, s.blurb, s.level, s.audience, s.branch_id, s.est_hours, "
+        "  s.topic_focus, s.order_index, "
+        "  (SELECT count(*) FROM coding_sheet_problems sp WHERE sp.sheet_id = s.id) AS problem_count, "
+        "  (SELECT count(*) FROM coding_sheet_problems sp2 JOIN coding_problems cp ON cp.id = sp2.problem_id "
+        "     WHERE sp2.sheet_id = s.id AND cp.difficulty = 'easy') AS easy_count, "
+        "  (SELECT count(*) FROM coding_sheet_problems sp3 JOIN coding_problems cp2 ON cp2.id = sp3.problem_id "
+        "     WHERE sp3.sheet_id = s.id AND cp2.difficulty = 'hard') AS hard_count "
+        "FROM coding_sheets s WHERE " + " AND ".join(clauses) +
+        " ORDER BY s.order_index, s.title LIMIT ?",
+        *args,
+    )
+    for row in rows:
+        row["topic_focus_data"] = _json(row.get("topic_focus"), [])
+    return rows
+
+
+def sheet_by_slug(slug: str) -> dict | None:
+    row = db.query_one("SELECT * FROM coding_sheets WHERE slug = ? AND status = 'published'", slug)
+    if row is None:
+        return None
+    row["topic_focus_data"] = _json(row.get("topic_focus"), [])
+    return row
+
+
+def problems_for_sheet(sheet_id: str) -> list[dict]:
+    rows = db.query(
+        "SELECT cp.id, cp.slug, cp.title, cp.difficulty, cp.topics, cp.expected_time, sp.order_index, sp.note "
+        "FROM coding_sheet_problems sp JOIN coding_problems cp ON cp.id = sp.problem_id "
+        "WHERE sp.sheet_id = ? ORDER BY sp.order_index",
+        sheet_id,
+    )
+    for row in rows:
+        row["topics_data"] = _json(row.get("topics"), [])
+    return rows
+
+
+def sheet_progress(user_id: str, sheet_id: str) -> dict:
+    """How much of a sheet this learner has solved, counted in one query."""
+    row = db.query_one(
+        "SELECT count(*) AS total, "
+        "  sum(CASE WHEN cp.id IN (SELECT problem_id FROM coding_submissions "
+        "     WHERE user_id = ? AND is_accepted = 1) THEN 1 ELSE 0 END) AS solved "
+        "FROM coding_sheet_problems sp JOIN coding_problems cp ON cp.id = sp.problem_id "
+        "WHERE sp.sheet_id = ?",
+        user_id, sheet_id,
+    ) or {}
+    total = int(row.get("total") or 0)
+    solved = int(row.get("solved") or 0)
+    return {"total": total, "solved": solved,
+            "percent": round(solved / total * 100) if total else 0}
+
+
+def sheets_for_problem(problem_id: str) -> list[dict]:
+    return db.query(
+        "SELECT s.slug, s.title, s.level FROM coding_sheet_problems sp "
+        "JOIN coding_sheets s ON s.id = sp.sheet_id "
+        "WHERE sp.problem_id = ? AND s.status = 'published' ORDER BY s.order_index LIMIT 4",
+        problem_id,
+    )
+
+
+def solved_by_sheet(user_id: str) -> dict[str, dict]:
+    """Solves per sheet for a learner, for the sheets index."""
+    rows = db.query(
+        "SELECT s.id, count(sp.problem_id) AS total, "
+        "  sum(CASE WHEN sp.problem_id IN (SELECT problem_id FROM coding_submissions "
+        "     WHERE user_id = ? AND is_accepted = 1) THEN 1 ELSE 0 END) AS solved "
+        "FROM coding_sheets s LEFT JOIN coding_sheet_problems sp ON sp.sheet_id = s.id "
+        "WHERE s.status = 'published' GROUP BY s.id",
+        user_id,
+    )
+    out: dict[str, dict] = {}
+    for row in rows:
+        total = int(row["total"] or 0)
+        solved = int(row["solved"] or 0)
+        out[row["id"]] = {"total": total, "solved": solved,
+                          "percent": round(solved / total * 100) if total else 0}
+    return out

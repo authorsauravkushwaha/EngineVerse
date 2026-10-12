@@ -355,6 +355,21 @@ CREATE TABLE IF NOT EXISTS coding_submissions (
   PRIMARY KEY (id, user_id)
 ) PARTITION BY HASH (user_id);
 
+CREATE TABLE IF NOT EXISTS coding_sheets (
+  id                   TEXT NOT NULL,
+  slug                 TEXT NOT NULL UNIQUE,
+  title                TEXT NOT NULL,
+  blurb                TEXT NOT NULL DEFAULT '',
+  level                TEXT NOT NULL DEFAULT 'core',
+  audience             TEXT NOT NULL DEFAULT 'all',
+  branch_id            TEXT REFERENCES branches(id) ON DELETE SET NULL,
+  est_hours            BIGINT NOT NULL DEFAULT 6,
+  topic_focus          TEXT NOT NULL DEFAULT '[]',
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  status               TEXT NOT NULL DEFAULT 'published',
+  PRIMARY KEY (id)
+);
+
 CREATE TABLE IF NOT EXISTS roadmaps (
   id                   TEXT NOT NULL,
   slug                 TEXT NOT NULL UNIQUE,
@@ -564,6 +579,14 @@ CREATE TABLE IF NOT EXISTS dpp_sets (
   published            BIGINT NOT NULL DEFAULT 1,
   created_at           BIGINT NOT NULL,
   PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS coding_sheet_problems (
+  sheet_id             TEXT NOT NULL REFERENCES coding_sheets(id) ON DELETE CASCADE,
+  problem_id           TEXT NOT NULL REFERENCES coding_problems(id) ON DELETE CASCADE,
+  order_index          BIGINT NOT NULL DEFAULT 0,
+  note                 TEXT,
+  PRIMARY KEY (sheet_id, problem_id)
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -1047,6 +1070,8 @@ CREATE INDEX IF NOT EXISTS idx_cp_difficulty ON coding_problems(difficulty);
 CREATE INDEX IF NOT EXISTS idx_tc_problem ON coding_testcases(problem_id, order_index);
 CREATE INDEX IF NOT EXISTS idx_csub_user ON coding_submissions(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_csub_problem ON coding_submissions(problem_id, is_accepted);
+CREATE INDEX IF NOT EXISTS idx_sheet_level ON coding_sheets(level, order_index);
+CREATE INDEX IF NOT EXISTS idx_sheetprob_problem ON coding_sheet_problems(problem_id);
 CREATE INDEX IF NOT EXISTS idx_project_difficulty ON projects(difficulty);
 CREATE INDEX IF NOT EXISTS idx_project_branch ON projects(branch_id);
 CREATE INDEX IF NOT EXISTS idx_project_language ON projects(language_id);

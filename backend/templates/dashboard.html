@@ -19,6 +19,36 @@
   <div class="stat"><div class="n">{{ stats.accuracy }}%</div><div class="l">Accuracy</div></div>
 </div>
 
+{# The stream strip: for a student, "my branch" is the natural map of the
+   catalogue, so it is on the dashboard rather than three clicks deep. #}
+{% if my_stream %}
+<section class="panel mb">
+  <div class="between">
+    <div>
+      <h2 style="margin:0">Your stream: {{ my_stream.name }}</h2>
+      <p class="muted small" style="margin:2px 0 0">{{ my_stream.subjects }} subjects ·
+        {{ my_stream.notes }} notes · {{ my_stream.questions }} practice questions ·
+        {{ my_stream.projects }} projects</p>
+    </div>
+    <div class="row">
+      <a class="btn btn-primary btn-sm" href="/stream/{{ my_stream.slug }}">Open study hub</a>
+      <a class="btn btn-ghost btn-sm" href="/streams">Switch stream</a>
+    </div>
+  </div>
+</section>
+{% else %}
+<section class="panel mb">
+  <div class="between">
+    <div>
+      <h2 style="margin:0">Choose your stream</h2>
+      <p class="muted small" style="margin:2px 0 0">Tell us your branch and this dashboard opens with its
+        subjects, sheets and projects.</p>
+    </div>
+    <a class="btn btn-primary btn-sm" href="/streams">Pick a stream</a>
+  </div>
+</section>
+{% endif %}
+
 <div class="layout-2">
   <div class="stack">
     {% if dpp %}

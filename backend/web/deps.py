@@ -172,6 +172,8 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "mail_configured": bool(get_settings().smtp_url),
         "sms_configured": get_settings().sms_configured,
         "login_otp_required": get_settings().login_otp_required,
+        "short_session_hours": get_settings().session_short_hours,
+        "long_session_days": get_settings().session_max_age_days,
         "due_cards": 0,
         "unread": 0,
         "stats": None,
