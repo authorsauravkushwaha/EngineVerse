@@ -58,7 +58,7 @@
       {# "My stream" is the way into the catalogue for a student who thinks in
          terms of their branch rather than in terms of subjects. It is the first
          item because it is the one that answers "where is my course?" #}
-      <a href="/stream" class="{{ 'on' if path.startswith('/stream') }}">My stream</a>
+      <a href="{{ '/stream' if user else '/streams' }}" class="{{ 'on' if path.startswith('/stream') }}">My stream</a>
       <a href="/explore" class="{{ 'on' if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}">Learn</a>
       <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}">Practice</a>
       <a href="/sheets" class="{{ 'on' if path.startswith('/sheets') }}">Sheets</a>
@@ -164,7 +164,7 @@
     </div>
     <div>
       <h4>Learn</h4>
-      <a href="/stream">My stream</a>
+      <a href="{{ '/stream' if user else '/streams' }}">My stream</a>
       <a href="/explore">All subjects</a>
       <a href="/formulas">Formula centre</a>
       <a href="/resources">Resources</a>
@@ -220,7 +220,7 @@
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
     Home
   </a>
-  <a href="/stream" class="{{ 'on' if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}" {% if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') %}aria-current="page"{% endif %}>
+  <a href="{{ '/stream' if user else '/streams' }}" class="{{ 'on' if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}" {% if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') %}aria-current="page"{% endif %}>
     <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 19.5V6.2A2.2 2.2 0 0 1 6.2 4H20v15.5"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg>
     My stream
   </a>

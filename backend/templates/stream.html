@@ -13,7 +13,9 @@
       {% if active_semester %}<span class="chip">Semester {{ active_semester }}</span>{% endif %}
     </div>
   </div>
-  <form method="get" action="/stream" class="stack">
+  {# Submitting without JavaScript lands on the chooser rather than bouncing
+     through /stream, so the button does the same thing the picker does. #}
+  <form method="get" action="/streams" class="stack">
     <label class="field"><span class="label">Jump to a stream</span>
       <select name="to" id="stream-picker" data-navigate>
         {% for group in categories %}

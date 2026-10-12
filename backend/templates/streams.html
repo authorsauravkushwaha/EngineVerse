@@ -8,7 +8,9 @@
     <p class="muted">Pick your branch and get its subjects, notes, coding sheets, formulas and projects on one
       page. Nothing here sends you to another website.</p>
   </div>
-  <a class="btn btn-ghost" href="/stream">My stream</a>
+  {# Signed in, "My stream" is one click away. Signed out, this page *is* the
+     chooser, so the button would only link back to itself. #}
+  {% if user %}<a class="btn btn-ghost" href="/stream">My stream</a>{% endif %}
 </div>
 
 {% if my_branch %}

@@ -8,7 +8,8 @@
     <p class="muted">Everything you need for your degree is already on this site. Pick your stream and it opens
       with your subjects, notes, practice sets and projects in one place.</p>
   </div>
-  <a class="btn btn-ghost" href="/stream">My stream</a>
+  <a class="btn btn-ghost" href="{{ '/stream' if user else '/streams' }}">
+    {{ 'My stream' if user else 'Find my stream' }}</a>
 </div>
 
 <section class="statgrid mb">
