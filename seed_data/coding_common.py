@@ -18,18 +18,18 @@ and the module fills in the mechanical parts:
 * the Python stub is generated from the signature, so the editor always opens on
   a declaration the harness can actually call - a stub that does not match
   ``drivers.entrypoint`` is a Run button that always fails;
-* ``xp`` follows the difficulty when it is not given, so the reward curve stays
-  consistent across the bank;
 * ``expected_time``/``expected_space`` default to the honest generic answer and
   are stated per problem where the real bound matters.
+
+XP for a judged submission is awarded by outcome rather than by difficulty - see
+``engineverse.coding.submit`` - so a problem does not carry an ``xp`` field here,
+even though the older hand-written entries in ``practice_data`` still do.
 
 Every reference solution in this bank is executed against its own test cases by
 ``scripts/check_problems.py``, which is the only reason it is safe to ship this
 much content: a wrong expected output is a problem nobody can solve.
 """
 from __future__ import annotations
-
-XP_BY_DIFFICULTY = {"easy": 20, "medium": 35, "hard": 50}
 
 
 def ex(prompt: str, output: str, explain: str | None = None) -> dict:
@@ -57,7 +57,6 @@ def problem(
     hints: list[str] | None = None,
     editorial: str = "",
     company: str = "",
-    xp: int | None = None,
     minutes: int = 20,
     expected_time: str = "O(n)",
     expected_space: str = "O(1)",
@@ -69,7 +68,7 @@ def problem(
     is the same entry point written as a declaration; the generated stub is that
     declaration with a body that does nothing, which is what the editor opens on.
     """
-    if difficulty not in XP_BY_DIFFICULTY:
+    if difficulty not in {"easy", "medium", "hard"}:
         raise ValueError(f"{slug}: unknown difficulty {difficulty!r}")
     stubs = {
         "python": (
@@ -82,7 +81,6 @@ def problem(
         "slug": slug,
         "title": title,
         "difficulty": difficulty,
-        "xp": xp if xp is not None else XP_BY_DIFFICULTY[difficulty],
         "statement": statement,
         "examples": examples,
         "topics": topics,

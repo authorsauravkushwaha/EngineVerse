@@ -56,6 +56,11 @@ async def home(request: Request):
         context["dashboard"] = recommend.dashboard(viewer.id)
         context["continue_learning"] = progress.continue_learning(viewer.id, 6)
         context["dpp"] = practice.dpp_with_context()
+        # One query, and the dashboard can name the viewer's own stream with its
+        # real sizes instead of a generic "browse everything" link.
+        context["my_stream"] = next(
+            (row for row in hub.list_streams() if row["id"] == viewer.branch_id), None
+        )
         return render(request, "dashboard.html", **context)
     context["featured_topics"] = db.query(
         "SELECT t.slug, t.title, t.summary, t.difficulty, t.est_minutes, s.name AS subject, s.color AS color "
@@ -613,6 +618,14 @@ async def resources_page(request: Request):
     exists at ``/resources/offsite`` for anyone who wants it, but it is labelled
     as optional reading and nothing else on the site depends on it.
     """
+    # Bookmarks to the old link shelf asked for ?kind=... or ?page=N. Those
+    # parameters mean nothing to the new directory, and dropping them silently
+    # would land a reader on a page that is not what they bookmarked, so they
+    # are forwarded to the shelf that still paginates.
+    forwarded = request.url.query
+    if "kind=" in forwarded or "page=" in forwarded:
+        target = "/resources/offsite" + (f"?{forwarded}" if forwarded else "")
+        return RedirectResponse(target, status_code=302)
     viewer = current_user(request)
     streams = hub.list_streams()
     return render(
@@ -803,6 +816,10 @@ async def placements_page(request: Request):
         projects=projects.list_projects(limit=6),
         roadmaps=library.list_roadmaps(kind="career"),
         my_stats=progress.user_stats(viewer.id) if viewer else None,
+        # The interview sheets lead the coding section: a curated order beats a
+        # list sorted by difficulty for someone preparing for a placement round.
+        interview_sheets=coding.list_sheets(level="interview") or coding.list_sheets(),
+        core_sheets=[sheet for sheet in coding.list_sheets(level="core")][:3],
     )
 
 
