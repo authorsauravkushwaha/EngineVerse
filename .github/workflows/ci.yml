@@ -205,6 +205,14 @@ jobs:
           ENGINEVERSE_ENV: production
           ENGINEVERSE_SITE_URL: https://ci.example.test
           ENGINEVERSE_JUDGE: disabled
+          # This runner has no SMTP server and no SMS gateway, and the
+          # application defaults to ENGINEVERSE_LOGIN_OTP=required, which
+          # production refuses to boot without a delivery transport. Asking for
+          # the password-only mode explicitly is what lets the boot check reach
+          # the release step here; leaving it to the default would fail the job
+          # on a second factor CI cannot deliver. Tests that cover the required
+          # mode set it themselves, with a transport.
+          ENGINEVERSE_LOGIN_OTP: disabled
         run: |
           # The web image no longer migrates or seeds on start. This step is
           # what deploy/docker-compose.yml runs as the release service, against
