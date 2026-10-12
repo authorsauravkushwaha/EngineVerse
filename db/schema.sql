@@ -25,6 +25,8 @@ CREATE TABLE IF NOT EXISTS users (
   id                   TEXT PRIMARY KEY,
   email                TEXT NOT NULL UNIQUE,
   username             TEXT NOT NULL UNIQUE,
+  phone                TEXT,
+  phone_verified       INTEGER NOT NULL DEFAULT 0,
   password_hash        TEXT NOT NULL,            -- scrypt$N$r$p$saltB64$hashB64
   role                 TEXT NOT NULL DEFAULT 'student',
   status               TEXT NOT NULL DEFAULT 'active',

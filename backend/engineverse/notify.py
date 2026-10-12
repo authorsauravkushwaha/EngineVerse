@@ -17,11 +17,13 @@ Configure with::
 """
 from __future__ import annotations
 
+import json
 import smtplib
 import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib import request as urllib_request
+from urllib.parse import parse_qs, unquote, urlparse, urlunparse
 
 from .config import get_settings
 from .security.audit import record
@@ -39,7 +41,7 @@ class MailNotConfigured(RuntimeError):
 
 
 def is_configured() -> bool:
-    return bool(get_settings().smtp_url)
+    return bool(get_settings().smtp_url.strip())
 
 
 def _parse(url: str) -> dict:
@@ -75,7 +77,7 @@ def send(message: Message, *, timeout: float = 10.0) -> bool:
     response has to look the same whether or not an account exists.
     """
     settings = get_settings()
-    if not settings.smtp_url:
+    if not settings.smtp_url.strip():
         record("mail.not_configured", entity_type="subject", entity_id="mail",
                meta={"subject": message.subject})
         return False
@@ -137,3 +139,95 @@ def send_email_verification(*, email: str, verify_url: str, hours: int = 24) -> 
             "your password. If you did not create this account, ignore this message."
         ),
     ))
+
+
+def sms_is_configured() -> bool:
+    return bool(get_settings().sms_url.strip())
+
+
+def _sms_request_url(raw_url: str) -> tuple[str, str]:
+    """Return a URL without userinfo and the password used as bearer secret."""
+    parsed = urlparse(raw_url)
+    password = unquote(parsed.password) if parsed.password is not None else ""
+    # Do not put credentials back into the URL.  ``hostname`` also removes the
+    # userinfo, but rebuilding from parsed pieces makes the guarantee explicit.
+    hostname = parsed.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    if parsed.port:
+        hostname = f"{hostname}:{parsed.port}"
+    clean = urlunparse((
+        parsed.scheme,
+        hostname,
+        parsed.path,
+        parsed.params,
+        parsed.query,
+        parsed.fragment,
+    ))
+    return clean, password
+
+
+def send_sms(to: str, body: str, *, timeout: float = 10.0) -> bool:
+    """POST a phone message to the operator's JSON SMS gateway.
+
+    The gateway is intentionally tiny: it receives ``{"to", "body"}`` and
+    returns any successful 2xx response. Every failure is converted to False;
+    callers must fail closed when a sign-in code could not be delivered. The
+    message body and the credential-bearing URL are never written to the audit
+    log.
+    """
+    settings = get_settings()
+    raw_url = settings.sms_url.strip()
+    if not raw_url:
+        return False
+    try:
+        parsed = urlparse(raw_url)
+        if not parsed.scheme or not parsed.hostname:
+            return False
+        if settings.is_production and parsed.scheme.lower() != "https":
+            return False
+        clean_url, bearer = _sms_request_url(raw_url)
+        headers = {"Content-Type": "application/json", "Accept": "application/json"}
+        if bearer:
+            headers["Authorization"] = f"Bearer {bearer}"
+        payload = json.dumps({"to": to, "body": body}).encode("utf-8")
+        req = urllib_request.Request(clean_url, data=payload, headers=headers, method="POST")
+        response = urllib_request.urlopen(req, timeout=timeout)
+        try:
+            status_value = getattr(response, "status", None)
+            if status_value is None:
+                status_value = response.getcode()
+            status = int(status_value)
+            if status < 200 or status >= 300:
+                return False
+        finally:
+            close = getattr(response, "close", None)
+            if callable(close):
+                close()
+    except Exception as exc:  # noqa: BLE001 - transport failures are fail-closed
+        record("sms.failed", entity_type="transport", entity_id="sms",
+               meta={"error": exc.__class__.__name__})
+        return False
+    record("sms.sent", entity_type="transport", entity_id="sms")
+    return True
+
+
+def send_login_otp(email: str, code: str, minutes: int = 5) -> bool:
+    name = _site_name()
+    return send(Message(
+        to=email,
+        subject=f"Your {name} sign-in code",
+        body=(
+            f"Your {name} sign-in code is {code}.\n\n"
+            f"It expires in {minutes} minutes and works once. If you did not "
+            "try to sign in, you can ignore this message."
+        ),
+    ))
+
+
+def send_phone_otp(to: str, code: str, minutes: int = 5) -> bool:
+    name = _site_name()
+    return send_sms(
+        to,
+        f"Your {name} sign-in code is {code}. It expires in {minutes} minutes and works once.",
+    )

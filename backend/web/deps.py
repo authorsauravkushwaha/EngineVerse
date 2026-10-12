@@ -170,6 +170,8 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "flash": read_flash(request),
         "show_demo_accounts": get_settings().allows_demo_accounts,
         "mail_configured": bool(get_settings().smtp_url),
+        "sms_configured": get_settings().sms_configured,
+        "login_otp_required": get_settings().login_otp_required,
         "due_cards": 0,
         "unread": 0,
         "stats": None,

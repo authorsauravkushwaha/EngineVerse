@@ -203,7 +203,7 @@ def _challenge_hash(token: str) -> str:
     return hashlib.sha256(token.encode("ascii")).hexdigest()
 
 
-def _new_challenge(user_id: str, purpose: str, ttl_seconds: int, payload: str | None = None) -> str:
+def new_challenge(user_id: str, purpose: str, ttl_seconds: int, payload: str | None = None) -> str:
     """Keep at most one challenge row per account and purpose.
 
     Replacing the previous token bounds storage if a user starts MFA repeatedly
@@ -228,7 +228,7 @@ def _new_challenge(user_id: str, purpose: str, ttl_seconds: int, payload: str | 
     return token
 
 
-def _active_challenge(token: str, purpose: str, user_id: str | None = None) -> dict | None:
+def active_challenge(token: str, purpose: str, user_id: str | None = None) -> dict | None:
     if not isinstance(token, str) or not _CHALLENGE_TOKEN_RE.fullmatch(token):
         return None
     now = int(time.time() * 1000)
@@ -243,7 +243,7 @@ def _active_challenge(token: str, purpose: str, user_id: str | None = None) -> d
     return db.query_one(sql, *args)
 
 
-def _consume_challenge(token: str, purpose: str, user_id: str) -> bool:
+def consume_challenge(token: str, purpose: str, user_id: str) -> bool:
     if not isinstance(token, str) or not _CHALLENGE_TOKEN_RE.fullmatch(token):
         return False
     now = int(time.time() * 1000)
@@ -258,26 +258,26 @@ def _consume_challenge(token: str, purpose: str, user_id: str) -> bool:
 
 def issue_login_token(user_id: str) -> str:
     """Create a 5-minute MFA challenge whose database hash can be used once."""
-    return _new_challenge(user_id, "mfa_login", _LOGIN_TTL)
+    return new_challenge(user_id, "mfa_login", _LOGIN_TTL)
 
 
 def read_login_token(token: str) -> str | None:
-    row = _active_challenge(token, "mfa_login")
+    row = active_challenge(token, "mfa_login")
     return str(row["user_id"]) if row else None
 
 
 def consume_login_token(token: str, user_id: str) -> bool:
-    return _consume_challenge(token, "mfa_login", user_id)
+    return consume_challenge(token, "mfa_login", user_id)
 
 
 def issue_enroll_token(user_id: str, secret: str, codes: list[str]) -> str:
     """Create a 10-minute enrollment challenge; sensitive state stays sealed."""
     payload = seal({"secret": secret, "codes": codes[:16]})
-    return _new_challenge(user_id, "mfa_enroll", _ENROLL_TTL, payload)
+    return new_challenge(user_id, "mfa_enroll", _ENROLL_TTL, payload)
 
 
 def read_enroll_token(token: str, user_id: str) -> dict | None:
-    row = _active_challenge(token, "mfa_enroll", user_id)
+    row = active_challenge(token, "mfa_enroll", user_id)
     if not row or not row.get("payload"):
         return None
     payload = unseal(row["payload"])
@@ -290,4 +290,49 @@ def read_enroll_token(token: str, user_id: str) -> dict | None:
 
 
 def consume_enroll_token(token: str, user_id: str) -> bool:
-    return _consume_challenge(token, "mfa_enroll", user_id)
+    return consume_challenge(token, "mfa_enroll", user_id)
+
+
+def update_challenge_payload(
+    token: str,
+    purpose: str,
+    user_id: str,
+    payload: str,
+    *,
+    expected_payload: str | None = None,
+) -> bool:
+    """Replace the sealed payload of one live challenge.
+
+    OTP attempt counters live in the sealed payload. Keeping this update
+    conditional on the same live row (and, when supplied, the payload that was
+    read) prevents a late request from changing a challenge that another
+    request already consumed or replaced.
+    """
+    if not isinstance(token, str) or not _CHALLENGE_TOKEN_RE.fullmatch(token):
+        return False
+    if not isinstance(payload, str) or len(payload) > 4096:
+        return False
+    now = int(time.time() * 1000)
+    sql = (
+        "UPDATE security_challenges SET payload = ? WHERE token_hash = ? "
+        "AND user_id = ? AND purpose = ? AND consumed_at IS NULL AND expires_at >= ?"
+    )
+    args: list = [payload, _challenge_hash(token), user_id, purpose, now]
+    if expected_payload is not None:
+        sql += " AND payload = ?"
+        args.append(expected_payload)
+    return db.execute(sql, *args) == 1
+
+
+# Compatibility aliases for callers written against the original private
+# helpers. New code should use the public names above.
+def _new_challenge(user_id: str, purpose: str, ttl_seconds: int, payload: str | None = None) -> str:
+    return new_challenge(user_id, purpose, ttl_seconds, payload)
+
+
+def _active_challenge(token: str, purpose: str, user_id: str | None = None) -> dict | None:
+    return active_challenge(token, purpose, user_id)
+
+
+def _consume_challenge(token: str, purpose: str, user_id: str) -> bool:
+    return consume_challenge(token, purpose, user_id)

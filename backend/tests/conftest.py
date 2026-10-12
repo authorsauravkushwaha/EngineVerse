@@ -26,6 +26,9 @@ def _isolated_database(tmp_path_factory):
     os.environ["ENGINEVERSE_DB_PATH"] = str(db_path)
     os.environ["ENGINEVERSE_SECRET"] = "test-secret-key-for-pytest-only-0123456789"
     os.environ["ENGINEVERSE_ENV"] = "test"
+    # Hundreds of pre-existing tests exercise password-only login. OTP-specific
+    # tests opt into the required mode explicitly.
+    os.environ.setdefault("ENGINEVERSE_LOGIN_OTP", "disabled")
 
     from engineverse import config
 

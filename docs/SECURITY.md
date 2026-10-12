@@ -157,6 +157,35 @@ replayed proof must not create another authenticated action:
   clipboard feature should require a direct user gesture, show the destination,
   and never poll or silently replace copied content.
 
+## Compulsory sign-in codes
+
+When `ENGINEVERSE_LOGIN_OTP=required` (the default), a successful password
+match for an account without an enrolled TOTP authenticator starts a second,
+short-lived six-digit challenge. The site remains publicly readable; this is a
+sign-in control, not a site-wide gate. An enrolled TOTP authenticator satisfies
+the same every-login verification and does not cause a delivered code to be
+stacked on top of it.
+
+- Email is the default delivery channel. A phone is offered only after it has
+  been saved, verified and the operator-run `ENGINEVERSE_SMS_URL` gateway is
+  configured. The settings page can switch the channel when both are available.
+- The code is generated with `secrets`, expires after five minutes, is consumed
+  once, and is replaced when a new code is issued. The database stores only an
+  HMAC-SHA-256 of the canonical code inside a `totp.seal()` payload, keyed by
+  `ENGINEVERSE_SECRET`; rotating that secret makes live codes unusable.
+- Five wrong codes consume the challenge. Wrong attempts also feed the existing
+  account lockout and login-attempt audit trail without putting the code in an
+  audit row. Resends are limited to five issues per fifteen minutes and one
+  resend per sixty seconds; a cooldown does not kill the still-live challenge.
+- In a demo-enabled, non-production environment with neither transport
+  configured, the code is revealed once to make a first local run usable. A
+  configured-but-failing transport and every production environment fail
+  closed; production never renders a code.
+- `disabled` is an explicit password-only mode for an operator that has chosen
+  not to require delivered codes. It must not be confused with a working
+  transport: production checks the setting and refuses invalid values, and a
+  required mode with neither SMTP nor SMS transport.
+
 ## Authentication and authorisation
 
 Authentication establishes which account a request belongs to; it does not
