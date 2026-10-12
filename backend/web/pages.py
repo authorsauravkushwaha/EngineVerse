@@ -674,6 +674,7 @@ def settings_context(viewer) -> dict:
     from engineverse.security.sessions import list_user_sessions
 
     enrolled = db.query_one("SELECT totp_secret FROM users WHERE id = ?", viewer.id)
+    account = db.query_one("SELECT phone, phone_verified FROM users WHERE id = ?", viewer.id) or {}
     return {
         "universities": catalog.list_universities(),
         "colleges": catalog.list_colleges(),
@@ -686,6 +687,10 @@ def settings_context(viewer) -> dict:
             "WHERE s.user_id = ? ORDER BY s.started_at DESC LIMIT 1", viewer.id,
         ),
         "mfa_enabled": bool(enrolled and enrolled.get("totp_secret")),
+        "phone": account.get("phone") or "",
+        "phone_verified": bool(account.get("phone_verified")),
+        "sms_available": get_settings().sms_configured,
+        "login_otp_required": get_settings().login_otp_required,
     }
 
 

@@ -15,6 +15,8 @@ from .sanitize import sanitize_text
 EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 USERNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,22}[a-z0-9])?$")
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,94}[a-z0-9])?$")
+PHONE_RE = re.compile(r"^\+[1-9][0-9]{6,14}$")
+_PHONE_ALLOWED = frozenset("0123456789 +-().")
 
 RESERVED_USERNAMES = {
     "admin", "root", "engineverse", "api", "www", "mail", "support", "login",
@@ -46,6 +48,41 @@ class Errors:
     def raise_if_any(self, message: str = "Please fix the highlighted fields.") -> None:
         if not self.ok:
             raise ValidationError(message, self.items)
+
+
+def normalize_phone(value: Any) -> str:
+    """Normalise display punctuation without inventing a country code.
+
+    A plus is allowed anywhere in a pasted number because people commonly copy
+    values such as ``(+44) ...``. It is moved to the front; all other allowed
+    punctuation is discarded. Letters and every other character are refused,
+    rather than silently stripped into a different number.
+    """
+    raw = str(value or "").strip()
+    if not raw or any(char not in _PHONE_ALLOWED for char in raw):
+        raise ValidationError("Enter a valid phone number.", {"phone": "Enter a valid phone number."})
+    digits = "".join(char for char in raw if char.isdigit())
+    if not digits:
+        raise ValidationError("Enter a valid phone number.", {"phone": "Enter a valid phone number."})
+    return ("+" if "+" in raw else "") + digits
+
+
+def validate_phone(value: Any, key: str = "phone", errors: Errors | None = None) -> str:
+    try:
+        normalized = normalize_phone(value)
+    except ValidationError as exc:
+        message = "Enter a phone number in international format, for example +14155552671."
+        if errors is not None:
+            errors.add(key, message)
+            return ""
+        raise ValidationError(message, {key: message}) from exc
+    if not PHONE_RE.fullmatch(normalized):
+        message = "Enter a phone number in international format, for example +14155552671."
+        if errors is not None:
+            errors.add(key, message)
+            return ""
+        raise ValidationError(message, {key: message})
+    return normalized
 
 
 def validate_email(value: Any, key: str = "email", errors: Errors | None = None) -> str:

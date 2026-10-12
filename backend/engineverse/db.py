@@ -461,6 +461,16 @@ def migrate(schema_file: str | Path | None = None) -> int:
     )
     # Columns added after the table was first created. Kept here so a database
     # that was seeded by an older build picks them up on the next migrate().
+    # The phone index must be created *after* these ALTER TABLEs. Putting the
+    # index in schema.sql makes an upgrade fail before the new columns exist on
+    # an older database (and PostgreSQL has the same ordering requirement).
+    ensure_column("users", "phone", "TEXT")
+    ensure_column("users", "phone_verified", "INTEGER NOT NULL DEFAULT 0")
+    execute("UPDATE users SET phone_verified = 0 WHERE phone_verified IS NULL")
+    execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users(phone) "
+        "WHERE phone IS NOT NULL AND phone <> ''"
+    )
     ensure_column("certificates", "tier", "TEXT NOT NULL DEFAULT 'bronze'")
     # Staged language paths: a module that predates staging keeps the honest
     # default until the seeder restages it from seed_data/language_curriculum.py.

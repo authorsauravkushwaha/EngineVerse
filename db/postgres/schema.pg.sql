@@ -50,6 +50,8 @@ CREATE TABLE IF NOT EXISTS users (
   id                   TEXT NOT NULL,
   email                CITEXT NOT NULL UNIQUE,
   username             CITEXT NOT NULL UNIQUE,
+  phone                TEXT,
+  phone_verified       BIGINT NOT NULL DEFAULT 0,
   password_hash        TEXT NOT NULL,
   role                 TEXT NOT NULL DEFAULT 'student',
   status               TEXT NOT NULL DEFAULT 'active',

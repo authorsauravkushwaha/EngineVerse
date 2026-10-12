@@ -94,8 +94,53 @@
       {% endif %}
     </section>
 
+    <section class="panel" id="phone"><h2>Phone number</h2>
+      {% if phone %}
+      <p><span class="mono">{{ phone | replace(phone[0:-4], '••••••••') if phone|length > 4 else '••••••••' }}</span>
+        {% if phone_verified %}<span class="chip ok">Confirmed</span>{% else %}<span class="chip">Not confirmed</span>{% endif %}</p>
+      {% else %}<p class="muted">Add a phone number to receive a sign-in code by text. It is optional.</p>{% endif %}
+      <form method="post" action="/settings/phone">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <div class="field"><label for="phone-number">Phone number in international format</label>
+          <input id="phone-number" name="phone" type="tel" inputmode="tel" maxlength="32"
+            placeholder="+14155552671" autocomplete="tel"></div>
+        <div class="field"><label for="phone-password">Current password</label>
+          <input id="phone-password" name="current_password" type="password" required autocomplete="current-password"></div>
+        <button class="btn btn-primary">Save phone number</button>
+      </form>
+      {% if phone %}
+      <form method="post" action="/settings/phone" class="mt">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="remove" value="1">
+        <input type="hidden" name="phone" value="">
+        <div class="field"><label for="phone-remove-password">Current password to remove it</label>
+          <input id="phone-remove-password" name="current_password" type="password" required autocomplete="current-password"></div>
+        <button class="btn btn-ghost">Remove phone number</button>
+      </form>
+      {% if not phone_verified %}
+        {% if sms_available %}
+        <form method="post" action="/settings/phone/send" class="mt">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <button class="btn btn-soft">Send verification code by text</button>
+        </form>
+        {% else %}<p class="small muted">This instance has no SMS gateway, so the number cannot be confirmed here.</p>{% endif %}
+      {% endif %}
+      {% endif %}
+      {% if phone_verification_token %}
+      <div class="callout warning mt"><span class="label">Verify your phone</span>
+        We sent a 6-digit code to {{ phone_verification_masked }}.</div>
+      <form method="post" action="/settings/phone/verify">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="token" value="{{ phone_verification_token }}">
+        <div class="field"><label for="phone-code">Verification code</label>
+          <input id="phone-code" name="code" inputmode="numeric" autocomplete="one-time-code" required maxlength="32" autofocus></div>
+        <button class="btn btn-primary">Confirm phone number</button>
+      </form>
+      {% endif %}
+    </section>
+
     <section class="panel" id="mfa"><h2>Authenticator</h2>
-      <p class="muted">Optional for learners. In production, staff must enrol one before admin tools will accept a change. Codes are checked on this server. Nothing is sent to a third party.</p>
+      <p class="muted">Optional because the delivered sign-in code already verifies every login. In production, staff must enrol one before admin tools will accept a change. Codes are checked on this server. Nothing is sent to a third party.</p>
       {% if recovery_codes %}
       <div class="callout warning"><span class="label">Save these recovery codes</span>
         Each code works once. They are not shown again.

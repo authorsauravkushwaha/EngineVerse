@@ -105,7 +105,16 @@ class Settings:
         )
     )
 
-    # --- outbound mail ----------------------------------------------------
+    # --- outbound mail and compulsory sign-in codes -----------------------
+    # ``required`` is deliberately the safe default. A deployment that wants
+    # password-only sign-in must opt out explicitly with ``disabled``; the
+    # production checks below still make a required deployment prove that it
+    # has a delivery transport.
+    login_otp: str = field(default_factory=lambda: os.environ.get(
+        "ENGINEVERSE_LOGIN_OTP", "required").strip().lower())
+    # This is an operator-run HTTP gateway, not a hosted SMS provider. Its
+    # request contract lives in engineverse.notify.send_sms.
+    sms_url: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_SMS_URL", "").strip())
     # Empty smtp_url means this instance has no mail transport. That is the
     # default, and it matters: without it a password reset link has nowhere to
     # go, so it must not be handed to the caller instead. See engineverse.notify.
@@ -116,6 +125,14 @@ class Settings:
     #: only, and refused outright when env is production. Default off: turning
     #: it on makes POST /forgot-password an account-takeover endpoint.
     reveal_reset_token: bool = field(default_factory=lambda: _bool("ENGINEVERSE_REVEAL_RESET_TOKEN", False))
+
+    @property
+    def login_otp_required(self) -> bool:
+        return self.login_otp == "required"
+
+    @property
+    def sms_configured(self) -> bool:
+        return bool(self.sms_url)
 
     # --- AI tutor ---------------------------------------------------------
     ai_key: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_AI_KEY", ""))
@@ -194,6 +211,15 @@ class Settings:
             problems.append("ENGINEVERSE_SITE_URL must be an https:// origin in production")
         if self.reveal_reset_token:
             problems.append("ENGINEVERSE_REVEAL_RESET_TOKEN must not be set in production")
+        if self.login_otp not in {"required", "disabled"}:
+            problems.append(
+                "ENGINEVERSE_LOGIN_OTP must be either 'required' or 'disabled'"
+            )
+        elif self.login_otp == "required" and not self.smtp_url.strip() and not self.sms_url.strip():
+            problems.append(
+                "ENGINEVERSE_LOGIN_OTP=required needs ENGINEVERSE_SMTP_URL or "
+                "ENGINEVERSE_SMS_URL for sign-in code delivery"
+            )
         judge = (self.judge or "").lower()
         if judge in LOCAL_JUDGES:
             shown = judge or "auto"
