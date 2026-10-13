@@ -6,6 +6,7 @@ and talks to the JSON API under ``/api``.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from typing import Any
 from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
@@ -37,6 +38,30 @@ from engineverse.security import rbac
 from .deps import current_user, render, require_user
 
 router = APIRouter()
+
+# A topic_id that cannot exist. Passed to practice.list_questions() when a link
+# names a topic slug that is not in the catalogue, so the question bank answers
+# "no questions match" instead of dropping the filter and showing all of them.
+NO_SUCH_TOPIC = "__no_such_topic__"
+
+# Upper bound on a ?slug= deep link before it reaches a query.
+MAX_SLUG_LENGTH = 128
+
+
+def deep_link_slug(slug: str | None) -> str | None:
+    """Bounds a ``?slug=`` deep link, or drops it.
+
+    Search results and the recommendation cards point at one item inside a
+    library page that paginates. A URL fragment cannot do that: the browser
+    sends only the path, and the item is usually several pages in, so the reader
+    arrived at page one of a long list with no idea which entry they had asked
+    for. Those links carry ``?slug=`` instead and the page narrows to the single
+    matching row, whatever the catalogue grows to.
+    """
+    if not slug:
+        return None
+    slug = slug.strip()[:MAX_SLUG_LENGTH]
+    return slug or None
 
 
 # ---------------------------------------------------------------------------
@@ -273,9 +298,28 @@ async def dpp_day(request: Request, date: str):
 
 @router.get("/practice/questions")
 async def question_bank(request: Request, subject: str | None = None, kind: str | None = None,
-                        difficulty: str | None = None):
+                        difficulty: str | None = None, topic: str | None = None,
+                        slug: str | None = None, q: str | None = None):
     # Keep the full bank reachable as it grows; filter parameters survive paging.
-    filters = {"subject_id": subject, "kind": kind, "difficulty": difficulty}
+    #
+    # topic, slug and q are addressed by links rather than by the three selects
+    # in the form: global search points every question result at ?slug=, and the
+    # recovery plan on /mistakes points at ?topic=...&difficulty=easy. Both
+    # promised a filtered bank while this handler read only subject/kind/
+    # difficulty, so a learner following either link got the whole catalogue
+    # back with no sign that the filter had been dropped.
+    filters: dict[str, Any] = {"subject_id": subject, "kind": kind, "difficulty": difficulty}
+    if slug and len(slug) <= practice.MAX_ID_LENGTH:
+        filters["slug"] = slug
+    if q and len(q) <= 120:
+        filters["q"] = q
+    active_topic = None
+    if topic and len(topic) <= practice.MAX_ID_LENGTH:
+        active_topic = catalog.get_topic(topic)
+        # An unknown topic slug has to read as "no questions here", not as "every
+        # question": this id cannot match a row, whereas omitting the filter
+        # would quietly widen the page back to the full bank.
+        filters["topic_id"] = active_topic["id"] if active_topic else NO_SUCH_TOPIC
     total = practice.list_questions(**filters, limit=1)[1]
     pager = _pager(request, total)
     questions = practice.list_questions(
@@ -288,6 +332,9 @@ async def question_bank(request: Request, subject: str | None = None, kind: str 
         kinds=practice.question_kinds(),
         subjects=catalog.list_subjects(limit=200),
         active_subject=subject, active_kind=kind, active_difficulty=difficulty,
+        active_topic=active_topic, active_slug=slug if filters.get("slug") else None,
+        active_q=q if filters.get("q") else None,
+        filtered=bool(filters.get("slug") or filters.get("q") or topic),
         pager=pager,
     )
 
@@ -770,54 +817,70 @@ async def resources_page(request: Request):
 
 
 @router.get("/resources/offsite")
-async def offsite_resources_page(request: Request, kind: str | None = None):
+async def offsite_resources_page(request: Request, kind: str | None = None, slug: str | None = None):
     """The optional external shelf, kept but marked as optional.
 
     These are host roots and long-lived index pages rather than deep links, and
     ``scripts/check_links.py`` verifies them in CI. Nothing in the learning
     path requires visiting any of them.
     """
-    total = library.count_resources(kind=kind)
+    slug = deep_link_slug(slug)
+    total = library.count_resources(kind=kind, slug=slug)
     pager = _pager(request, total)
     return render(
         request, "resources_offsite.html",
         resources=library.list_resources(
-            kind=kind, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+            kind=kind, slug=slug, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
         ),
-        kinds=library.resource_kinds(), active_kind=kind, pager=pager,
+        kinds=library.resource_kinds(), active_kind=kind, active_slug=slug, pager=pager,
     )
 
 
 @router.get("/videos")
-async def videos_page(request: Request, category: str | None = None):
-    total = library.count_videos(category=category)
+async def videos_page(request: Request, category: str | None = None, slug: str | None = None):
+    slug = deep_link_slug(slug)
+    total = library.count_videos(category=category, slug=slug)
     pager = _pager(request, total)
     return render(
         request, "videos.html",
         videos=library.list_videos(
-            category=category, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+            category=category, slug=slug, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
         ),
-        categories=library.video_categories(), active_category=category, pager=pager,
+        categories=library.video_categories(), active_category=category, active_slug=slug, pager=pager,
     )
 
 
 @router.get("/books")
-async def books_page(request: Request, q: str | None = None):
-    total = library.count_books(q=q)
+async def books_page(request: Request, q: str | None = None, slug: str | None = None):
+    slug = deep_link_slug(slug)
+    total = library.count_books(q=q, slug=slug)
     pager = _pager(request, total)
     return render(
         request, "books.html",
-        books=library.list_books(q=q, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"]),
-        q=q, pager=pager,
+        books=library.list_books(q=q, slug=slug, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"]),
+        q=q, active_slug=slug, pager=pager,
     )
 
 
 @router.get("/formulas")
-async def formulas_page(request: Request, category: str | None = None, q: str | None = None):
+async def formulas_page(request: Request, category: str | None = None, q: str | None = None,
+                        slug: str | None = None):
+    slug = deep_link_slug(slug)
+    # The sheet used to render every formula at once, capped by a hard-coded 300
+    # against a catalogue of 365 - so 65 formulas rendered nowhere at all, and
+    # the page was 1.3 MB of rendered LaTeX for the rest. It pages now, which is
+    # what the other collection pages do, and ?slug= still resolves any single
+    # formula to the one page that shows it.
+    total = catalog.count_formulas(category=category, q=q, slug=slug)
+    pager = _pager(request, total)
     return render(
         request, "formulas.html",
-        formulas=catalog.list_formulas(category=category, q=q, limit=300),
+        formulas=catalog.list_formulas(
+            category=category, q=q, slug=slug,
+            limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+        ),
         categories=catalog.formula_categories(), active_category=category, q=q,
+        active_slug=slug, pager=pager,
     )
 
 

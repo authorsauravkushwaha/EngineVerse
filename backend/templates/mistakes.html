@@ -18,6 +18,22 @@
     you find the gaps.</div>{% endfor %}
 </div>
 {% if retry %}<section class="section"><h2>Recommended retry plan</h2>
-  <div class="grid g3">{% for q in retry %}<a class="card" href="/practice/questions">
-    <span class="desc">{{ q.stem | excerpt(130) }}</span></a>{% endfor %}</div></section>{% endif %}
+  {#- recommend.retry_plan() returns {topic, message, steps, flashcards,
+      easyQuestions}, not questions. This used to render ``q.stem`` - an
+      attribute no entry has - so the panel came out as one empty box per weak
+      topic, each a link to the same generic page. The steps are the useful
+      part, so show them. -#}
+  <div class="grid g3">
+    {% for plan in retry %}
+    <div class="card">
+      <span class="title">{{ plan.topic.title }}</span>
+      <span class="desc">{{ plan.message }}</span>
+      <div class="stack" style="gap:6px">
+        {% for step in plan.steps %}
+        <a class="btn btn-soft btn-sm btn-block" href="{{ step.url }}">{{ step.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+    {% endfor %}
+  </div></section>{% endif %}
 {% endblock %}

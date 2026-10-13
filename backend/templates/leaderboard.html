@@ -4,9 +4,9 @@
 <h1>Leaderboard</h1>
 <p class="muted">Ranked by XP earned. Competition is a motivator, not the point — your streak matters more.</p>
 <form class="panel mb" method="get"><div class="row">
-  <select name="branch" style="max-width:260px"><option value="">All branches</option>
+  <select name="branch" aria-label="Filter the leaderboard by branch" style="max-width:260px"><option value="">All branches</option>
     {% for b in branches %}<option value="{{ b.slug }}" {{ 'selected' if active_branch == b.slug }}>{{ b.name }}</option>{% endfor %}</select>
-  <select name="period" style="max-width:180px">{% for p in ('all','month','week') %}
+  <select name="period" aria-label="Rank by all time, this month or this week" style="max-width:180px">{% for p in ('all','month','week') %}
     <option value="{{ p }}" {{ 'selected' if active_period == p }}>{{ p | titlecase }}</option>{% endfor %}</select>
   <button class="btn btn-primary">Apply</button></div></form>
 <div class="panel"><div class="tablewrap"><table>

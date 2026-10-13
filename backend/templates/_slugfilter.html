@@ -1,0 +1,21 @@
+{#- Names a ?slug= deep link on a library page that would otherwise look
+    unfiltered. Included by the video, book, off-site resource and formula
+    pages; the question bank has its own wording because it can also narrow by
+    topic and by free text.
+
+    A reader arriving from search or from a recommendation card is shown one
+    item out of a long, paginated collection while every filter chip above
+    still reads "All", which looks like the site lost the rest of the library.
+    Each page's own empty state covers a slug that matches nothing.
+
+    Set the three nouns with {% with %} before including:
+
+      {% with narrow_noun="video", narrow_all="the whole library",
+              narrow_clear="/videos" %}{% include "_slugfilter.html" %}{% endwith %}
+-#}
+{% if active_slug %}
+<div class="panel between mb">
+  <span class="small muted">Narrowed to one {{ narrow_noun }}, so the link you followed resolves.</span>
+  <a class="btn btn-ghost btn-sm" href="{{ narrow_clear }}">Show {{ narrow_all }}</a>
+</div>
+{% endif %}

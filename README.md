@@ -121,6 +121,27 @@ one tap away instead of leaving the last fifteen to the footer. Menus open on
 hover *and* on keyboard focus, so the whole navigation works with no JavaScript —
 as does every other page on the site.
 
+`/resources` is the page that answers *what is actually on this site?*: every
+destination in its group with the description and the count this instance holds,
+opened by three ways in by intent. `/explore` carries the branch browser, which
+lists all 45 branch hubs with links to both the branch page and its study hub.
+Both were reachable from nowhere before.
+
+Deep links from search and from the recommendation cards narrow the page they
+land on — `/videos?slug=…`, `/books?slug=…`, `/formulas?slug=…` and
+`/practice/questions?slug=…` — rather than using a `#fragment`. The library pages
+paginate 24 rows at a time, and a fragment is never sent to the server, so a
+fragment link dropped the reader at the top of a long list with the item they had
+clicked several pages in. `backend/tests/test_links.py` asserts not just that
+these URLs resolve but that they *show the thing they named*, which is the
+property a status-code check cannot see.
+
+Every collection pages, including `/formulas`, which used to render all 365
+formulas as a 1.3 MB page while a hard-coded limit of 300 quietly deleted the
+last 65. Every page also keeps a clean heading outline: a reader who navigates by
+heading hears the structure, and the footer's headings and the markdown
+renderer's heading offset both used to make most pages skip two or three levels.
+
 Every page below the top level carries a breadcrumb, derived from the same table.
 It is audience-aware: a signed-out reader is never shown a link whose only effect
 would be a bounce to `/login`, and `/stream/{branch}` reads

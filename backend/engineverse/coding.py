@@ -283,9 +283,16 @@ def submissions_for(user_id: str, problem_id: str | None = None, limit: int = 20
             "FROM coding_submissions WHERE user_id = ? AND problem_id = ? ORDER BY created_at DESC LIMIT ?",
             user_id, problem_id, limit,
         )
+    # Aliased to match what the templates read. These were selected as the bare
+    # ``cp.title`` and ``cp.slug``, but /programming and /profile both render
+    # ``s.problem_title`` and ``s.problem_slug``, which do not exist on the row -
+    # Jinja renders a missing attribute as nothing, so the Problem column of
+    # every submission table was a blank link pointing at ``/practice/problems/``
+    # rather than at the problem.
     return db.query(
         "SELECT cs.id, cs.language, cs.status, cs.passed, cs.total, cs.runtime_ms, cs.is_accepted, cs.created_at, "
-        "cp.title, cp.slug FROM coding_submissions cs JOIN coding_problems cp ON cp.id = cs.problem_id "
+        "cp.title AS problem_title, cp.slug AS problem_slug "
+        "FROM coding_submissions cs JOIN coding_problems cp ON cp.id = cs.problem_id "
         "WHERE cs.user_id = ? ORDER BY cs.created_at DESC LIMIT ?",
         user_id, limit,
     )

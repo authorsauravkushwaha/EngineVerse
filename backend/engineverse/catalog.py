@@ -474,9 +474,19 @@ def formulas_for_topic(topic_id: str) -> list[dict]:
     return rows
 
 
-def list_formulas(*, category: str | None = None, subject_id: str | None = None, q: str | None = None, limit: int = 300) -> list[dict]:
+def _formulas_where(
+    *, category: str | None, subject_id: str | None, q: str | None, slug: str | None,
+) -> tuple[str, list[Any]]:
+    """One filter builder shared by the list and the count.
+
+    Written once because a count that disagrees with the list it paginates
+    produces a pager offering a page that cannot exist.
+    """
     clauses = ["1=1"]
     args: list[Any] = []
+    if slug:
+        clauses.append("f.slug = ?")
+        args.append(slug)
     if category:
         clauses.append("f.category = ?")
         args.append(category)
@@ -486,10 +496,26 @@ def list_formulas(*, category: str | None = None, subject_id: str | None = None,
     if q:
         clauses.append("(f.name LIKE ? OR f.latex LIKE ? OR f.meaning LIKE ?)")
         args += [f"%{q}%"] * 3
-    args.append(limit)
+    return " AND ".join(clauses), args
+
+
+def count_formulas(
+    *, category: str | None = None, subject_id: str | None = None, q: str | None = None,
+    slug: str | None = None,
+) -> int:
+    where, args = _formulas_where(category=category, subject_id=subject_id, q=q, slug=slug)
+    return int(db.scalar(f"SELECT count(*) FROM formulas f WHERE {where}", *args) or 0)
+
+
+def list_formulas(
+    *, category: str | None = None, subject_id: str | None = None, q: str | None = None,
+    slug: str | None = None, limit: int = 300, offset: int = 0,
+) -> list[dict]:
+    where, args = _formulas_where(category=category, subject_id=subject_id, q=q, slug=slug)
+    args += [limit, max(0, offset)]
     rows = db.query(
         "SELECT f.*, s.name AS subject_name FROM formulas f LEFT JOIN subjects s ON s.id = f.subject_id "
-        f"WHERE {' AND '.join(clauses)} ORDER BY f.category, f.order_index, f.name LIMIT ?",
+        f"WHERE {where} ORDER BY f.category, f.order_index, f.name LIMIT ? OFFSET ?",
         *args,
     )
     for row in rows:

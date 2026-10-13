@@ -66,7 +66,7 @@
 {% endif %}
 
 <section class="mt">
-  <h3>Other sheets</h3>
+  <h2 class="h-sub">Other sheets</h2>
   <div class="chips-row">
     {% for other in all_sheets if other.slug != sheet.slug %}
       <a class="chip" href="/sheets/{{ other.slug }}">{{ other.title }} ({{ other.problem_count }})</a>

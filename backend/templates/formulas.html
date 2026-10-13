@@ -9,10 +9,11 @@
   <button class="btn btn-primary">Search</button></div></form>
 <div class="chips-row"><a class="chip {{ 'on' if not active_category }}" href="/formulas">All</a>
   {% for c in categories %}<a class="chip {{ 'on' if active_category == c.category }}" href="/formulas?category={{ c.category | urlencode }}">{{ c.category }} ({{ c.count }})</a>{% endfor %}</div>
+{% with narrow_noun="formula", narrow_all="the whole formula centre", narrow_clear="/formulas" %}{% include "_slugfilter.html" %}{% endwith %}
 <div class="grid g2">
   {% for f in formulas %}
     <div class="panel" id="{{ f.slug }}">
-      <h3>{{ f.name }}</h3>
+      <h2 class="h-sub">{{ f.name }}</h2>
       <div class="prose"><div class="math-display">{{ ("$$ " + f.latex + " $$") | md | safe }}</div></div>
       <p class="muted small">{{ f.meaning }}</p>
       {% set vars = f.variables | fromjson([]) %}
@@ -26,4 +27,5 @@
     </div>
   {% else %}<div class="empty"><span class="em">∑</span>No formulas match.</div>{% endfor %}
 </div>
+{% include "_pager.html" %}
 {% endblock %}

@@ -6,9 +6,10 @@
 <form class="panel mb" method="get"><div class="row">
   <input name="q" value="{{ q or '' }}" placeholder="Search titles and authors" style="max-width:340px">
   <button class="btn btn-primary">Search</button></div></form>
+{% with narrow_noun="book", narrow_all="the whole shelf", narrow_clear="/books" %}{% include "_slugfilter.html" %}{% endwith %}
 <div class="grid g3">
   {% for b in books %}
-    <div class="card"><span class="title">{{ b.title }}</span>
+    <div class="card" id="{{ b.slug }}"><span class="title">{{ b.title }}</span>
       <span class="desc">{{ b.author }}</span>
       <p class="small muted">{{ b.description }}</p>
       <div class="callout" style="margin:8px 0"><span class="label">Why read it</span>{{ b.why_read }}</div>

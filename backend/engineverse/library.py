@@ -22,6 +22,7 @@ def _json(value: Any, fallback: Any) -> Any:
 
 def _videos_where(
     *, topic_id: str | None, subject_id: str | None, category: str | None, q: str | None,
+    slug: str | None = None,
 ) -> tuple[str, list[Any]]:
     """One filter builder shared by the list and the count.
 
@@ -30,6 +31,9 @@ def _videos_where(
     """
     clauses = ["1=1"]
     args: list[Any] = []
+    if slug:
+        clauses.append("v.slug = ?")
+        args.append(slug)
     if topic_id:
         clauses.append("v.topic_id = ?")
         args.append(topic_id)
@@ -47,9 +51,9 @@ def _videos_where(
 
 def list_videos(
     *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
-    q: str | None = None, limit: int = 60, offset: int = 0,
+    q: str | None = None, slug: str | None = None, limit: int = 60, offset: int = 0,
 ) -> list[dict]:
-    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q)
+    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q, slug=slug)
     args += [limit, max(0, offset)]
     return db.query(
         "SELECT v.*, s.name AS subject_name, s.slug AS subject_slug, t.title AS topic_title, t.slug AS topic_slug "
@@ -61,9 +65,9 @@ def list_videos(
 
 def count_videos(
     *, topic_id: str | None = None, subject_id: str | None = None, category: str | None = None,
-    q: str | None = None,
+    q: str | None = None, slug: str | None = None,
 ) -> int:
-    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q)
+    where, args = _videos_where(topic_id=topic_id, subject_id=subject_id, category=category, q=q, slug=slug)
     return db.scalar(f"SELECT count(*) FROM videos v WHERE {where}", *args)
 
 
@@ -74,10 +78,13 @@ def video_categories() -> list[dict]:
 # ---- books ----------------------------------------------------------------
 
 def _books_where(
-    *, subject_id: str | None, branch_id: str | None, q: str | None,
+    *, subject_id: str | None, branch_id: str | None, q: str | None, slug: str | None = None,
 ) -> tuple[str, list[Any]]:
     clauses = ["1=1"]
     args: list[Any] = []
+    if slug:
+        clauses.append("b.slug = ?")
+        args.append(slug)
     if subject_id:
         clauses.append("b.subject_id = ?")
         args.append(subject_id)
@@ -92,9 +99,9 @@ def _books_where(
 
 def list_books(
     *, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None,
-    limit: int = 80, offset: int = 0,
+    slug: str | None = None, limit: int = 80, offset: int = 0,
 ) -> list[dict]:
-    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q)
+    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q, slug=slug)
     args += [limit, max(0, offset)]
     rows = db.query(
         "SELECT b.*, s.name AS subject_name FROM books b LEFT JOIN subjects s ON s.id = b.subject_id "
@@ -108,8 +115,9 @@ def list_books(
 
 def count_books(
     *, subject_id: str | None = None, branch_id: str | None = None, q: str | None = None,
+    slug: str | None = None,
 ) -> int:
-    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q)
+    where, args = _books_where(subject_id=subject_id, branch_id=branch_id, q=q, slug=slug)
     return db.scalar(f"SELECT count(*) FROM books b WHERE {where}", *args)
 
 
@@ -117,10 +125,13 @@ def count_books(
 
 def _resources_where(
     *, kind: str | None, branch_id: str | None, subject_id: str | None,
-    free_only: bool, q: str | None,
+    free_only: bool, q: str | None, slug: str | None = None,
 ) -> tuple[str, list[Any]]:
     clauses = ["1=1"]
     args: list[Any] = []
+    if slug:
+        clauses.append("r.slug = ?")
+        args.append(slug)
     if kind:
         clauses.append("r.kind = ?")
         args.append(kind)
@@ -140,10 +151,11 @@ def _resources_where(
 
 def list_resources(
     *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
-    free_only: bool = False, q: str | None = None, limit: int = 80, offset: int = 0,
+    free_only: bool = False, q: str | None = None, slug: str | None = None,
+    limit: int = 80, offset: int = 0,
 ) -> list[dict]:
     where, args = _resources_where(
-        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q,
+        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q, slug=slug,
     )
     args += [limit, max(0, offset)]
     return db.query(
@@ -156,10 +168,10 @@ def list_resources(
 
 def count_resources(
     *, kind: str | None = None, branch_id: str | None = None, subject_id: str | None = None,
-    free_only: bool = False, q: str | None = None,
+    free_only: bool = False, q: str | None = None, slug: str | None = None,
 ) -> int:
     where, args = _resources_where(
-        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q,
+        kind=kind, branch_id=branch_id, subject_id=subject_id, free_only=free_only, q=q, slug=slug,
     )
     return db.scalar(f"SELECT count(*) FROM resources r WHERE {where}", *args)
 

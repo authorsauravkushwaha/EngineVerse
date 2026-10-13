@@ -27,13 +27,26 @@ ENTITY_URLS = {
     "note": "/topics/{id}",   # a note is read on its topic's page
     "topic": "/topics/{id}",
     "subject": "/subjects/{id}",
-    "formula": "/formulas#{id}",
-    "question": "/practice/questions/{id}",
+    # These four point at one item inside a collection page that paginates, so
+    # they filter rather than fragment. A URL fragment cannot survive that: the
+    # browser sends only the path, and with 400 videos, 395 books, 544 off-site
+    # resources and 365 formulas the item is nearly always on a later page than
+    # the one that renders - the reader landed at the top of a 24-item page and
+    # had to hunt. The formulas page was worse, truncating at 300 of 365, so 65
+    # formulas had no anchor anywhere. ?slug= narrows the page to the one row.
+    "formula": "/formulas?slug={id}",
+    # The bank is filtered, not addressed by path: there is no page at
+    # /practice/questions/{slug} (only a JSON route under /api), so a question
+    # search result used to link to a 404.
+    "question": "/practice/questions?slug={id}",
     "problem": "/practice/problems/{id}",
     "project": "/projects/{id}",
-    "video": "/videos#{id}",
-    "book": "/books#{id}",
-    "resource": "/resources#{id}",
+    "video": "/videos?slug={id}",
+    "book": "/books?slug={id}",
+    # /resources is the site index; the off-site collection these rows belong to
+    # lives at /resources/offsite, so this used to land on a page that does not
+    # list the resource at all.
+    "resource": "/resources/offsite?slug={id}",
     "roadmap": "/roadmaps/{id}",
     "language": "/programming/{id}",
     "branch": "/branches/{id}",

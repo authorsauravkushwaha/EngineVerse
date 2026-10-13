@@ -20,7 +20,10 @@ def for_topic(topic: dict, user_id: str | None = None) -> list[dict[str, Any]]:
     if question_count:
         items.append({
             "kind": "practice", "title": f"Practice {topic['title']}",
-            "url": f"/practice?topic={topic['slug']}",
+            # /practice renders one fixed page and reads no query parameters, so
+            # ?topic= arrived as the unfiltered practice home. The question bank
+            # is the page that filters by topic.
+            "url": f"/practice/questions?topic={topic['slug']}",
             "reason": f"{question_count} questions to lock this concept in.",
         })
 
@@ -28,7 +31,9 @@ def for_topic(topic: dict, user_id: str | None = None) -> list[dict[str, Any]]:
     if formula:
         items.append({
             "kind": "formula", "title": f"{formula['name']} formula card",
-            "url": f"/formulas#{formula['slug']}", "reason": "Keep the equation one glance away.",
+            # The sheet pages 24 formulas at a time, so a #slug fragment would
+            # usually scroll nowhere; ?slug= narrows it to the one card.
+            "url": f"/formulas?slug={formula['slug']}", "reason": "Keep the equation one glance away.",
         })
 
     video = db.query_one(
@@ -36,7 +41,11 @@ def for_topic(topic: dict, user_id: str | None = None) -> list[dict[str, Any]]:
     )
     if video:
         items.append({
-            "kind": "video", "title": video["title"], "url": f"/videos?q={video['slug']}",
+            # The library searches title and channel, never slug, so ?q={slug}
+            # matched nothing at all; and the page paginates 400 videos at 24 to
+            # a page, so a #slug fragment would not have reached the card
+            # either. ?slug= narrows the library to the one video.
+            "kind": "video", "title": video["title"], "url": f"/videos?slug={video['slug']}",
             "reason": "Highest rated video for this topic.",
         })
 
@@ -62,9 +71,13 @@ def for_topic(topic: dict, user_id: str | None = None) -> list[dict[str, Any]]:
         "SELECT slug FROM questions WHERE topic_id = ? AND kind = 'interview' AND is_active = 1 LIMIT 1", topic_id
     )
     if interview:
+        # The question bank is filtered with ?slug=, not addressed by path. There
+        # is no /practice/questions/{slug} page - that path only exists under the
+        # JSON API as /api/practice/questions/{id} - so a path link here rendered
+        # "Interview questions on this topic" as a 404.
         items.append({
             "kind": "interview", "title": "Interview questions on this topic",
-            "url": f"/practice/questions/{interview['slug']}", "reason": "Recruiters ask exactly this.",
+            "url": f"/practice/questions?slug={interview['slug']}", "reason": "Recruiters ask exactly this.",
         })
 
     siblings = catalog.topic_siblings(topic["subject_id"], topic["order_index"])
@@ -92,17 +105,34 @@ def dashboard(user_id: str) -> dict[str, Any]:
     profile = db.query_one("SELECT branch_id, semester_id FROM profiles WHERE user_id = ?", user_id) or {}
 
     lessons: list[dict] = []
-    if continue_rows:
-        lessons = continue_rows
-    else:
+    # "Recommended for you" used to be ``continue_rows`` verbatim, so the panel
+    # rendered the same two topics as "Continue where you left off" immediately
+    # above it. A learner reading the dashboard was told twice to go to the same
+    # place and was never shown anything they had not started - the one thing a
+    # recommendation panel is for. Recommend the next un-started topics in
+    # syllabus order instead, minus whatever the panels above already name.
+    already = {row["slug"] for row in continue_rows} | {row["slug"] for row in weak}
+    lessons = [
+        row for row in next_topics_for(user_id, 3 + len(already))
+        if row["slug"] not in already
+    ][:3]
+    if not lessons:
+        # A learner who has a progress row for every published topic in their
+        # branch - asha, in the seed data, has 406 - has nothing left to start,
+        # so next_topics_for() returns nothing. Fall back to the opening of the
+        # syllabus, but still skip what the two panels above already name: this
+        # query used to hand back the branch's first three topics whatever they
+        # were, which put a topic from "Needs another pass" straight back into
+        # "Recommended for you". Take enough rows that a handful of exclusions
+        # cannot empty the panel.
         rows = db.query(
             "SELECT t.slug, t.title, t.difficulty, s.name AS subject, s.slug AS subject_slug "
             "FROM topics t JOIN subjects s ON s.id = t.subject_id "
             "WHERE t.status='published' AND (? IS NULL OR s.branch_id = ?) "
-            "ORDER BY t.order_index LIMIT 3",
+            "ORDER BY t.order_index LIMIT 30",
             profile.get("branch_id"), profile.get("branch_id"),
         )
-        lessons = rows
+        lessons = [row for row in rows if row["slug"] not in already][:3]
 
     subject_rows = []
     if profile.get("branch_id"):
@@ -160,9 +190,20 @@ def retry_plan(user_id: str) -> list[dict]:
             "message": f"Your {weak['subject']} · {weak['title']} accuracy is {weak['accuracy']}%.",
             "steps": [
                 {"label": "Re-read the note", "url": f"/topics/{weak['slug']}"},
-                {"label": f"Solve {max(easy, 1)} easy questions", "url": f"/practice?topic={weak['slug']}&difficulty=easy"},
+                # /practice renders one fixed page and reads no query parameters,
+                # so "?topic=...&difficulty=easy" arrived as the unfiltered
+                # practice home: the plan promised easy questions on the weak
+                # topic and delivered everything. The bank is the page that
+                # actually filters.
+                # max(easy, 1) because the step is still worth offering when the
+                # easiest question on the topic is a medium one - but then the
+                # label has to agree with itself.
+                {"label": f"Solve {max(easy, 1)} easy {'question' if easy <= 1 else 'questions'}",
+                 "url": f"/practice/questions?topic={weak['slug']}&difficulty=easy"},
                 {"label": "Revise with flashcards", "url": "/flashcards"},
-                {"label": "Retry today's DPP", "url": "/dpp/today"},
+                # /dpp is today's set; /dpp/{date} takes a date and there is no
+                # /dpp/today, which answered 404.
+                {"label": "Retry today's DPP", "url": "/dpp"},
             ],
             "flashcards": cards,
             "easyQuestions": easy,

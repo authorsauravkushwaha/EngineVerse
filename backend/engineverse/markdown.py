@@ -311,11 +311,48 @@ def _split_row(line: str) -> list[str]:
     return [cell.strip() for cell in line.strip().strip("|").split("|")]
 
 
-def render(source: str | None) -> str:
-    """Renders markdown to safe HTML."""
+def _heading_shift(source: str, base: int) -> int:
+    """How far to move this block's headings so its shallowest lands on ``base``.
+
+    Headings used to be shifted by a flat +2, on the assumption that every block
+    is rendered inside a section that is itself an <h2> under the page's <h1>.
+    That holds for topic notes but not for a problem statement, which sits
+    directly under the page's <h1>: its first heading is written as ``###``, so
+    +2 made it an <h5> with no <h2>, <h3> or <h4> before it. A reader navigating
+    by heading heard the page jump from the title to a fifth-level heading, on
+    all 95 coding problems.
+
+    Aligning the shallowest heading in the block to ``base`` keeps the relative
+    depth the author wrote while guaranteeing the block starts where its
+    container expects, whatever levels the author happened to use.
+    """
+    levels: list[int] = []
+    in_fence = False
+    for line in source.split("\n"):
+        stripped = line.strip()
+        # Fenced code is copied verbatim, so a `#` comment inside one is not a
+        # heading and must not influence the shift.
+        if stripped.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        match = re.match(r"^(#{1,6})\s+\S", stripped)
+        if match:
+            levels.append(len(match.group(1)))
+    return base - min(levels) if levels else 0
+
+
+def render(source: str | None, *, base: int = 2) -> str:
+    """Renders markdown to safe HTML.
+
+    ``base`` is the heading level this block's shallowest heading should take;
+    it defaults to 2, which is correct wherever content sits under a page <h1>.
+    """
     if not source:
         return ""
     text = source.replace("\r\n", "\n").replace("\r", "\n")[:MAX_RENDER_LENGTH]
+    shift = _heading_shift(text, base)
     lines = text.split("\n")
     out: list[str] = []
     index = 0
@@ -370,7 +407,7 @@ def render(source: str | None) -> str:
 
         heading = re.match(r"^(#{1,6})\s+(.*)$", stripped)
         if heading:
-            level = min(len(heading.group(1)) + 2, 6)
+            level = min(max(len(heading.group(1)) + shift, 1), 6)
             out.append(f"<h{level} class='md-h'>{_inline(heading.group(2))}</h{level}>")
             index += 1
             continue
