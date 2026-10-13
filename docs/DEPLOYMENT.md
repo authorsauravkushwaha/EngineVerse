@@ -190,13 +190,31 @@ account's authenticator seal. The password and the seal are not printed.
   syllabus. Newly generated starter content, including Cyber Security, is marked
   `needs_review` in editorial metadata. See `docs/CURRICULUM_COVERAGE.md`.
 
-## GitHub Pages reading copy
+## GitHub Pages sign-in gateway
 
-GitHub Pages can serve files only. scripts/export_pages.py writes the public
-catalogue, using the same neumorphic pages as the app.
-.github/workflows/pages.yml publishes that folder. The address is
-https://<github-user>.github.io/<repository>/.
+GitHub Pages can serve files only, so it cannot run accounts, a database or the
+code judge. Sign-in is compulsory on EngineVerse (`ENGINEVERSE_SIGNIN=required`,
+the default), so `.github/workflows/pages.yml` publishes a **sign-in gateway**
+rather than the catalogue: one landing page whose buttons go to the hosted
+app's `/login` and `/register`, and a 404 page that sends any old deep link (a
+bookmarked `/topics/...` or `/dpp/...` from the former reading copy) to the
+app's sign-in with that page kept as `next`. No notes, questions or answers are
+published there.
 
-That address is not the application. Sign-in, saved progress and code
-execution are absent there. It is not a production deployment, not a Play
-submission, and not a certificate.
+Point it at the hosted app by setting the repository variable
+`ENGINEVERSE_APP_URL` (Settings -> Secrets and variables -> Actions ->
+Variables) to the app's `https://` address, then re-run the workflow. Until the
+variable is set the page says the app is not hosted yet. Locally:
+
+```bash
+python scripts/export_pages.py --out site --app-url https://learn.example.org
+```
+
+An operator who deliberately runs the app with `ENGINEVERSE_SIGNIN=optional`
+can still publish the older public reading copy with
+`python scripts/export_pages.py --out site --reading-copy`. That copy publishes
+every public page to anyone and has no accounts, saved progress or code
+execution.
+
+The Pages address is not the application. It is not a production deployment,
+not a Play submission, and not a certificate.

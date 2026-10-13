@@ -134,6 +134,23 @@ class Settings:
     #: it on makes POST /forgot-password an account-takeover endpoint.
     reveal_reset_token: bool = field(default_factory=lambda: _bool("ENGINEVERSE_REVEAL_RESET_TOKEN", False))
 
+    # --- who may use the site ---------------------------------------------
+    # ``required`` (the default) puts every page and API route behind an
+    # account: a signed-out visitor is sent to /login and comes back to the page
+    # they asked for once signed in. Only the sign-in, registration and
+    # password-recovery pages, the legal pages, certificate verification and
+    # the static assets stay open. ``optional`` restores anonymous browsing of
+    # the public catalogue; it exists for operators who want that and for the
+    # test suite's anonymous-page checks.
+    signin: str = field(default_factory=lambda: os.environ.get(
+        "ENGINEVERSE_SIGNIN", "required").strip().lower())
+
+    @property
+    def signin_required(self) -> bool:
+        # Anything other than an explicit "optional" keeps the gate closed, so
+        # a typo in the variable fails safe rather than opening the site.
+        return self.signin != "optional"
+
     @property
     def login_otp_required(self) -> bool:
         return self.login_otp == "required"
@@ -219,6 +236,8 @@ class Settings:
             problems.append("ENGINEVERSE_SITE_URL must be an https:// origin in production")
         if self.reveal_reset_token:
             problems.append("ENGINEVERSE_REVEAL_RESET_TOKEN must not be set in production")
+        if self.signin not in {"required", "optional"}:
+            problems.append("ENGINEVERSE_SIGNIN must be either 'required' or 'optional'")
         if self.login_otp not in {"required", "disabled"}:
             problems.append(
                 "ENGINEVERSE_LOGIN_OTP must be either 'required' or 'disabled'"

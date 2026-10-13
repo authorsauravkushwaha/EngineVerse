@@ -182,6 +182,9 @@
       }
     }
     if (document.querySelector(".topbar-right .streak")) return;
+    // The sign-in gate's pages have no streak to link to: /streaks is behind
+    // the same gate, so the chip would only bounce back to /login.
+    if (document.body && document.body.hasAttribute("data-signin-gate")) return;
     var slot = document.querySelector(".topbar-right");
     if (!slot) return;
     var chip = document.getElementById("ev-streak-chip");

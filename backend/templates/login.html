@@ -3,15 +3,16 @@
 {% block content %}
 <div class="form-panel panel">
   <h1>Sign in</h1>
-  <p class="muted">First-party authentication only. We never hand your credentials to a third party.</p>
-  {% if error %}<div class="callout warning"><span class="label">Could not sign you in</span>{{ error }}
-    {% if error == 'reset' %}Your password was changed — sign in with the new one.{% endif %}</div>{% endif %}
+  <p class="muted">{% if signin_required %}Sign in to use {{ brand.site_name }}: notes, practice, coding and your progress all live behind your account.{% else %}First-party authentication only. We never hand your credentials to a third party.{% endif %}</p>
+  {% if notice %}<div class="callout{{ ' warning' if notice_kind == 'warning' }}" role="status">{{ notice }}</div>{% endif %}
+  {% if error %}<div class="callout warning" role="alert"><span class="label">Could not sign you in</span>{{ error }}</div>{% endif %}
   {% if otp_channel %}
   <form method="post" action="/login">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <input type="hidden" name="next" value="{{ next or '/' }}">
     <input type="hidden" name="identifier" value="{{ identifier or '' }}">
     <input type="hidden" name="mfa_token" value="{{ otp_token }}">
+    <input type="hidden" name="remember" value="{{ '1' if remember else '' }}">
     <p>We sent a 6-digit code to {{ otp_masked }}. It expires in 5 minutes and works once.</p>
     {% if otp_revealed_code %}
     <div class="callout warning"><span class="label">Development-only code</span>
@@ -47,7 +48,6 @@
     <input type="hidden" name="identifier" value="{{ identifier or '' }}">
     <input type="hidden" name="mfa_token" value="{{ mfa_token }}">
     <input type="hidden" name="remember" value="{{ '1' if remember else '' }}">
-    <input type="hidden" name="remember" value="{{ '1' if remember else '' }}">
     <div class="field"><label for="otp">Authenticator code</label>
       <input id="otp" name="otp" inputmode="numeric" autocomplete="one-time-code" required maxlength="32" autofocus></div>
     <p class="small muted">A recovery code works here too. It can be used once.</p>
@@ -70,7 +70,7 @@
   </form>
   {% endif %}
   <p class="small center mt"><a href="/forgot-password">Forgot your password?</a></p>
-  <p class="small center">New here? <a href="/register{{ '?next=' + next if next else '' }}">Create a free account</a></p>
+  <p class="small center">New here? <a href="/register{{ '?next=' ~ (next | urlencode) if next and next != '/' else '' }}">Create a free account</a></p>
   {% if show_demo_accounts %}<details class="mt"><summary class="small muted">Demo accounts on this development instance</summary>
     <table class="mt"><tbody>
       <tr><td>asha@example.com</td><td class="mono">LearnBuild#2026!</td></tr>

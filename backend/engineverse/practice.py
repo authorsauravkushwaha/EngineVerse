@@ -395,5 +395,33 @@ def mistake_notebook(
     )
 
 
+def mistake_cards(user_id: str, *, limit: int = 50) -> list[dict]:
+    """Mistake notebook rows ready to be answered again.
+
+    ``mistake_notebook`` returns the mistake row itself: its ``id`` is the
+    mistake's id, it has no options, and it carries the explanation. The page
+    used to render that directly, so every card posted the mistake id as the
+    question id ("Unknown question"), showed no options to pick, and printed
+    the explanation before the retry. Each row here carries the public question
+    (options without the key, no explanation), how many times it was answered
+    wrongly, and the attempt summary for the chip.
+    """
+    rows = mistake_notebook(user_id, limit=limit)
+    ids = [row["question_id"] for row in rows]
+    attempts = attempt_summary(user_id, ids)
+    cards: list[dict] = []
+    for row in rows:
+        question = question_by_id(row["question_id"])
+        if question is None:
+            continue
+        summary = attempts.get(row["question_id"], {"attempts": 0, "correct": 0})
+        card = {key: value for key, value in row.items() if key != "explanation"}
+        card["question"] = public_question(question)
+        card["attempt"] = summary if summary["attempts"] else None
+        card["wrong_count"] = max(1, summary["attempts"] - summary["correct"])
+        cards.append(card)
+    return cards
+
+
 def question_kinds() -> list[dict]:
     return db.query("SELECT kind, count(*) AS count FROM questions WHERE is_active=1 GROUP BY kind ORDER BY count DESC")

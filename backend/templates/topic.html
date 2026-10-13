@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_quiz.html" import quiz_card with context %}
 {% block title %}{{ topic.title }} — {{ brand.site_name }}{% endblock %}
 {% block description %}{{ topic.summary }}{% endblock %}
 {% block content %}
@@ -121,23 +122,9 @@
       <section class="note-section">
         <h2>Check yourself</h2>
         {% for question in questions %}
-          <div class="q-card mb" data-quiz="{{ question.id }}">
-            <div class="q-stem">{{ question.stem }}</div>
-            <form>
-              {% for option in question.options %}
-                <label class="opt" data-index="{{ loop.index0 }}">
-                  <input type="radio" name="option" value="{{ loop.index0 }}">
-                  <span class="k">{{ option.label }}</span><span>{{ option.body }}</span>
-                </label>
-              {% endfor %}
-              <div class="row">
-                <button type="submit" class="btn btn-primary btn-sm">Check answer</button>
-                <span class="verdict-inline chip" style="display:none"></span>
-                <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
-              </div>
-            </form>
-            <div class="explain"><strong>Why.</strong> {{ question.explanation }}</div>
-          </div>
+          {% call quiz_card(question, attempt=attempts.get(question.id) if attempts else None, card_class="mb") %}
+            <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
+          {% endcall %}
         {% endfor %}
       </section>
     {% endif %}

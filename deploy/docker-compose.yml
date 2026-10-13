@@ -45,6 +45,8 @@ services:
       # checks as the web process, so it needs these too or the boot check would
       # refuse a correctly configured site.
       ENGINEVERSE_LOGIN_OTP: ${ENGINEVERSE_LOGIN_OTP:-disabled}
+      # Every page needs an account unless this is set to "optional".
+      ENGINEVERSE_SIGNIN: ${ENGINEVERSE_SIGNIN:-required}
       ENGINEVERSE_SMTP_URL: ${ENGINEVERSE_SMTP_URL:-}
       ENGINEVERSE_SMS_URL: ${ENGINEVERSE_SMS_URL:-}
       ENGINEVERSE_MAIL_FROM: "${ENGINEVERSE_MAIL_FROM:-EngineVerse <no-reply@localhost>}"
@@ -77,6 +79,8 @@ services:
       # SMS is configured, and a transport configured here but not there would
       # be delivered by one process and refused by the other.
       ENGINEVERSE_LOGIN_OTP: ${ENGINEVERSE_LOGIN_OTP:-disabled}
+      # Every page needs an account unless this is set to "optional".
+      ENGINEVERSE_SIGNIN: ${ENGINEVERSE_SIGNIN:-required}
       ENGINEVERSE_SMTP_URL: ${ENGINEVERSE_SMTP_URL:-}
       ENGINEVERSE_SMS_URL: ${ENGINEVERSE_SMS_URL:-}
       ENGINEVERSE_MAIL_FROM: "${ENGINEVERSE_MAIL_FROM:-EngineVerse <no-reply@localhost>}"

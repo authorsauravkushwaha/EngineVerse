@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_quiz.html" import quiz_card with context %}
 {% block title %}{{ language.name }} — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <nav class="crumbs"><a href="/programming">Learn to code</a> › <span>{{ language.name }}</span></nav>
@@ -45,24 +46,11 @@
         appear after you submit — never before. A wrong answer still records the attempt, keeps the question
         in your mistake notebook and awards attempt XP, exactly like the daily practice sets.</p>
       {% for question in stage.checkpoints %}
-      <div class="q-card mb" data-quiz="{{ question.id }}">
-        <div class="row"><span class="chip">Question {{ loop.index }} of {{ stage.checkpoints | length }}</span>
-          <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
-          {% set attempt = attempts.get(question.id) if attempts else None %}
-          {% if attempt %}<span class="chip ok">Attempted {{ attempt.attempts }}× · {{ attempt.correct }} correct</span>{% endif %}
-        </div>
-        <div class="q-stem mt">{{ question.stem }}</div>
-        <form>
-          {% for option in question.options %}
-            <label class="opt" data-index="{{ loop.index0 }}">
-              <input type="radio" name="option" value="{{ loop.index0 }}">
-              <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>
-          {% endfor %}
-          <div class="row"><button type="submit" class="btn btn-primary btn-sm">Check answer</button>
-            <span class="verdict-inline chip" style="display:none"></span></div>
-        </form>
-        <div class="explain"></div>
-      </div>
+      {% set position = loop.index %}
+      {% call quiz_card(question, attempt=attempts.get(question.id) if attempts else None, card_class="mb") %}
+        <span class="chip">Question {{ position }} of {{ stage.checkpoints | length }}</span>
+        <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
+      {% endcall %}
       {% endfor %}
     </div>
     {% endif %}

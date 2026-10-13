@@ -30,6 +30,12 @@ for entry in (str(BACKEND), str(REPO_ROOT)):
 # setdefault too.
 os.environ.setdefault("ENGINEVERSE_LOGIN_OTP", "disabled")
 
+# Sign-in is compulsory by default. Most of the suite checks what the public
+# catalogue pages render, so it runs with anonymous browsing allowed, set here
+# for the same .env reason as above. test_signin_required.py switches the gate
+# back on and checks the default behaviour.
+os.environ.setdefault("ENGINEVERSE_SIGNIN", "optional")
+
 
 @pytest.fixture(scope="session", autouse=True)
 def _isolated_database(tmp_path_factory):

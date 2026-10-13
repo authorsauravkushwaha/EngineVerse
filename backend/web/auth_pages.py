@@ -60,14 +60,33 @@ def _next_url(value: str | None) -> str:
 # Sign in / sign up
 # ---------------------------------------------------------------------------
 
+#: Short codes other handlers put in ``/login?error=``. They used to be shown
+#: verbatim, so a learner whose form had gone stale read "Could not sign you
+#: in csrf". Each one now maps to a sentence; unknown codes show nothing rather
+#: than echoing whatever was in the URL.
+_LOGIN_NOTICES = {
+    "csrf": (
+        "warning",
+        "That form had expired or this browser blocked its security cookie. "
+        "The page has been refreshed, so please try again. If this keeps "
+        "happening, allow cookies for this site.",
+    ),
+    "reset": ("info", "Your password was changed. Sign in with the new one."),
+    "signin": ("info", "Sign in to continue."),
+}
+
+
 @router.get("/login")
 async def login_page(request: Request, next: str | None = None, error: str | None = None):
+    target = _next_url(next)
     if current_user(request):
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(target, status_code=303)
+    notice_kind, notice = _LOGIN_NOTICES.get(error or "", ("", ""))
     # ``remember=True`` on first render keeps the box ticked, which is the
     # friendlier default on a personal machine; the form itself is what decides,
     # and every error path re-renders with whatever the learner chose.
-    return render(request, "login.html", next=next, error=error, mode="login", remember=True)
+    return render(request, "login.html", next=target if target != "/" else "", error=None,
+                  notice=notice, notice_kind=notice_kind, mode="login", remember=True)
 
 
 @router.post("/login")
@@ -170,10 +189,11 @@ async def login_otp_resend(
 
 @router.get("/register")
 async def register_page(request: Request, next: str | None = None):
+    target = _next_url(next)
     if current_user(request):
-        return RedirectResponse("/", status_code=303)
+        return RedirectResponse(target, status_code=303)
     return render(
-        request, "register.html", next=next, mode="register",
+        request, "register.html", next=target if target != "/" else "", mode="register",
         registration_open=brand.registration_open(),
         universities=catalog.list_universities(),
         branches=catalog.list_branches(),
@@ -270,7 +290,9 @@ async def logout_submit(request: Request):
     viewer = current_user(request)
     if viewer:
         auth.logout(viewer.session_id, viewer.id, ip=client_ip(request))
-    response = RedirectResponse("/", status_code=303)
+    # Straight to the sign-in form: with sign-in compulsory, "/" would only
+    # bounce there anyway, and the flash below would be spent on the bounce.
+    response = RedirectResponse("/login", status_code=303)
     clear_session_cookie(response)
     csrf.clear_anonymous_cookie(response)
     flash(response, "Signed out.")

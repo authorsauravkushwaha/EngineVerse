@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}{% if result %}{{ 'Correct' if result.correct else 'Not quite' }}{% else %}Check your answer{% endif %} — {{ brand.site_name }}{% endblock %}
+{% block content %}
+<div class="form-panel panel" style="max-width:760px">
+  {% if error %}
+    <h1>Pick an answer first</h1>
+    <div class="callout warning" role="alert">{{ error }}</div>
+  {% elif result %}
+    <h1>{{ 'Correct' if result.correct else 'Not quite' }}</h1>
+    <p><span class="chip {{ 'ok' if result.correct else 'bad' }}">{{ 'Correct' if result.correct else 'Not quite' }}</span>
+      {% if result.xp %}<span class="chip">+{{ result.xp }} XP{{ '' if result.correct else ' for the attempt' }}</span>{% endif %}</p>
+  {% endif %}
+  <div class="q-stem mt">{{ question.stem }}</div>
+  <div class="mt">
+  {% for option in question.options %}
+    <div class="opt locked{% if result and option.label == result.correctLabel %} correct{% elif result and chosen and option.label == chosen.label %} wrong{% endif %}">
+      <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></div>
+  {% endfor %}
+  </div>
+  {% if result and result.explanation %}
+  <div class="explain on"><strong>Why.</strong> {{ result.explanation }}</div>
+  {% endif %}
+  {% if result and not result.correct %}<p class="small muted">It has been added to your <a href="/mistakes">mistake notebook</a>.</p>{% endif %}
+  <div class="row mt">
+    <a class="btn btn-primary" href="{{ back }}#q-{{ question.id }}">Back to the questions</a>
+    {% if result and result.topicSlug %}<a class="btn btn-ghost" href="/topics/{{ result.topicSlug }}">Read the topic</a>{% endif %}
+  </div>
+</div>
+{% endblock %}

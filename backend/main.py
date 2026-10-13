@@ -213,6 +213,73 @@ def _peek_session(request: Request):
     return auth.current_user_from_session(session_from_request(request))
 
 
+#: Paths a signed-out visitor can reach while sign-in is compulsory. Everything
+#: needed to get an account and into it, recover it, read the legal terms, and
+#: load the page's own assets. Certificate verification stays open because its
+#: whole purpose is to let someone without an account (an employer, say)
+#: confirm a record; it shows nothing beyond that record.
+PUBLIC_EXACT = frozenset({
+    "/login",
+    "/login/otp/resend",
+    "/logout",
+    "/register",
+    "/forgot-password",
+    "/reset-password",
+    "/verify-email",
+    "/terms",
+    "/privacy",
+    "/offline",
+    "/health",
+    "/favicon.ico",
+    "/manifest.webmanifest",
+    "/sw.js",
+    "/robots.txt",
+    "/.well-known/assetlinks.json",
+})
+PUBLIC_PREFIXES = ("/static/", "/certificates/")
+
+
+def is_public_path(path: str) -> bool:
+    if path in PUBLIC_EXACT:
+        return True
+    return any(path.startswith(prefix) for prefix in PUBLIC_PREFIXES)
+
+
+def login_redirect_target(request: Request) -> str:
+    """``/login`` carrying the page the visitor asked for, so they land back on it."""
+    from urllib.parse import quote
+
+    path = request.url.path
+    if request.method not in ("GET", "HEAD") or path in ("/", "/login"):
+        return "/login"
+    wanted = path + (f"?{request.url.query}" if request.url.query else "")
+    if len(wanted) > 1500:
+        wanted = path
+    return "/login?next=" + quote(wanted, safe="/")
+
+
+class SignInRequiredMiddleware(BaseHTTPMiddleware):
+    """Sends signed-out visitors to /login when sign-in is compulsory.
+
+    Pages answer with a 303 to the sign-in form (carrying ``next``); API routes
+    answer 401 JSON so a script gets a clear reason instead of an HTML page.
+    It runs before CSRF so an anonymous API call is told to sign in rather than
+    that its token is bad.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if not get_settings().signin_required or is_public_path(request.url.path):
+            return await call_next(request)
+        if _peek_session(request) is not None:
+            return await call_next(request)
+        if request.url.path.startswith("/api/"):
+            return JSONResponse(
+                {"ok": False, "error": "Sign in to continue.", "signIn": "/login"},
+                status_code=401,
+            )
+        return RedirectResponse(login_redirect_target(request), status_code=303)
+
+
 class AdminMfaMiddleware(BaseHTTPMiddleware):
     """In production, staff cannot mutate /admin until an authenticator is enrolled.
 
@@ -260,7 +327,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         elif request.method == "POST" and path == "/api/feedback":
             count, window = ratelimit.LIMITS["feedback"]
             limit = ("feedback", count, window)
-        elif request.method == "POST" and path == "/api/practice/answer":
+        elif request.method == "POST" and path in ("/api/practice/answer", "/practice/check"):
             count, window = ratelimit.LIMITS["answer"]
             limit = ("answer", count, window)
         elif path in ("/api/coding/run", "/api/coding/submit"):
@@ -350,11 +417,13 @@ def create_app() -> FastAPI:
     )
 
     # The order here is the incoming request order after Starlette wraps the
-    # middleware stack: bounds -> security headers -> rate limit -> CSRF -> MFA.
-    # Rate limits must run before CSRF rejection so an attacker cannot evade
-    # per-IP abuse controls by omitting or forging a token.
+    # middleware stack: bounds -> security headers -> rate limit -> sign-in
+    # gate -> CSRF -> MFA. Rate limits must run before CSRF rejection so an
+    # attacker cannot evade per-IP abuse controls by omitting or forging a
+    # token; the sign-in gate sits after them for the same reason.
     app.add_middleware(AdminMfaMiddleware)
     app.add_middleware(CsrfMiddleware)
+    app.add_middleware(SignInRequiredMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(SecurityHeadersMiddleware)
     app.add_middleware(RequestBoundsMiddleware)
@@ -373,6 +442,21 @@ def create_app() -> FastAPI:
         response = render(request, "error.html", status=404, message="That page does not exist.")
         response.status_code = 404
         return response
+
+    @app.exception_handler(401)
+    async def sign_in_required(request: Request, exc):
+        """A page or API call that needs an account, reached without one.
+
+        Pages used to answer with FastAPI's raw ``{"detail": ...}`` JSON, so a
+        signed-out learner who followed a link to /mistakes or /settings saw a
+        line of JSON instead of a sign-in form. Pages now go to /login and come
+        back afterwards; the API keeps JSON in the same shape as the rest of
+        /api, which is what app.js reads.
+        """
+        message = getattr(exc, "detail", None) or "Sign in to continue."
+        if request.url.path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": message, "signIn": "/login"}, status_code=401)
+        return RedirectResponse(login_redirect_target(request), status_code=303)
 
     @app.exception_handler(auth.AuthError)
     async def auth_error(request: Request, exc):
@@ -527,6 +611,11 @@ def create_app() -> FastAPI:
 
     @app.get("/robots.txt", include_in_schema=False)
     async def robots() -> Response:
+        if get_settings().signin_required:
+            # Every page is behind sign-in, so there is nothing for a crawler
+            # to index except the sign-in form itself.
+            body = "User-agent: *\nAllow: /login\nAllow: /register\nDisallow: /\n"
+            return Response(body, media_type="text/plain")
         sitemap_url = get_settings().site_url.rstrip("/") + "/sitemap.xml"
         body = (
             "User-agent: *\nAllow: /\nDisallow: /api/\nDisallow: /settings\n"

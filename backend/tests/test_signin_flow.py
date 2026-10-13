@@ -136,15 +136,16 @@ class TestPasswordSignIn:
 
         The browser copy is replayed after signing out and must be treated
         exactly like no cookie at all: ``/settings`` answers the anonymous
-        request (401, the same as a fresh client) and the header is anonymous
-        again.
+        request (a redirect to the sign-in form, the same as a fresh client)
+        and the header is anonymous again.
         """
         _register(client)
         cookie = client.cookies.get(SESSION_COOKIE)
         _sign_out(client)
         client.cookies.set(SESSION_COOKIE, cookie)
         response = client.get("/settings", follow_redirects=False)
-        assert response.status_code == 401, "a revoked session still opened a private page"
+        assert response.status_code == 303, "a revoked session still opened a private page"
+        assert response.headers["location"] == "/login?next=/settings"
         assert client.get("/").text.count(">Sign in<") == 1
 
     def test_the_login_page_does_not_advertise_codes_it_cannot_send(self, client, seeded, no_delivery):

@@ -21,11 +21,24 @@
     let data = {};
     try { data = await res.json(); } catch (_) { /* non-JSON */ }
     if (!res.ok || data.ok === false) {
-      const err = new Error(data.error || `Request failed (${res.status})`);
+      let message = data.error || `Request failed (${res.status})`;
+      if (res.status === 403 && /csrf/i.test(message)) {
+        // The page's token belongs to a session that has since changed - a
+        // sign-in or sign-out in another tab, or a page restored from cache.
+        message = "This page is out of date. Reload it and try again.";
+      }
+      const err = new Error(message);
       err.status = res.status;
       throw err;
     }
     return data;
+  }
+
+  // Where to send someone whose session is missing or has expired: the
+  // sign-in form, coming back to this exact page afterwards.
+  function signInUrl() {
+    const here = location.pathname + location.search;
+    return here === "/" ? "/login" : `/login?next=${encodeURIComponent(here)}`;
   }
 
   function toast(message, kind = "ok") {
@@ -116,7 +129,7 @@
   // -------------------------------------------------------------- bookmarks
   $$("[data-bookmark]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = "/login"; return; }
+      if (!cfg.user) { location.href = signInUrl(); return; }
       const type = btn.dataset.type || btn.dataset.bookmark;
       const id = btn.dataset.id;
       try {
@@ -142,6 +155,7 @@
     if (!form) return;
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
+      if (!cfg.user) { location.href = signInUrl(); return; }
       const picked = form.querySelector("input[name=option]:checked");
       if (!picked) { toast("Pick an answer first", "bad"); return; }
       const index = Number(picked.value);
@@ -163,14 +177,23 @@
         });
         const explain = $(".explain", card);
         if (explain) {
+          // Built with DOM nodes, not innerHTML: an explanation is authored
+          // content, and this path stays injection-proof even if that ever
+          // changes.
+          explain.replaceChildren();
+          const lead = document.createElement("strong");
           if (res.explanation) {
-            // Built with DOM nodes, not innerHTML: an explanation is authored
-            // content, and this path stays injection-proof even if that ever
-            // changes.
-            explain.replaceChildren();
-            const lead = document.createElement("strong");
             lead.textContent = "Why.";
             explain.append(lead, ` ${res.explanation}`);
+          } else {
+            lead.textContent = res.correct ? "Correct." : `The answer is ${correctLabel || "marked above"}.`;
+            explain.append(lead);
+          }
+          if (!res.correct) {
+            const more = document.createElement("span");
+            more.className = "small muted";
+            more.textContent = " Saved to your mistake notebook.";
+            explain.append(more);
           }
           explain.classList.add("on");
         }
@@ -182,6 +205,11 @@
         }
         if (res.xp) toast(res.correct ? `+${res.xp} XP` : `+${res.xp} XP for the attempt`);
       } catch (err) {
+        if (err.status === 401) {
+          toast("Your session ended. Sign in again to keep practising.", "bad");
+          setTimeout(() => { location.href = signInUrl(); }, 900);
+          return;
+        }
         toast(err.message, "bad");
         submit.disabled = false;
       }
@@ -280,7 +308,7 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
     });
 
     $("#btn-submit")?.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = "/login"; return; }
+      if (!cfg.user) { location.href = signInUrl(); return; }
       const btn = $("#btn-submit");
       btn.disabled = true;
       btn.innerHTML = '<span class="spin"></span> Judging';
@@ -357,7 +385,7 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
   // ------------------------------------------------------------- voting
   $$("[data-vote]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = "/login"; return; }
+      if (!cfg.user) { location.href = signInUrl(); return; }
       try {
         const res = await api("/api/community/vote", {
           method: "POST",
@@ -374,7 +402,7 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
   // ---------------------------------------------------- mark topic complete
   $$("[data-complete-topic]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = "/login"; return; }
+      if (!cfg.user) { location.href = signInUrl(); return; }
       btn.disabled = true;
       try {
         const res = await api("/api/me/progress/topic", {
