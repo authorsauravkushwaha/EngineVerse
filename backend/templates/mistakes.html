@@ -1,21 +1,19 @@
 {% extends "base.html" %}
+{% from "_quiz.html" import quiz_card with context %}
 {% block title %}Mistake notebook — {{ brand.site_name }}{% endblock %}
 {% block content %}
 <h1>Mistake notebook</h1>
-<p class="muted">Every question you got wrong, kept until you get it right. This is the fastest way to close gaps.</p>
+<p class="muted">Every question you got wrong, kept until you get it right. This is the fastest way to close gaps.
+  The explanation stays hidden until you try again.</p>
 <div class="stack">
   {% for row in mistakes %}
-    <div class="q-card" data-quiz="{{ row.id }}">
-      <div class="row"><span class="chip bad">wrong {{ row.wrong_count }}×</span>
-        <span class="chip diff-{{ row.difficulty }}">{{ row.difficulty }}</span></div>
-      <div class="q-stem mt">{{ row.stem }}</div>
-      <form>{% for option in row.options %}
-        <label class="opt" data-index="{{ loop.index0 }}"><input type="radio" name="option" value="{{ loop.index0 }}">
-          <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>{% endfor %}
-        <div class="row"><button type="submit" class="btn btn-primary btn-sm">Try again</button>
-          <span class="verdict-inline chip" style="display:none"></span></div></form>
-      <div class="explain"><strong>Why.</strong> {{ row.explanation }}</div>
-    </div>
+    {% call quiz_card(row.question, submit_label="Try again", attempt=row.attempt) %}
+      {% if row.resolved_at %}<span class="chip ok">Resolved</span>
+      {% else %}<span class="chip bad">Wrong {{ row.wrong_count }}×</span>{% endif %}
+      <span class="chip diff-{{ row.difficulty }}">{{ row.difficulty }}</span>
+      {% if row.topic_slug %}<a class="chip" href="/topics/{{ row.topic_slug }}">{{ row.topic_title }}</a>{% endif %}
+      {% if row.given and not row.resolved_at %}<span class="chip">Last answer: {{ row.given }}</span>{% endif %}
+    {% endcall %}
   {% else %}<div class="empty"><span class="em">🎉</span>No mistakes recorded yet. Go and make some — that is how
     you find the gaps.</div>{% endfor %}
 </div>

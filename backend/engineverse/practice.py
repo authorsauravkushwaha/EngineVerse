@@ -9,6 +9,14 @@ from .security.ids import now_ms, today, ulid
 
 DIFFICULTY_ORDER = {"easy": 0, "beginner": 0, "medium": 1, "hard": 2, "expert": 3}
 
+#: Longest question or practice-set identifier the answer endpoints accept.
+#: Identifiers are readable slugs, and the mastery "concept-check-..." questions
+#: run to 85 characters. The old hard-coded 64 refused every one of them with
+#: "Invalid question identifier.", so a fifth of the bank could not be answered.
+#: The bound only exists to refuse junk before a database lookup; the columns
+#: are TEXT. test_signin_required checks every seeded id fits.
+MAX_ID_LENGTH = 128
+
 
 def _json(value: Any, fallback: Any) -> Any:
     if value in (None, ""):
@@ -289,6 +297,15 @@ def record_answer(
         raise ValueError("unknown question")
 
     correct, correct_label = grade(question, option_index, answer_text)
+    # A question already answered correctly pays only the attempt XP. A wrong
+    # answer reveals the right option, so without this the same question could
+    # be answered correctly again and again for its full value - XP farming,
+    # limited only by the rate limiter. The first correct answer still earns
+    # the full amount and every answer is still recorded.
+    already_solved = bool(db.scalar(
+        "SELECT 1 AS solved FROM submissions WHERE user_id = ? AND question_id = ? AND is_correct = 1 LIMIT 1",
+        user_id, question_id, default=None,
+    ))
     options = db.query(
         "SELECT label FROM question_options WHERE question_id = ? ORDER BY order_index", question_id
     )
@@ -318,11 +335,15 @@ def record_answer(
                 ts, user_id, question_id,
             )
 
-    xp = {"easy": 5, "beginner": 5, "medium": 10, "hard": 15, "expert": 25}.get(question["difficulty"], 10) if correct else 1
+    first_correct = correct and not already_solved
+    xp = (
+        {"easy": 5, "beginner": 5, "medium": 10, "hard": 15, "expert": 25}.get(question["difficulty"], 10)
+        if first_correct else 1
+    )
 
     from .progress import award_xp, bump_activity, evaluate_badges, update_topic_mastery
 
-    award_xp(user_id, xp, "question.correct" if correct else "question.attempt", "question", question_id)
+    award_xp(user_id, xp, "question.correct" if first_correct else "question.attempt", "question", question_id)
     bump_activity(user_id, "questions_solved", minutes=1, xp=xp)
     if question.get("topic_id"):
         update_topic_mastery(user_id, question["topic_id"])
@@ -333,6 +354,7 @@ def record_answer(
         "correctLabel": correct_label,
         "explanation": question.get("explanation"),
         "xp": xp,
+        "alreadySolved": already_solved,
         "topicSlug": db.scalar("SELECT slug AS s FROM topics WHERE id = ?", question.get("topic_id"), default=None),
     }
 
@@ -393,6 +415,34 @@ def mistake_notebook(
         f"WHERE {' AND '.join(clauses)} ORDER BY (m.resolved_at IS NOT NULL), m.created_at DESC LIMIT ?",
         *args,
     )
+
+
+def mistake_cards(user_id: str, *, limit: int = 50) -> list[dict]:
+    """Mistake notebook rows ready to be answered again.
+
+    ``mistake_notebook`` returns the mistake row itself: its ``id`` is the
+    mistake's id, it has no options, and it carries the explanation. The page
+    used to render that directly, so every card posted the mistake id as the
+    question id ("Unknown question"), showed no options to pick, and printed
+    the explanation before the retry. Each row here carries the public question
+    (options without the key, no explanation), how many times it was answered
+    wrongly, and the attempt summary for the chip.
+    """
+    rows = mistake_notebook(user_id, limit=limit)
+    ids = [row["question_id"] for row in rows]
+    attempts = attempt_summary(user_id, ids)
+    cards: list[dict] = []
+    for row in rows:
+        question = question_by_id(row["question_id"])
+        if question is None:
+            continue
+        summary = attempts.get(row["question_id"], {"attempts": 0, "correct": 0})
+        card = {key: value for key, value in row.items() if key != "explanation"}
+        card["question"] = public_question(question)
+        card["attempt"] = summary if summary["attempts"] else None
+        card["wrong_count"] = max(1, summary["attempts"] - summary["correct"])
+        cards.append(card)
+    return cards
 
 
 def question_kinds() -> list[dict]:

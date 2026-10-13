@@ -42,6 +42,6 @@
     <button class="btn btn-primary btn-block" type="submit">Create account</button>
   </form>
   {% endif %}
-  <p class="small center mt">Already registered? <a href="/login">Sign in</a></p>
+  <p class="small center mt">Already registered? <a href="/login{{ '?next=' ~ (next | urlencode) if next and next != '/' else '' }}">Sign in</a></p>
 </div>
 {% endblock %}

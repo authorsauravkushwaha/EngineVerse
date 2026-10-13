@@ -172,6 +172,11 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "mail_configured": bool(get_settings().smtp_url),
         "sms_configured": get_settings().sms_configured,
         "login_otp_required": get_settings().login_otp_required,
+        "signin_required": get_settings().signin_required,
+        # A signed-out visitor on an instance where sign-in is compulsory can
+        # only reach the account pages, so the layout drops the navigation,
+        # search and footer links that would each bounce back to /login.
+        "gated": get_settings().signin_required and viewer is None,
         "short_session_hours": get_settings().session_short_hours,
         "long_session_days": get_settings().session_max_age_days,
         "due_cards": 0,
@@ -213,6 +218,14 @@ def render(
         request, template, context, status_code=status_code, background=background
     )
     response.headers["Vary"] = "Cookie"
+    if context.get("flash"):
+        # A flash is shown once. The cookie used to live out its 8 seconds, so
+        # "Welcome back" or "Signed out." appeared again on the next page too.
+        from engineverse.security.sessions import public_cookie_kwargs
+
+        options = public_cookie_kwargs(0)
+        response.delete_cookie("ev_flash", path=options["path"], secure=options["secure"],
+                               samesite=options["samesite"])
     if context.get("user") is not None:
         response.headers["Cache-Control"] = "private, no-store, max-age=0"
     else:

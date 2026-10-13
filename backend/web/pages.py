@@ -173,6 +173,7 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
     all_depths = catalog.notes_by_depth(topic["id"]) if request.query_params.get("depths") == "all" else []
     if viewer:
         progress.mark_topic_viewed(viewer.id, topic["id"])
+    questions = practice.questions_for_topic(topic["id"], 8)
     return render(
         request, "topic.html", topic=topic,
         note=note,
@@ -180,7 +181,8 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
         diagrams=catalog.diagrams_for_topic(topic["id"]),
         models_3d=catalog.models_for_topic(topic["id"]),
         formulas=catalog.formulas_for_topic(topic["id"]),
-        questions=practice.questions_for_topic(topic["id"], 8),
+        questions=questions,
+        attempts=_attempts(viewer, questions),
         flashcards=library.flashcards_for_topic(topic["id"]),
         resources=library.topic_resources(topic["id"], topic["subject_id"]),
         related=catalog.related_topics(topic),
@@ -223,11 +225,20 @@ async def practice_page(request: Request):
     )
 
 
+def _attempts(viewer, questions: list[dict]) -> dict[str, dict]:
+    """The signed-in learner's attempt history for the questions on a page."""
+    if not viewer or not questions:
+        return {}
+    return practice.attempt_summary(viewer.id, [q["id"] for q in questions])
+
+
 @router.get("/dpp")
 async def dpp_today(request: Request):
+    payload = practice.dpp_with_context()
     return render(
-        request, "dpp.html", dpp=practice.dpp_with_context(),
+        request, "dpp.html", dpp=payload,
         sets=practice.recent_practice_days(30), active_date=None,
+        attempts=_attempts(current_user(request), payload["questions"] if payload else []),
     )
 
 
@@ -249,7 +260,8 @@ async def dpp_day(request: Request, date: str):
     payload = practice.dpp_with_context(date)
     if not payload:
         raise HTTPException(status_code=404, detail="No practice set for that date")
-    return render(request, "dpp.html", dpp=payload, sets=practice.recent_practice_days(30), active_date=date)
+    return render(request, "dpp.html", dpp=payload, sets=practice.recent_practice_days(30), active_date=date,
+                  attempts=_attempts(current_user(request), payload["questions"]))
 
 
 @router.get("/practice/questions")
@@ -259,11 +271,13 @@ async def question_bank(request: Request, subject: str | None = None, kind: str 
     filters = {"subject_id": subject, "kind": kind, "difficulty": difficulty}
     total = practice.list_questions(**filters, limit=1)[1]
     pager = _pager(request, total)
+    questions = practice.list_questions(
+        **filters, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
+    )[0]
     return render(
         request, "question_bank.html",
-        questions=practice.list_questions(
-            **filters, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
-        )[0],
+        questions=questions,
+        attempts=_attempts(current_user(request), questions),
         kinds=practice.question_kinds(),
         subjects=catalog.list_subjects(limit=200),
         active_subject=subject, active_kind=kind, active_difficulty=difficulty,
@@ -276,8 +290,54 @@ async def mistakes_page(request: Request):
     viewer = require_user(request)
     return render(
         request, "mistakes.html",
-        mistakes=practice.mistake_notebook(viewer.id, limit=50),
+        mistakes=practice.mistake_cards(viewer.id, limit=50),
         retry=recommend.retry_plan(viewer.id),
+    )
+
+
+@router.post("/practice/check")
+async def practice_check(request: Request):
+    """Grades one answer from a plain HTML form and shows the result.
+
+    This is the no-JavaScript path for every question card. Before it existed
+    the card's form had no action, so submitting without the script (or with a
+    stale cached copy of it) quietly reloaded the page with ``?option=N`` and
+    nothing was graded. It records the attempt exactly like
+    ``POST /api/practice/answer`` - same grading, XP and mistake notebook - and
+    renders the outcome with a link back to the card.
+    """
+    viewer = require_user(request)
+    form = await request.form()
+    question_id = str(form.get("question_id") or "").strip()
+    set_id = str(form.get("set_id") or "").strip() or None
+    raw_option = str(form.get("option") or "").strip()
+    back = str(form.get("next") or "/practice/questions")
+    if not back.startswith("/") or back.startswith("//") or len(back) > 1024:
+        back = "/practice/questions"
+
+    question = practice.question_by_id(question_id) if 0 < len(question_id) <= practice.MAX_ID_LENGTH else None
+    if not question:
+        raise HTTPException(status_code=404, detail="Unknown question")
+    options = practice.options_for(question_id)
+    if set_id is not None and (len(set_id) > practice.MAX_ID_LENGTH or not db.query_one(
+        "SELECT 1 FROM dpp_questions dq JOIN dpp_sets d ON d.id = dq.set_id "
+        "WHERE dq.set_id = ? AND dq.question_id = ? AND d.published = 1",
+        set_id, question_id,
+    )):
+        set_id = None
+    option_index = int(raw_option) if raw_option.isdigit() else None
+    if not options or option_index is None or not 0 <= option_index < len(options):
+        return render(
+            request, "practice_result.html", status_code=422,
+            question=practice.public_question(question), result=None, chosen=None,
+            back=back, error="Choose one of the listed options, then check your answer.",
+        )
+    result = practice.record_answer(viewer.id, question_id, option_index=option_index, set_id=set_id)
+    progress.evaluate_badges(viewer.id)
+    return render(
+        request, "practice_result.html",
+        question=practice.public_question(question), result=result,
+        chosen=options[option_index], back=back, error=None,
     )
 
 

@@ -1,5 +1,6 @@
 {% extends "base.html" %}
 {% block title %}Daily Practice {{ dpp.set.date }} — {{ brand.site_name }}{% endblock %}
+{% from "_quiz.html" import quiz_card with context %}
 {% block content %}
 <div class="between mb">
   <div><h1 data-practice-title>{{ dpp.set.title }}</h1>
@@ -13,21 +14,11 @@
 <div class="layout-2">
   <div class="stack">
     {% for question in dpp.questions %}
-      <div class="q-card" data-quiz="{{ question.id }}" data-set="{{ dpp.set.id }}">
-        <div class="between"><span class="chip">{{ loop.index }} / {{ dpp.questions | length }}</span>
-          <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span></div>
-        <div class="q-stem mt">{{ question.stem }}</div>
-        <form>
-          {% for option in question.options %}
-            <label class="opt" data-index="{{ loop.index0 }}">
-              <input type="radio" name="option" value="{{ loop.index0 }}">
-              <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>
-          {% endfor %}
-          <div class="row"><button type="submit" class="btn btn-primary btn-sm">Check answer</button>
-            <span class="verdict-inline chip" style="display:none"></span></div>
-        </form>
-        <div class="explain"><strong>Why.</strong> {{ question.explanation }}</div>
-      </div>
+      {% set position = loop.index %}
+      {% call quiz_card(question, set_id=dpp.set.id, attempt=attempts.get(question.id) if attempts else None) %}
+        <span class="chip">{{ position }} / {{ dpp.questions | length }}</span>
+        <span class="chip diff-{{ question.difficulty }}">{{ question.difficulty }}</span>
+      {% endcall %}
     {% else %}
       <div class="empty"><span class="em">🗓️</span>No set published for that date.</div>
     {% endfor %}

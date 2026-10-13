@@ -1,0 +1,39 @@
+{#- One practice question card, shared by the question bank, daily sets, topic
+    notes, language checkpoints and the mistake notebook. Import it with
+    context so the CSRF token and current path reach the form:
+
+      {% from "_quiz.html" import quiz_card with context %}
+      {% call quiz_card(question, set_id=..., attempt=...) %}chips{% endcall %}
+
+    The answer key is never in the page: options render without a correct
+    flag and the explanation box starts empty. With JavaScript, app.js posts
+    to /api/practice/answer and fills the card in place. Without it (or if the
+    script failed to load) the form posts to /practice/check, which grades the
+    same way and shows a result page with a link back to this card. -#}
+{% macro quiz_card(question, set_id=None, attempt=None, submit_label="Check answer", card_class="") %}
+<div class="q-card{{ ' ' ~ card_class if card_class }}" id="q-{{ question.id }}" data-quiz="{{ question.id }}"{% if set_id %} data-set="{{ set_id }}"{% endif %}>
+  <div class="row">
+    {% if caller is defined %}{{ caller() }}{% endif %}
+    {% if attempt %}<span class="chip {{ 'ok' if attempt.correct else 'bad' }}" data-attempt-chip>Attempted {{ attempt.attempts }}× · {{ attempt.correct }} correct</span>{% endif %}
+  </div>
+  <div class="q-stem mt">{{ question.stem }}</div>
+  {% if question.options %}
+  <form method="post" action="/practice/check">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <input type="hidden" name="question_id" value="{{ question.id }}">
+    {% if set_id %}<input type="hidden" name="set_id" value="{{ set_id }}">{% endif %}
+    <input type="hidden" name="next" value="{{ path }}{{ '?' ~ request.url.query if request.url.query }}">
+    {% for option in question.options %}
+    <label class="opt" data-index="{{ loop.index0 }}">
+      <input type="radio" name="option" value="{{ loop.index0 }}" required>
+      <span class="k">{{ option.label }}</span><span>{{ option.body }}</span></label>
+    {% endfor %}
+    <div class="row"><button type="submit" class="btn btn-primary btn-sm">{{ submit_label }}</button>
+      <span class="verdict-inline chip" style="display:none"></span></div>
+  </form>
+  {% else %}
+  <p class="small muted">This question has no answer options yet, so it cannot be checked here.</p>
+  {% endif %}
+  <div class="explain" aria-live="polite"></div>
+</div>
+{% endmacro %}

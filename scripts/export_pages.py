@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
-"""Write a static reading copy for GitHub Pages.
+"""Write the GitHub Pages site.
 
-GitHub Pages cannot run this application. The export is the public catalogue
-only: notes, subjects, problems and projects. Accounts, saved progress and
-code execution stay on a self-hosted install. This script never creates demo
-accounts and refuses to finish if a known demo password appears in the output.
+GitHub Pages can only serve files, so it cannot run this application, its
+accounts or its database. Sign-in is compulsory on EngineVerse, so by default
+this writes a **sign-in gateway**, not the catalogue: a landing page whose
+buttons go to the hosted app's /login and /register, and a 404 page that sends
+an old deep link (for example a bookmarked /topics/ohms-law/) to that app's
+sign-in with the page kept as ``next``. No notes, questions or answers are
+published. The hosted app's address comes from ``--app-url`` or
+``ENGINEVERSE_APP_URL`` (in CI, the ``ENGINEVERSE_APP_URL`` repository
+variable); without one the page says the app is not hosted yet.
+
+``--reading-copy`` writes the older public catalogue export instead. It is only
+appropriate for an operator who runs the app with ``ENGINEVERSE_SIGNIN=optional``,
+because it publishes every public page to anyone. This script never creates
+demo accounts and refuses to finish if a known demo password appears in the
+output.
 
 The brand name is whatever the seeded site configuration says. Nothing here
 renames the product.
@@ -49,6 +60,7 @@ SKIP_PREFIXES = (
     "/portfolio",
 )
 AUTH_TO_HOSTING = (
+    "/practice/check",
     "/login",
     "/register",
     "/forgot-password",
@@ -160,6 +172,9 @@ def prepare_env(db_path: Path) -> dict[str, str]:
     env["ENGINEVERSE_SECRET"] = "pages-export-local-only-not-published-0001"
     env["ENGINEVERSE_REVEAL_RESET_TOKEN"] = ""
     env["ENGINEVERSE_TRUST_PROXY"] = ""
+    # The reading copy is rendered as a signed-out visitor. With the app's
+    # default compulsory sign-in every page would be a redirect to /login.
+    env["ENGINEVERSE_SIGNIN"] = "optional"
     return env
 
 
@@ -770,6 +785,130 @@ def export(site: Path, base: str) -> int:
     return written
 
 
+# ---------------------------------------------------------------------------
+# Sign-in gateway (the default Pages output)
+# ---------------------------------------------------------------------------
+
+_APP_URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?::\d{1,5})?(?:/[A-Za-z0-9._~/-]*)?$")
+_LOCAL_APP_URL_RE = re.compile(r"^http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?:/[A-Za-z0-9._~/-]*)?$")
+
+
+def normalise_app_url(value: str | None) -> str:
+    """The hosted app's origin (and optional path), or "" when none is usable.
+
+    Only https:// is accepted (plus http://localhost for trying the gateway on
+    a laptop). The value is written into HTML and a script, so anything with
+    quotes, spaces or a query string is refused rather than escaped into a
+    working-looking but wrong link.
+    """
+    text = (value or "").strip().rstrip("/")
+    if not text:
+        return ""
+    if _APP_URL_RE.fullmatch(text) or _LOCAL_APP_URL_RE.fullmatch(text):
+        return text
+    raise SystemExit(
+        f"Refusing to publish: ENGINEVERSE_APP_URL must be an https:// address, got {text!r}."
+    )
+
+
+def gateway_page(base: str, app_url: str, site_name: str, *, not_found: bool = False) -> str:
+    """One self-contained page: the sign-in gateway, or its 404 twin."""
+    css = html.escape(join_base(base, "/static/css/app.css"), quote=True)
+    icon = html.escape(join_base(base, "/static/icons/favicon.svg"), quote=True)
+    name = html.escape(site_name)
+    repo = html.escape(REPO, quote=True)
+    if app_url:
+        login = html.escape(app_url + "/login", quote=True)
+        register = html.escape(app_url + "/register", quote=True)
+        actions = (
+            f'<p class="row" style="justify-content:center;gap:12px">'
+            f'<a class="btn btn-primary" href="{login}" id="gateway-signin">Sign in</a>'
+            f'<a class="btn btn-ghost" href="{register}">Create a free account</a></p>'
+            f'<p class="small muted">You will continue at <span class="mono">{html.escape(app_url)}</span>.</p>'
+        )
+        # Old links into the reading copy (a bookmarked topic, a shared
+        # practice set) land on 404.html now. Send them to the app's sign-in
+        # with the same page as ``next``, so the learner arrives where the link
+        # pointed once signed in. The base prefix is stripped first.
+        script = (
+            "<script>(function(){var app=" + json.dumps(app_url) + ";"
+            "var base=" + json.dumps(base.rstrip("/")) + ";"
+            "var path=location.pathname;"
+            "if(base&&path.indexOf(base)===0)path=path.slice(base.length)||'/';"
+            "path=path.replace(/\\/index\\.html$/,'/');"
+            "if(path.length>1&&path.charAt(path.length-1)==='/')path=path.slice(0,-1);"
+            "var target=app+'/login';"
+            "if(path&&path!=='/'&&/^\\/[A-Za-z0-9._~\\/-]*$/.test(path))"
+            "target+='?next='+encodeURIComponent(path);"
+            "location.replace(target);})();</script>"
+        )
+        lead = (
+            "That page is inside the app. Taking you to sign in..." if not_found
+            else "Notes, practice, coding and your progress all live behind your account. Taking you to sign in..."
+        )
+        refresh = f'<meta http-equiv="refresh" content="3;url={login}">'
+    else:
+        actions = (
+            '<div class="callout warning" style="text-align:left"><span class="label">Not hosted yet</span>'
+            "The app has not been given a public address, so there is nowhere to sign in from here. "
+            "GitHub Pages can only serve files; it cannot run accounts or a database.</div>"
+            f'<p><a class="btn btn-ghost" href="{repo}#run-locally">How to run or host it</a></p>'
+        )
+        script = ""
+        refresh = ""
+        lead = (
+            "That page is inside the app, and the app needs an account." if not_found
+            else "Notes, practice, coding and your progress all live behind your account."
+        )
+    title = "Page moved" if not_found else "Sign in"
+    return f"""<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>{title} - {name}</title>
+  {refresh}
+  <link rel="icon" href="{icon}" type="image/svg+xml">
+  <link rel="stylesheet" href="{css}">
+</head>
+<body>
+<main id="main" class="wrap" style="min-height:80vh;display:grid;place-items:center">
+  <div class="form-panel panel" style="text-align:center;max-width:560px">
+    <h1>{name}</h1>
+    <p class="lead">Sign-in is required to use {name}.</p>
+    <p class="muted">{html.escape(lead)}</p>
+    {actions}
+    <p class="tiny muted mt">This GitHub Pages address is only a doorway. It publishes no notes, questions or answers.
+      <a href="{repo}">Source</a></p>
+  </div>
+</main>
+{script}
+</body>
+</html>
+"""
+
+
+def export_gateway(site: Path, base: str, app_url: str, site_name: str = "EngineVerse") -> int:
+    if site.exists():
+        shutil.rmtree(site)
+    site.mkdir(parents=True)
+    (site / ".nojekyll").write_text("", encoding="utf-8")
+    static = site / "static"
+    (static / "css").mkdir(parents=True)
+    (static / "icons").mkdir(parents=True)
+    shutil.copy2(BACKEND / "static" / "css" / "app.css", static / "css" / "app.css")
+    shutil.copy2(BACKEND / "static" / "icons" / "favicon.svg", static / "icons" / "favicon.svg")
+    (site / "index.html").write_text(gateway_page(base, app_url, site_name), encoding="utf-8")
+    (site / "404.html").write_text(gateway_page(base, app_url, site_name, not_found=True), encoding="utf-8")
+    (site / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+    assert_clean(site)
+    assert_links(site, base)
+    where = app_url or "no app URL (shows 'not hosted yet')"
+    print(f"Wrote the sign-in gateway to {site}, pointing at {where}")
+    return 2
+
+
 def self_check() -> None:
     assert rewrite_url("/topics/ohm", "/EngineVerse/") == "/EngineVerse/topics/ohm/"
     assert rewrite_url("/static/css/app.css", "/EngineVerse/") == "/EngineVerse/static/css/app.css"
@@ -781,20 +920,43 @@ def self_check() -> None:
     assert 'href="/EngineVerse/topics/a/"' in rewritten
     assert "LearnBuild#2026!" not in rewritten
     assert "data-theme" not in mirror_script()
+    assert normalise_app_url("https://learn.example.org/") == "https://learn.example.org"
+    assert normalise_app_url("") == ""
+    for bad in ('https://x.org/"><script>', "javascript:alert(1)", "http://example.org", "https://x.org/?a=b"):
+        try:
+            normalise_app_url(bad)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError(f"accepted {bad!r}")
+    gate = gateway_page("/EngineVerse/", "https://learn.example.org", "EngineVerse")
+    assert 'href="https://learn.example.org/login"' in gate and "/EngineVerse/static/css/app.css" in gate
+    assert "Not hosted yet" in gateway_page("/EngineVerse/", "", "EngineVerse")
     print("self-check ok")
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Export the public catalogue for GitHub Pages.")
+    parser = argparse.ArgumentParser(description="Write the GitHub Pages site: a sign-in gateway, or the public reading copy.")
     parser.add_argument("--out", default="site", help="output directory, relative to the repo root")
     parser.add_argument("--base", default=None, help="URL prefix, for example /EngineVerse/ or /")
     parser.add_argument("--self-check", action="store_true", help="check URL rewriting and exit")
     parser.add_argument("--skip-seed", action="store_true", help="reuse ENGINEVERSE_DB_PATH")
+    parser.add_argument("--app-url", default=None,
+                        help="hosted app address for the sign-in buttons (default: $ENGINEVERSE_APP_URL)")
+    parser.add_argument("--reading-copy", action="store_true",
+                        help="publish the public catalogue instead of the sign-in gateway "
+                             "(only for instances run with ENGINEVERSE_SIGNIN=optional)")
     args = parser.parse_args()
     if args.self_check:
         self_check()
         return 0
     base = repo_base(args.base)
+    if not args.reading_copy:
+        app_url = normalise_app_url(
+            args.app_url if args.app_url is not None else os.environ.get("ENGINEVERSE_APP_URL", "")
+        )
+        export_gateway(ROOT / args.out, base, app_url)
+        return 0
     db_path = ROOT / "data" / "pages-export.sqlite"
     env = prepare_env(db_path)
     os.environ.update(env)

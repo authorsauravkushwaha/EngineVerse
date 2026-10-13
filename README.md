@@ -43,6 +43,15 @@ create an account through **Register**. Do not use development demo credentials
 on a public instance. The login page may show demo-account details only when the
 application is configured for development or tests.
 
+**Sign-in is compulsory.** With the default `ENGINEVERSE_SIGNIN=required`, a
+signed-out visitor can reach only the sign-in, registration, password-recovery
+and legal pages (plus certificate verification and static assets); every other
+page redirects to `/login` and returns to the requested page after sign-in, and
+the JSON API answers `401`. Set `ENGINEVERSE_SIGNIN=optional` to allow anonymous
+browsing of the public catalogue instead. The GitHub Pages site is only a
+sign-in gateway to the hosted app; see
+[Deployment](docs/DEPLOYMENT.md#github-pages-sign-in-gateway).
+
 Sign-in is password-only by default (`ENGINEVERSE_LOGIN_OTP=disabled`): no mail
 or SMS transport is needed, and a second factor is per account - enrol an
 authenticator app under **Settings -> Security** and that account is then asked
@@ -64,12 +73,12 @@ what is seeded today, not a completeness guarantee.
 |---|---|
 | **Engineering subjects** | 45 branches and 93 published subjects. The catalogue includes computing, electrical, mechanical, civil, chemical, aerospace, biomedical, agricultural, cybersecurity and other engineering fields. Browse what is available in the app; missing material is not implied by this snapshot. |
 | **Notes** | 406 published topics, 1,624 notes across four reading depths, and 10,556 note sections. Standard notes use the [13-section note template](docs/NOTE_TEMPLATE.md). |
-| **Cyber Security** | 13 published starter topics with public notes; learners can read them without signing in. They remain starter material and need expert review. |
+| **Cyber Security** | 13 published starter topics; on an instance run with `ENGINEVERSE_SIGNIN=optional` learners can read them without signing in. They remain starter material and need expert review. |
 | **Diagrams and models** | 406 topic-linked SVG diagrams and 406 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
-| **Practice** | 525 active questions and 105 published Daily Practice Problem sets (525 slots); every active question, all 93 subjects and all nine language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit. |
+| **Practice** | 525 active questions and 105 published Daily Practice Problem sets (525 slots); every active question, all 93 subjects and all nine language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit; a question's full XP is paid only for its first correct answer, and later attempts earn the flat attempt XP. |
 | **Programming paths** | 9 learning paths and 68 public, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, Go, Rust and SQL. Each path is staged — Foundations, then Working Practice, then Advanced Engineering — across 27 stages, and each stage ends with three checkpoint questions (81 total) answered through the normal practice flow, with feedback, explanation and XP only after submission. |
 | **Coding practice** | 95 problems with language stubs and test cases, grouped into 12 curated sheets (arrays, two pointers and windows, stacks and search, linked lists, trees and heaps, graphs, dynamic programming, SQL and stream sets) plus a 30-problem interview set. Every problem appears in at least one sheet, and every sheet is reachable at `/sheets` in a recommended order with hints, editorials and progress. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
-| **My stream** | Each branch has a study hub at `/stream/{slug}` that gathers the subjects, notes, formula sheets, flashcards, question mix, sheets and projects that branch actually has, with the counts taken from the database rather than promised. `/stream` opens on the branch saved in the profile and `/streams` switches between them, so a signed-out visitor can look too. Every stream also reaches the branch-neutral pattern sheets and the interview set, so no branch gets an empty page. |
+| **My stream** | Each branch has a study hub at `/stream/{slug}` that gathers the subjects, notes, formula sheets, flashcards, question mix, sheets and projects that branch actually has, with the counts taken from the database rather than promised. `/stream` opens on the branch saved in the profile and `/streams` switches between them. Every stream also reaches the branch-neutral pattern sheets and the interview set, so no branch gets an empty page. |
 | **Projects** | 16 project briefs with ordered steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent — including a substantial capstone brief linked to each of the nine language paths. |
 | **Revision and roadmaps** | 281 public flashcards are browsable at `/flashcards` and searchable without indexing their answers; personal SM-2 schedules are at `/revision`. The seed also includes 5 roadmaps and 57 roadmap nodes. |
 | **Study helper** | A retrieval-grounded tutor that composes answers from EngineVerse's own indexed material and cites its sources. It does not make an external model call by default and should say when the catalogue has no relevant coverage. |

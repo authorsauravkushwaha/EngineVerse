@@ -2,7 +2,9 @@
  * Cache-first for the app shell, network-first with cache fallback for pages,
  * never caches authenticated or mutating requests.
  */
-const VERSION = "engineverse-v5";
+// Bumped whenever a cached asset changes behaviour. v6: sign-in became
+// compulsory and the practice cards changed, so a v5 app.js must not linger.
+const VERSION = "engineverse-v6";
 const SHELL = [
   "/static/css/app.css",
   "/static/js/app.js",
@@ -50,8 +52,26 @@ self.addEventListener("fetch", (event) => {
   const { request } = event;
   if (!cacheable(request)) return;
 
-  const isStatic = request.destination === "style" || request.destination === "script" ||
-                   request.destination === "image" || request.url.includes("/static/");
+  const isCode = request.destination === "style" || request.destination === "script" ||
+                 /\/static\/(js|css)\//.test(new URL(request.url).pathname);
+  const isStatic = isCode || request.destination === "image" || request.url.includes("/static/");
+
+  // Scripts and styles: network first, cached copy offline. They are small and
+  // served by this same app, and cache-first meant a fixed app.js could sit
+  // behind a stale copy until the cache name changed - which is how a broken
+  // practice card could outlive its fix.
+  if (isCode) {
+    event.respondWith(
+      fetch(request).then((res) => {
+        if (storable(res)) {
+          const copy = res.clone();
+          caches.open(VERSION).then((c) => c.put(request, copy));
+        }
+        return res;
+      }).catch(() => caches.match(request).then((hit) => hit || Response.error()))
+    );
+    return;
+  }
 
   if (isStatic) {
     event.respondWith(
