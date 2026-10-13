@@ -60,7 +60,10 @@ def url_for(entity_type: str, entity_id: str) -> str:
 # Ceiling on indexed prose. Sized from measurement, not taste: merging a topic's
 # published notes produces a median of 5.4k characters and a maximum of 11.3k, so
 # the 4000 this used to be truncated 47 of 48 topics and kept 71% of the text.
-MAX_BODY_CHARS = 16000
+# The mastery pass then gave the deepest topic a second worked check and authored
+# practice prompts, which moved the measured median to 12.5k and the maximum to
+# 19.7k; the cap moves with it so no seeded note is cut off mid-sentence.
+MAX_BODY_CHARS = 24000
 
 
 def index_entity(

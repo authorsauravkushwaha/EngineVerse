@@ -151,7 +151,16 @@ def section_body(kind: str, topic: dict, slug: str = "") -> str:
         return topic["derivation"] or notes_extra.derivation(slug)
     if kind == "example":
         example = topic["example"] or notes_extra.example(slug)
-        return example_body(example) if example else ""
+        if not example:
+            return ""
+        body = example_body(example)
+        second = topic.get("second_example")
+        if second:
+            # A second, independent problem: the first shows the method, the
+            # second checks that the method - and not one memorised number - is
+            # what the learner took away.
+            body += "\n\n**Second worked check.**\n\n" + example_body(second)
+        return body
     if kind == "applications":
         return bullet_list(topic["applications"])
     if kind == "mistakes":

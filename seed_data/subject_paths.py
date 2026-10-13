@@ -5,10 +5,18 @@ first fills the catalogue gaps with a clearly scoped starter lesson for every
 subject that otherwise had no notes (the breadth pass), then appends the deeper
 lessons authored in ``seed_data.deeper_lessons`` - two additional lessons for
 *every* subject in the catalogue, including the ones the original topic files
-already cover (the depth pass). Diagrams, questions, and models are supplied
-from the same source of truth. The result is deliberately not claimed to be a
-complete degree syllabus: it is substantive starter material for each subject,
-not expert-signed courseware.
+already cover (the depth pass). A third pass, ``seed_data.mastery_lessons``,
+adds one more detailed lesson per subject, carrying two worked checks, authored
+exam and interview prompts, several applications and several pitfalls.
+Diagrams, questions, and models are supplied from the same source of truth. The
+result is deliberately not claimed to be a complete degree syllabus: it is
+substantive starter material for each subject, not expert-signed courseware.
+
+Every topic generated here is expanded into the standard 13-section note with
+the sections deepened beyond the bare relation: the key points carry a unit
+consistency check drawn from the relation's own symbol table, the worked
+example section can hold a second independent check, and the practice sections
+carry authored prompts alongside the templated ones.
 
 New lessons are published so a learner can read them, but are marked
 ``needs_review`` in the editorial metadata. In particular, the Cyber Security
@@ -21,7 +29,7 @@ from typing import Any
 
 from backend.engineverse.diagrams import arrow as svg_arrow, box as svg_box, hotspot, label as svg_label
 from seed_data import foundations, topics_core, topics_cse
-from seed_data import deeper_lessons
+from seed_data import deeper_lessons, mastery_lessons
 from seed_data.catalog import SUBJECTS
 
 
@@ -886,14 +894,50 @@ def _existing_topics() -> list[dict]:
     return list(topics_cse.TOPICS) + list(topics_core.TOPICS) + list(foundations.TOPICS)
 
 
+def _unit_line(formula: dict) -> str:
+    """A unit-consistency check built from the relation's own symbol table."""
+    pairs = [f"{variable['s']} ({variable['u']})" for variable in formula.get("variables", ()) if variable.get("u")]
+    if not pairs:
+        return "Substitute every quantity in one consistent set of units, and state the unit of the result."
+    return ("Substitute with the units attached: " + ", ".join(pairs[:5])
+            + ". The answer is only meaningful when each substitution preserves the symbol table's unit.")
+
+
+def _spec_pitfalls(spec: dict) -> list[str]:
+    """Authored pitfalls, accepting either the single-field or the list form."""
+    pitfalls: list[str] = []
+    if spec.get("pitfall"):
+        pitfalls.append(spec["pitfall"])
+    pitfalls.extend(spec.get("pitfalls") or ())
+    return pitfalls
+
+
 def _build_topic(subject: dict, spec: dict) -> dict:
     name = subject["name"]
     formula = spec["formula"]
     conditions = formula["conditions"]
     focus = spec["focus"]
-    app1, app2 = spec["applications"]
-    mistake = spec["pitfall"]
     title = spec["title"]
+    applications = list(spec["applications"])
+    pitfalls = _spec_pitfalls(spec)
+    if len(applications) < 2 or not pitfalls:
+        # This table feeds the notes, diagrams, questions and search index, so a
+        # dropped application or pitfall would weaken all of them silently.
+        raise ValueError(f"{subject['slug']} / {title!r}: needs at least two applications and one pitfall "
+                         f"(found {len(applications)} applications, {len(pitfalls)} pitfalls)")
+    points = [
+        focus,
+        f"The governing relation is {formula['name']}; define every symbol before substituting values.",
+        f"Model limits: {conditions}",
+        _unit_line(formula),
+        "Re-derive the relation from its stated basis before using it in a design calculation; the derivation "
+        "section shows the steps rather than restating the result.",
+        "Check units, limiting cases, and an independent measurement or design constraint before acting on a "
+        "calculated result.",
+    ]
+    if spec.get("second_example"):
+        points.append("The worked-example section carries two independent problems: use the second to check that "
+                      "the method, and not only the numbers, has been understood.")
     entry = {
         "subject": subject["slug"],
         "title": title,
@@ -905,29 +949,30 @@ def _build_topic(subject: dict, spec: dict) -> dict:
         "simple": f"In {name}, {focus} In plain terms, start by naming the system and the question, then use the stated relationship to make a checkable engineering decision.",
         "definition": f"{title} is a core model in {name}: {focus} The model is used within these stated limits: {conditions}",
         "intuition": f"The useful intuition is that {focus.lower()} The relationship makes assumptions visible; a result is trustworthy only when its units, boundary, and operating conditions match the real problem.",
-        "points": [
-            focus,
-            f"The governing relation is {formula['name']}; define every symbol before substituting values.",
-            f"Model limits: {conditions}",
-            "Check units, limiting cases, and an independent measurement or design constraint before acting on a calculated result.",
-        ],
+        "points": points,
         "formula": formula,
         "derivation": spec["derivation"],
         "example": spec["example"],
-        "applications": [app1, app2],
+        "second_example": spec.get("second_example"),
+        "applications": applications,
         "mistakes": [
-            mistake,
+            *pitfalls,
             "Mixing units or changing the system boundary midway through a calculation.",
             "Reporting a precise-looking answer without checking assumptions, uncertainty, and safety constraints.",
+            f"Applying {formula['name']} outside the limits it was derived for. The relation holds when: {conditions}",
         ],
         "exam": [
             f"State the assumptions behind {formula['name']} and explain when the relation should not be used.",
             f"Solve the worked {title} problem, showing units and a sanity check at each step.",
             f"Explain how changing one governing variable affects the result in {name}.",
+            *spec.get("exam", ()),
+            f"Identify which input of {formula['name']} has the largest effect on the answer, and state how you would measure that input in a test.",
         ],
         "interview": [
             f"How would you validate a {title.lower()} calculation against field or test data?",
             f"Which assumption in {formula['name']} would you challenge first for a real {name.lower()} system, and why?",
+            *spec.get("interview", ()),
+            f"Describe how you would verify a {title.lower()} result against measured data when the model's assumptions only partly hold.",
         ],
         "industry": spec["industry"],
         "diagram": _slugify(title),
@@ -965,6 +1010,14 @@ def generated_topics() -> list[dict]:
         specs = deeper_lessons.LESSONS.get(subject_slug, ())
         if not specs:
             raise KeyError(f"No deeper lessons are authored for subject {subject_slug!r} ({subject['name']})")
+        generated.extend(_build_topic(subject, spec) for spec in specs)
+
+    # Mastery pass: the most detailed generated lesson for every subject, with a
+    # second worked check and authored practice prompts.
+    for subject_slug, subject in subjects.items():
+        specs = mastery_lessons.LESSONS.get(subject_slug, ())
+        if not specs:
+            raise KeyError(f"No mastery lesson is authored for subject {subject_slug!r} ({subject['name']})")
         generated.extend(_build_topic(subject, spec) for spec in specs)
 
     topic_slugs = [_slugify(topic["title"]) for topic in _existing_topics() + generated]
@@ -1137,3 +1190,5 @@ if _unknown_starters:
     raise KeyError(f"Starter lesson points to unknown subject: {sorted(_unknown_starters)}")
 # Depth pass: every subject must carry its deeper lessons, fully specified.
 deeper_lessons.validate(SUBJECT_SLUGS)
+# Mastery pass: every subject must carry its detailed lesson, fully specified.
+mastery_lessons.validate(SUBJECT_SLUGS)
