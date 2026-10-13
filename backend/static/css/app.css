@@ -142,16 +142,106 @@ strong, b { font-weight: 720; }
   display: grid; place-items: center; color: var(--accent-ink);
   background: var(--surface); box-shadow: var(--neu-sm); flex: none;
 }
-.mainnav { display: flex; gap: 2px; margin-left: 4px; }
-.mainnav a {
+/* ------------------------------------------------------- main navigation
+
+   Six grouped entries replace ten flat links. Each group label is a real link to
+   that group's landing page, and its menu opens on :hover and :focus-within.
+
+   The label sits *inside* .navgroup, so tabbing to it triggers :focus-within and
+   the menu becomes visible - which is what puts its links in the tab order for a
+   keyboard reader. Focus moving past the last link leaves the group and the menu
+   closes again. No JavaScript is involved, and no link is ever focusable while
+   invisible. */
+.mainnav { display: flex; gap: 2px; margin-left: 4px; align-items: center; }
+.mainnav > a, .navgroup-label {
+  display: flex; align-items: center; gap: 5px;
   color: var(--text-2); padding: 8px 11px; border-radius: 999px; font-size: .9rem;
   font-weight: 620; white-space: nowrap;
 }
-.mainnav a:hover { color: var(--text); background: var(--well); box-shadow: var(--neu-in-sm); text-decoration: none; }
-.mainnav a.on { color: var(--accent-ink); background: var(--well); box-shadow: var(--neu-in-sm); }
+.mainnav > a:hover, .navgroup-label:hover {
+  color: var(--text); background: var(--well); box-shadow: var(--neu-in-sm); text-decoration: none;
+}
+.mainnav > a.on, .navgroup.on > .navgroup-label {
+  color: var(--accent-ink); background: var(--well); box-shadow: var(--neu-in-sm);
+}
+.navgroup { position: relative; }
+.navcaret { display: inline-flex; opacity: .6; transition: transform .16s ease; }
+.navgroup:hover .navcaret, .navgroup:focus-within .navcaret { transform: rotate(180deg); }
+
+.navmenu {
+  position: absolute; top: calc(100% + 10px); left: 0; min-width: 292px;
+  background: var(--surface); border: 1px solid var(--edge); border-radius: var(--r);
+  box-shadow: var(--neu-lg); padding: 8px; z-index: 75;
+  opacity: 0; visibility: hidden; transform: translateY(-4px);
+  transition: opacity .14s ease, transform .14s ease, visibility .14s;
+}
+/* The invisible gap between the label and the menu would otherwise close it
+   while the pointer crosses it. */
+.navmenu::before { content: ""; position: absolute; top: -12px; left: 0; right: 0; height: 12px; }
+.navgroup:hover .navmenu, .navgroup:focus-within .navmenu {
+  opacity: 1; visibility: visible; transform: none;
+}
+.navmenu-head {
+  margin: 4px 8px 8px; padding-bottom: 8px; border-bottom: 1px solid var(--line);
+  font-size: .78rem; color: var(--muted); line-height: 1.45;
+}
+.navmenu a {
+  display: flex; align-items: flex-start; gap: 10px; padding: 8px 9px;
+  border-radius: var(--r-sm); color: var(--text);
+}
+.navmenu a:hover, .navmenu a:focus-visible { background: var(--well); box-shadow: var(--neu-in-sm); text-decoration: none; }
+.navmenu a.on { background: var(--well); box-shadow: var(--neu-in-sm); }
+.navmenu-icon { color: var(--accent-ink); flex: none; padding-top: 2px; display: inline-flex; }
+.navmenu a.on .navmenu-icon { color: var(--accent-ink); }
+.navmenu-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.navmenu-label { font-size: .88rem; font-weight: 640; line-height: 1.3; }
+.navmenu-desc {
+  font-size: .76rem; color: var(--muted); line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.navmenu-lock {
+  margin-left: auto; flex: none; font-size: .66rem; text-transform: uppercase;
+  letter-spacing: .05em; color: var(--muted); padding-top: 3px;
+}
+
+/* ------------------------------------------------------- mobile nav panel
+
+   The menu button opens this instead of a flat list of ten links: every group,
+   expanded, in reading order. On a phone this is the whole site map in one
+   scroll, which is how the pages that used to live only in the footer became
+   reachable on the device most students actually use. */
+.mobilenav {
+  position: absolute; top: calc(100% + 8px); left: 12px; right: 12px; z-index: 78;
+  max-height: min(74vh, 620px); overflow-y: auto; -webkit-overflow-scrolling: touch;
+  background: var(--surface); border: 1px solid var(--edge); border-radius: var(--r-lg);
+  box-shadow: var(--neu-lg); padding: 12px;
+}
+.mobilenav[hidden] { display: none; }
+.mobilenav-search { max-width: none; margin-bottom: 12px; }
+.mobilenav-group { padding: 6px 0; border-top: 1px solid var(--line); }
+.mobilenav-group:first-of-type { border-top: 0; }
+.mobilenav-head {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+  font-size: .8rem; font-weight: 780; letter-spacing: .02em; text-transform: uppercase;
+  color: var(--muted); border-radius: var(--r-sm);
+}
+.mobilenav-head.plain { color: var(--muted); }
+a.mobilenav-head:hover { color: var(--text); background: var(--well); text-decoration: none; }
+a.mobilenav-head.on { color: var(--accent-ink); }
+.mobilenav-links { display: flex; flex-direction: column; gap: 1px; padding: 2px 0 4px 10px; }
+.mobilenav-links a {
+  display: block; padding: 9px 12px; border-radius: var(--r-sm);
+  color: var(--text-2); font-size: .92rem; font-weight: 560;
+}
+.mobilenav-links a:hover { color: var(--text); background: var(--well); text-decoration: none; }
+.mobilenav-links a.on { color: var(--accent-ink); background: var(--well); box-shadow: var(--neu-in-sm); font-weight: 680; }
 
 .searchbox {
-  position: relative; flex: 1; max-width: 380px; display: flex; align-items: center;
+  /* flex-basis auto with a real min-width: the box takes the slack when the bar
+     has room and gives it back when it does not, instead of forcing an overflow
+     that body { overflow-x: hidden } then clipped without telling anyone. */
+  position: relative; flex: 1 1 auto; min-width: 132px; max-width: 380px;
+  display: flex; align-items: center;
   background: var(--well); box-shadow: var(--neu-in-sm); border-radius: 999px; padding: 3px 3px 3px 4px;
 }
 .searchbox input {
@@ -469,7 +559,9 @@ sup, sub { font-size: .74em; }
 .hero .lead { font-size: 1.08rem; color: var(--text-2); max-width: 46ch; margin-bottom: 20px; }
 .hero-cta { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 10px; }
 .hero-note { margin: 0 0 20px; max-width: 46ch; }
-.statgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+/* auto-fit rather than a fixed three columns: the index page shows twelve counts
+   and the dashboard shows four, and both read better filling the row they have. */
+.statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 12px; }
 
 .preview {
   background: var(--surface); border: 1px solid var(--edge); border-radius: 28px;
@@ -549,8 +641,29 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
 .topic-head { display: flex; gap: 18px; align-items: flex-start; flex-wrap: wrap; margin-bottom: 14px; }
 .topic-head .grow { flex: 1; min-width: 240px; }
 .topic-head h1 { margin-bottom: 6px; }
-.crumbs { color: var(--muted); font-size: .84rem; margin-bottom: 12px; }
+/* Breadcrumbs. Derived from the navigation table, so every page has one and the
+   labels agree; they used to be hand-written on twelve templates and absent from
+   the other thirty-seven. */
+.crumbs { color: var(--muted); font-size: .84rem; margin-bottom: 14px; }
+.crumbs ol {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+  list-style: none; margin: 0; padding: 0;
+}
+.crumbs li { display: flex; align-items: center; gap: 4px; min-width: 0; }
+/* The separator is decoration, not content: a screen reader reads the list, not
+   the chevrons, so it is hidden from the accessibility tree. */
+.crumbs li + li::before {
+  content: ""; width: 14px; height: 14px; flex: none; opacity: .55;
+  background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9.5 5.5 6.5 6.5-6.5 6.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m9.5 5.5 6.5 6.5-6.5 6.5'/%3E%3C/svg%3E") center / contain no-repeat;
+}
 .crumbs a { color: var(--muted); }
+.crumbs a:hover { color: var(--text); }
+.crumbs [aria-current="page"] {
+  color: var(--text); font-weight: 640;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46ch;
+}
 .depthbar { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
 .note-section {
   margin: 14px 0; padding: 18px 20px; border-radius: var(--r-lg);
@@ -786,7 +899,16 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
   background: var(--surface); margin: 28px 16px 16px; border-radius: 28px;
   box-shadow: var(--neu); border: 1px solid var(--edge); padding: 36px 0 18px;
 }
-.footer-grid { display: grid; grid-template-columns: 1.4fr repeat(5, minmax(0, 1fr)); gap: 22px; }
+/* auto-fit rather than a fixed column count: the footer is generated from the
+   navigation table, so the number of columns is not something the stylesheet
+   should have to know. */
+.footer-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 26px 20px; align-items: start;
+}
+.footer-brand, .footer-feedback { grid-column: span 2; }
+.footer-cta { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.footer a.on { color: var(--accent-ink); }
 .footer h4 { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
 .footer a { display: block; color: var(--text-2); font-size: .9rem; padding: 3px 0; }
 .footer a:hover { color: var(--text); }
@@ -830,30 +952,119 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
 .ev3d.ev3d-live .ev3d-hint { display: none; }
 .ev3d-controls { margin: 0 0 .4rem; }
 
+/* ------------------------------------------------- "everything" index page
+
+   The full index at /resources. One panel per navigation group, each listing its
+   destinations with a one-line description and the count this instance really
+   has. Generated from the same table as the top bar, so the two cannot disagree
+   about what exists. */
+.indexgroup { display: flex; flex-direction: column; }
+.indexgroup > h3 {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 4px;
+  font-size: 1.02rem; letter-spacing: -.02em;
+}
+.indexgroup > h3 a { color: var(--text); }
+.indexgroup > h3 a:hover { color: var(--accent-ink); }
+.indexgroup-icon {
+  display: inline-grid; place-items: center; width: 30px; height: 30px; flex: none;
+  border-radius: 10px; color: var(--accent-ink);
+  background: var(--surface); box-shadow: var(--neu-sm);
+}
+.indexgroup-blurb { margin: 0 0 10px; }
+.indexlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+.indexlist a {
+  display: flex; align-items: flex-start; gap: 10px; padding: 9px 10px;
+  border-radius: var(--r-sm); color: var(--text);
+}
+.indexlist a:hover { background: var(--well); box-shadow: var(--neu-in-sm); text-decoration: none; }
+.indexlist a.on { background: var(--well); box-shadow: var(--neu-in-sm); }
+.indexlist-icon { color: var(--muted); flex: none; padding-top: 3px; display: inline-flex; }
+.indexlist a:hover .indexlist-icon, .indexlist a.on .indexlist-icon { color: var(--accent-ink); }
+.indexlist-text { display: flex; flex-direction: column; gap: 1px; min-width: 0; flex: 1; }
+.indexlist-label { font-size: .92rem; font-weight: 640; line-height: 1.35; }
+.indexlist-desc { font-size: .79rem; color: var(--muted); line-height: 1.45; }
+.indexlist-count, .indexlist-lock {
+  margin-left: auto; flex: none; align-self: center;
+  font-size: .7rem; white-space: nowrap;
+}
+.indexlist-lock { color: var(--muted); }
+.startlinks { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
+.panel > h3 svg { vertical-align: -3px; margin-right: 4px; color: var(--accent-ink); }
+
+/* ------------------------------------------------- branch browser on /explore
+
+   The catalogue's branch picker only filtered the page, which left all 45 branch
+   hubs and all 45 study hubs with no inbound link. This exposes both, collapsed
+   by default so the subject list stays above the fold. */
+.branchbrowse > summary {
+  cursor: pointer; list-style: none; display: flex; align-items: baseline;
+  gap: 10px; flex-wrap: wrap; padding: 2px 0;
+}
+.branchbrowse > summary::-webkit-details-marker { display: none; }
+.branchbrowse > summary::before {
+  content: ""; width: 15px; height: 15px; flex: none; align-self: center;
+  color: var(--muted); background: currentColor;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6.5 9.5 5.5 5.5 5.5-5.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6.5 9.5 5.5 5.5 5.5-5.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  transition: transform .16s ease;
+}
+.branchbrowse[open] > summary::before { transform: rotate(180deg); }
+.branchbrowse > summary:hover strong { color: var(--accent-ink); }
+.branchgroups { margin-top: 14px; gap: 20px 16px; }
+.branchgroup-name {
+  font-size: .72rem; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--muted); margin: 0 0 6px; font-weight: 800;
+}
+.branchlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
+.branchlist li {
+  display: flex; align-items: center; gap: 8px; padding: 4px 8px;
+  border-radius: var(--r-sm);
+}
+.branchlist li:hover { background: var(--well); }
+.branchlist li.on { background: var(--well); box-shadow: var(--neu-in-sm); }
+.branchlist li > a:first-child { flex: 1; min-width: 0; font-size: .88rem; color: var(--text-2); }
+.branchlist li > a:first-child:hover { color: var(--text); }
+.branchlist li.on > a:first-child { color: var(--accent-ink); font-weight: 640; }
+.branchlist .tiny { flex: none; font-variant-numeric: tabular-nums; }
+.branchhub {
+  flex: none; font-size: .68rem; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); padding: 2px 7px; border-radius: 999px;
+  background: var(--surface); box-shadow: var(--neu-sm);
+}
+.branchhub:hover { color: var(--accent-ink); text-decoration: none; }
+
 /* --------------------------------------------------------------- responsive */
 @media (max-width: 1180px) {
-  .mainnav a { padding: 7px 8px; font-size: .82rem; }
-  .searchbox { max-width: 240px; }
+  .mainnav > a, .navgroup-label { padding: 7px 8px; font-size: .82rem; }
+  .searchbox { max-width: 190px; }
+  /* The standalone "Sign out" button is the same action as the one in the avatar
+     menu, and the username is in that menu's header. Dropping the duplicate is
+     what lets six grouped entries, the search box and the account controls all
+     fit a laptop width without clipping; the plain-text "you are signed in"
+     answer stays, as the Profile chip. */
+  .topbar-right .inline-form { display: none; }
+  .whoami-name { display: none; }
+  .whoami { padding: 6px 9px; }
 }
 @media (max-width: 1080px) {
   .layout-2, .editor-shell, .hero-layout { grid-template-columns: 1fr; }
-  .footer-grid { grid-template-columns: 1fr 1fr 1fr; }
   .loop { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 1020px) {
+  /* Six grouped entries still fit at this width, but the descriptions inside the
+     menus do not earn their space once the bar is tight. */
+  .navmenu { min-width: 250px; }
+  .navmenu-desc { display: none; }
 }
 @media (max-width: 860px) {
   .mainnav { display: none; }
   .only-mobile { display: grid; }
-  .topbar.open .mainnav {
-    display: flex; flex-direction: column; position: absolute;
-    top: calc(12px + var(--nav) + 8px); left: 16px; right: 16px;
-    background: var(--surface); border: 1px solid var(--edge); border-radius: var(--r-lg);
-    box-shadow: var(--neu-lg); padding: 8px; gap: 2px; z-index: 70;
-  }
-  .topbar.open .mainnav a { padding: 11px 14px; }
+  /* The desktop search box goes too; the mobile panel carries its own, so search
+     is one tap away rather than gone. */
+  .topbar > .wrap > .searchbox { display: none; }
   .searchbox { max-width: none; }
   .streak span, .xpchip .xpv { display: none; }
-  .whoami-name { display: none; }
-  .whoami { padding: 6px 9px; }
+  .whoami { display: none; }
   .bottomnav {
     display: flex; position: fixed; z-index: 90;
     left: 12px; right: 12px; bottom: calc(10px + env(safe-area-inset-bottom));
@@ -871,7 +1082,11 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
 }
 @media (max-width: 640px) {
   .footer { margin: 20px 10px 10px; }
-  .footer-grid { grid-template-columns: 1fr 1fr; }
+  /* One count per line is unreadable at this width; two is not either, but the
+     label matters more than the number, so hide the number and keep the link. */
+  .indexlist-desc { display: none; }
+  .crumbs [aria-current="page"] { max-width: 26ch; }
+  .footer-brand, .footer-feedback { grid-column: span 1; }
   .logo-text { display: none; }
   main { padding: 12px 14px 48px; }
   .panel, .note-section { padding: 16px; }

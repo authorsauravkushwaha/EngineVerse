@@ -23,6 +23,7 @@ from engineverse import (
     judge,
     ladders,
     library,
+    navigation,
     practice,
     progress,
     projects,
@@ -134,6 +135,7 @@ async def branch_page(request: Request, slug: str):
     pager = _pager(request, total)
     return render(
         request, "branch.html", branch=branch,
+        crumb_leaf=branch["name"],
         subjects=catalog.list_subjects(
             branch=slug, limit=pager["size"], offset=(pager["page"] - 1) * pager["size"],
         ),
@@ -152,6 +154,7 @@ async def subject_page(request: Request, slug: str):
     viewer = current_user(request)
     return render(
         request, "subject.html", subject=subject,
+        crumb_leaf=subject["name"],
         outline=catalog.subject_outline(subject["id"]),
         stats=catalog.subject_stats(subject["id"]),
         questions=practice.list_questions(subject_id=subject["id"], limit=20)[0],
@@ -176,6 +179,8 @@ async def topic_page(request: Request, slug: str, depth: str | None = None):
     questions = practice.questions_for_topic(topic["id"], 8)
     return render(
         request, "topic.html", topic=topic,
+        crumb_leaf=topic["title"],
+        crumb_parents=[(topic.get("subject_name") or "", f"/subjects/{topic.get('subject_slug') or ''}")],
         note=note,
         sections=catalog.sections_for_note(note["id"]) if note else [],
         diagrams=catalog.diagrams_for_topic(topic["id"]),
@@ -248,6 +253,7 @@ async def dpp_archive(request: Request):
     pager = _pager(request, total, size=DPP_ARCHIVE_PAGE_SIZE)
     return render(
         request, "dpp_archive.html",
+        crumb_leaf="Archive",
         sets=practice.list_dpp_sets(
             limit=pager["size"], offset=(pager["page"] - 1) * pager["size"]
         ),
@@ -261,6 +267,7 @@ async def dpp_day(request: Request, date: str):
     if not payload:
         raise HTTPException(status_code=404, detail="No practice set for that date")
     return render(request, "dpp.html", dpp=payload, sets=practice.recent_practice_days(30), active_date=date,
+                  crumb_leaf=date,
                   attempts=_attempts(current_user(request), payload["questions"]))
 
 
@@ -376,6 +383,7 @@ async def language_page(request: Request, language: str):
     attempts = practice.attempt_summary(viewer.id, checkpoint_ids) if viewer else {}
     return render(
         request, "language.html", language=lang,
+        crumb_leaf=lang["name"],
         stages=stages,
         modules=coding.modules_for_language(lang["id"]),
         capstone=coding.capstone_for_language(lang["id"]),
@@ -429,6 +437,7 @@ async def problem_page(request: Request, slug: str):
     viewer = current_user(request)
     return render(
         request, "problem.html", problem=problem,
+        crumb_leaf=problem["title"],
         stubs=coding.stubs_for(problem["id"]),
         stub_map={row["slug"]: {"stub": row["stub"], "signature": row["signature"]}
                   for row in coding.stubs_for(problem["id"])},
@@ -513,6 +522,7 @@ async def sheet_page(request: Request, slug: str):
     solved = coding.solved_problem_ids(viewer.id) if viewer else set()
     return render(
         request, "sheet.html", sheet=sheet, problems=problems, solved=solved,
+        crumb_leaf=sheet["title"],
         progress=coding.sheet_progress(viewer.id, sheet["id"]) if viewer else {
             "total": len(problems), "solved": 0, "percent": 0},
         all_sheets=coding.list_sheets(),
@@ -577,6 +587,7 @@ async def stream_page(request: Request, slug: str, semester: int | None = None):
     return render(
         request, "stream.html",
         **data,
+        crumb_leaf=branch["name"],
         streams=streams, categories=_group_streams(streams),
         my_branch=hub.branch_by_id(viewer.branch_id) if viewer else None,
         active_semester=semester,
@@ -613,6 +624,7 @@ async def project_page(request: Request, slug: str):
     viewer = current_user(request)
     return render(
         request, "project.html", project=project,
+        crumb_leaf=project["title"],
         has_built=projects.has_build(viewer.id, project["id"]) if viewer else False,
         steps=projects.steps(project["id"]),
         resources=projects.resources(project["id"]),
@@ -664,6 +676,60 @@ def _pager(request: Request, total: int, *, size: int = LIBRARY_PAGE_SIZE) -> di
     }
 
 
+def _index_totals() -> dict[str, int]:
+    """The headline counts for the index page, read from the database.
+
+    These are what the site actually has right now, not what it promises. A
+    deployment seeded with less shows less.
+    """
+    stats = catalog.site_stats()
+    return {
+        "branches": int(stats.get("branches") or 0),
+        "subjects": int(stats.get("subjects") or 0),
+        "topics": int(stats.get("topics") or 0),
+        "notes": int(db.scalar("SELECT count(*) AS c FROM notes WHERE status = 'published'") or 0),
+        "questions": int(db.scalar("SELECT count(*) AS c FROM questions WHERE is_active = 1") or 0),
+        "problems": int(db.scalar("SELECT count(*) AS c FROM coding_problems") or 0),
+        "sheets": len(coding.list_sheets()),
+        "flashcards": int(db.scalar("SELECT count(*) AS c FROM flashcards") or 0),
+        "formulas": int(stats.get("formulas") or 0),
+        "projects": int(db.scalar("SELECT count(*) AS c FROM projects WHERE status = 'published'") or 0),
+        "roadmaps": int(db.scalar("SELECT count(*) AS c FROM roadmaps") or 0),
+        "languages": int(stats.get("languages") or 0),
+    }
+
+
+def _index_counts() -> dict[str, str]:
+    """A short count label per destination path, for the index page.
+
+    Keyed by URL so the template can look one up for whatever the navigation
+    table produced, without the table itself having to know about the database.
+    Paths with nothing worth counting simply have no entry and render no badge.
+    """
+    totals = _index_totals()
+    counts = {
+        "/explore": f"{totals['subjects']} subjects",
+        "/formulas": f"{totals['formulas']} formulas",
+        "/videos": f"{int(catalog.site_stats().get('videos') or 0)} videos",
+        "/books": f"{int(catalog.site_stats().get('books') or 0)} books",
+        "/roadmaps": f"{totals['roadmaps']} roadmaps",
+        "/practice": f"{totals['questions']} questions",
+        "/dpp": f"{practice.count_dpp_sets()} sets",
+        "/dpp/archive": f"{practice.count_dpp_sets()} sets",
+        "/practice/questions": f"{totals['questions']} questions",
+        "/programming": f"{totals['languages']} languages",
+        "/practice/problems": f"{totals['problems']} problems",
+        "/sheets": f"{totals['sheets']} sheets",
+        "/projects": f"{totals['projects']} briefs",
+        "/flashcards": f"{totals['flashcards']} cards",
+        "/community": f"{int(db.scalar('SELECT count(*) AS c FROM discussions') or 0)} threads",
+        "/streams": f"{totals['branches']} branches",
+        "/stream": f"{totals['branches']} branches",
+        "/resources/offsite": f"{library.count_resources()} links",
+    }
+    return counts
+
+
 @router.get("/resources")
 async def resources_page(request: Request):
     """The in-app resource hub.
@@ -693,17 +759,12 @@ async def resources_page(request: Request):
         streams=streams,
         categories=_group_streams(streams),
         my_branch=viewer.branch_id if viewer else None,
-        totals={
-            "subjects": catalog.site_stats().get("subjects", 0),
-            "notes": int(db.scalar("SELECT count(*) AS c FROM notes WHERE status = 'published'") or 0),
-            "questions": int(db.scalar("SELECT count(*) AS c FROM questions WHERE is_active = 1") or 0),
-            "problems": int(db.scalar("SELECT count(*) AS c FROM coding_problems") or 0),
-            "sheets": len(coding.list_sheets()),
-            "flashcards": int(db.scalar("SELECT count(*) AS c FROM flashcards") or 0),
-            "formulas": int(db.scalar("SELECT count(*) AS c FROM formulas") or 0),
-            "projects": int(db.scalar("SELECT count(*) AS c FROM projects WHERE status = 'published'") or 0),
-            "roadmaps": int(db.scalar("SELECT count(*) AS c FROM roadmaps") or 0),
-        },
+        totals=_index_totals(),
+        counts=_index_counts(),
+        # The whole page is generated from the navigation table, so it lists the
+        # same destinations, with the same labels, in the same groups as the top
+        # bar and the footer. A page added to navigation.py appears here too.
+        index_sections=navigation.index_sections(viewer is not None),
         offsite_total=library.count_resources(),
     )
 
@@ -827,7 +888,9 @@ async def roadmap_page(request: Request, slug: str):
     roadmap = library.get_roadmap(slug)
     if not roadmap:
         raise HTTPException(status_code=404, detail="Unknown roadmap")
-    return render(request, "roadmap.html", roadmap=roadmap, nodes=library.roadmap_nodes(roadmap["id"]))
+    return render(request, "roadmap.html", roadmap=roadmap,
+                  crumb_leaf=roadmap["title"],
+                  nodes=library.roadmap_nodes(roadmap["id"]))
 
 
 # ---------------------------------------------------------------------------
@@ -853,6 +916,7 @@ async def thread_page(request: Request, thread_id: str):
     viewer = current_user(request)
     return render(
         request, "thread.html", thread=thread,
+        crumb_leaf=thread["title"],
         comments=community.comments(thread_id),
         my_votes=community.user_votes(viewer.id) if viewer else {},
     )
@@ -912,6 +976,7 @@ async def portfolio_page(request: Request, username: str):
         solved = coding.submissions_for(row["id"], limit=20)
     return render(
         request, "portfolio.html", member=row, profile=profile, stats=stats, badges=badges,
+        crumb_leaf=profile.get("full_name") or row["username"],
         solved=solved, is_self=is_self,
         projects=db.query(
             "SELECT p.slug, p.title, p.difficulty, p.summary FROM bookmarks b "
@@ -999,7 +1064,8 @@ async def certificate_page(request: Request, verify_id: str):
     record["branch"] = branch.get("name")
     record["tier_label"] = certificates.TIER_LABELS.get(record.get("tier") or "bronze", "Bronze")
     record["issuer"] = certificates.issuer_name()
-    return render(request, "certificate.html", certificate=record, meta=bundle.get("meta") or {})
+    return render(request, "certificate.html", certificate=record, meta=bundle.get("meta") or {},
+                  crumb_leaf=verify_id)
 
 
 # ---------------------------------------------------------------------------
@@ -1079,12 +1145,17 @@ async def sitemap():
     # Canonical URLs come from deployment configuration, never the untrusted
     # Host header supplied with this request.
     base = get_settings().site_url.rstrip("/")
-    urls = [
-        "/", "/about", "/explore", "/practice", "/practice/questions",
-        "/practice/problems", "/dpp", "/dpp/archive", "/programming", "/projects",
-        "/resources", "/videos", "/books", "/flashcards", "/formulas", "/tutor", "/roadmaps",
-        "/community", "/placements", "/leaderboard",
-    ]
+    # Derived from the navigation table rather than written out here. This list
+    # used to be a fourth copy of the site's pages and had fallen behind: it
+    # omitted /sheets - a top-bar item - and every sheet slug, plus /stream,
+    # /streams, /install and /search. A page added to navigation.py is now in the
+    # sitemap automatically, and one removed from it cannot leave a stale entry.
+    #
+    # The full list is published even where sign-in is compulsory: robots.txt
+    # already disallows everything in that mode, and a sitemap describing content
+    # that becomes public the moment an operator sets ENGINEVERSE_SIGNIN=optional
+    # is more useful than one that has to be regenerated.
+    urls = list(navigation.indexable_paths())
 
     # Include the later pages of every paginated public shelf. Dated DPP URLs
     # and content slugs below remain direct links; these pages also let a crawler
@@ -1113,6 +1184,7 @@ async def sitemap():
         "SELECT slug FROM subjects WHERE status = 'published' ORDER BY slug")]
     urls += [f"/topics/{row['slug']}" for row in db.query(
         "SELECT slug FROM topics WHERE status = 'published' ORDER BY slug")]
+    urls += [f"/sheets/{row['slug']}" for row in coding.list_sheets(limit=200)]
     urls += [f"/programming/{row['slug']}" for row in coding.list_languages()]
     urls += [f"/roadmaps/{row['slug']}" for row in library.list_roadmaps()]
     urls += [f"/projects/{row['slug']}" for row in db.query(

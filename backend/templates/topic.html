@@ -3,11 +3,6 @@
 {% block title %}{{ topic.title }} — {{ brand.site_name }}{% endblock %}
 {% block description %}{{ topic.summary }}{% endblock %}
 {% block content %}
-<nav class="crumbs" aria-label="Breadcrumb">
-  <a href="/explore">Subjects</a> ›
-  <a href="/subjects/{{ topic.subject_slug }}">{{ topic.subject_name }}</a> ›
-  <span>{{ topic.title }}</span>
-</nav>
 
 <div class="layout-2">
   <article>

@@ -75,6 +75,7 @@ rest of the codebase sees.
 | `engineverse/community.py` | Threads, comments, votes, reports |
 | `engineverse/markdown.py` | Markdown + LaTeX rendering with **no dependency** |
 | `engineverse/brand.py` | Site-wide branding read from `site_config` |
+| `engineverse/navigation.py` | The site's information architecture: every destination, its group, and the prefixes that own its child pages |
 | `web/deps.py` | Request-scoped viewer, template context, filters |
 | `static/js/engine3d.js` | The WebGL renderer: linear algebra, 14 mesh builders, Phong shading, orbit controls |
 | `seed_data/`, `scripts/seed.py` | The seeded catalogue and demo accounts |
@@ -98,7 +99,71 @@ rest of the codebase sees.
 
 Templates never touch the database. Everything they need arrives through
 `deps.base_context()`, which supplies `brand`, `user`, `csrf_token`, `flash`,
-`due_cards`, `unread` and `stats`.
+`due_cards`, `unread` and `stats`, plus the navigation and breadcrumb structures
+described below.
+
+## Navigation is data
+
+The site has roughly sixty pages. For most of its life the list of them was
+written out four separate times — the desktop top bar, the five footer columns,
+the mobile bottom bar and the sitemap — and each copy was edited on its own. They
+drifted until:
+
+* the top bar said **Practice** and the footer heading said **Practise**;
+* the top bar said **Code** for `/programming` while the footer said **Learn to
+  code** for the same URL, beside a different item called **Learn**;
+* the bottom bar lit up **My stream** while the reader was on `/explore` and
+  **Sheets** while they were on `/projects`, because each link tested its own
+  overlapping prefixes independently;
+* about fifteen pages — the mistake notebook, the heatmap, today's plan, the
+  leaderboard, onboarding, installing the app, videos, books — were reachable
+  only from the footer, if at all;
+* all 45 branch hubs at `/branches/{slug}` had no inbound link anywhere, because
+  the catalogue's branch picker only ever filtered the page it was on;
+* `/sitemap.xml` listed twenty paths and omitted `/sheets`, a top-bar item, and
+  every sheet slug with it.
+
+`engineverse/navigation.py` replaces the four copies with one ordered table of
+`Destination` records grouped into `Section` records. Everything else is derived:
+
+| Surface | Built by |
+|---|---|
+| Desktop top bar (6 grouped entries with menus) | `primary_nav()` |
+| Mobile bottom bar (5 items, exactly one active) | `mobile_nav()` + `active_mobile()` |
+| Mobile menu panel (every group, expanded) | `index_sections()` |
+| Footer columns | `footer_columns()` |
+| Breadcrumb trail on every page | `breadcrumb_trail()` |
+| The full index at `/resources` | `index_sections()` |
+| `/sitemap.xml` | `indexable_paths()` |
+| The GitHub Pages export list | `indexable_paths(public_only=True)` |
+
+Three properties make the derivation work rather than just move the duplication:
+
+**A destination owns its child pages.** `match` lists the URL prefixes that mean
+"you are here", compared on a path-segment boundary with the longest match
+winning. So `Practice sheets` claims `/sheets` *and* `/sheets/arrays-hashing`,
+while `/practice` does not swallow `/practice/problems` and `/stream` does not
+swallow `/streams`. Active-link highlighting and the breadcrumb trail both read
+this, which is why neither is hand-written per template any more.
+
+**A group label is a real link.** Each section names a `landing` page, so the top
+bar is one click from the most useful page in every group for a reader who never
+opens a menu. The menus themselves open on `:hover` and `:focus-within`; because
+the label sits *inside* the group, tabbing to it opens the menu and puts its links
+in the tab order. No JavaScript, and no link is ever focusable while invisible.
+
+**Audience is part of the data.** `signed_in` records that the application
+redirects an anonymous request to `/login`, and
+`test_navigation.py::test_signed_in_flags_match_what_the_application_actually_does`
+checks that claim against the running app — six destinations were originally
+marked as gated merely because they work *better* with an account, which would
+have hidden working pages from signed-out readers and dropped them from the
+static export. `member_only` is the separate, weaker claim that a page renders
+but the label would be a lie: `/stream` answers an anonymous request by
+redirecting to some default branch, which is not what "My stream" promises.
+`Section.for_audience()` filters both and re-points each group label at a public
+landing page, so no surface ever offers a signed-out reader a link whose only
+effect is a bounce.
 
 ## The judge
 

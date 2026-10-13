@@ -60,12 +60,29 @@
   }
 
   // ------------------------------------------------------- mobile nav + menu
+  // The panel is generated from the same navigation table as the desktop bar, so
+  // it lists every group expanded rather than ten flat links. It is `hidden` in
+  // the markup and this only flips that attribute: with scripting off the panel
+  // stays hidden and the footer carries the same links, so nothing is lost.
   const toggle = $("#navtoggle");
-  if (toggle) {
-    toggle.addEventListener("click", () => {
-      const bar = $(".topbar");
-      const open = bar.classList.toggle("open");
+  const panel = $("#mobilenav");
+  const closeNav = () => {
+    if (!panel || !toggle) return;
+    panel.hidden = true;
+    toggle.setAttribute("aria-expanded", "false");
+    $(".topbar")?.classList.remove("open");
+  };
+  if (toggle && panel) {
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = panel.hidden;
+      panel.hidden = !open;
       toggle.setAttribute("aria-expanded", String(open));
+      $(".topbar")?.classList.toggle("open", open);
+    });
+    // Tapping anywhere outside closes it, matching the account menu below.
+    document.addEventListener("click", (e) => {
+      if (!panel.hidden && !panel.contains(e.target) && e.target !== toggle) closeNav();
     });
   }
   $$("[data-menu]").forEach((menu) => {
@@ -81,7 +98,10 @@
   document.addEventListener("click", () =>
     $$("[data-menu]").forEach((m) => m.removeAttribute("data-open")));
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") $$("[data-menu]").forEach((m) => m.removeAttribute("data-open"));
+    if (e.key !== "Escape") return;
+    $$("[data-menu]").forEach((m) => m.removeAttribute("data-open"));
+    $$("[data-menu] button").forEach((b) => b.setAttribute("aria-expanded", "false"));
+    closeNav();
   });
 
   // --------------------------------------------------- jump-to-stream picker

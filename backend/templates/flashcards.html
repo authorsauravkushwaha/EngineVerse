@@ -2,7 +2,6 @@
 {% block title %}{% if selected %}{{ selected.front }}{% else %}Browse flashcards{% endif %} — {{ brand.site_name }}{% endblock %}
 {% block description %}Browse and search public revision flashcards across EngineVerse subjects. Personal spaced-repetition schedules are available after sign-in.{% endblock %}
 {% block content %}
-<nav class="crumbs"><a href="/revision">Revision</a> › <span>Public flashcards</span></nav>
 {% if selected %}
   <h1>{{ selected.front }}</h1>
   <div class="tags">

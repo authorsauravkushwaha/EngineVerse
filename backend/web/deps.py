@@ -11,7 +11,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
-from engineverse import auth, brand, db, markdown, progress
+from engineverse import auth, brand, db, markdown, navigation, progress
 from engineverse.config import get_settings
 from engineverse.security import csrf
 from engineverse.security.rbac import is_staff
@@ -157,6 +157,42 @@ register_filters()
 # Context
 # ---------------------------------------------------------------------------
 
+def navigation_context(path: str, signed_in: bool) -> dict[str, Any]:
+    """The navigation, breadcrumbs and footer, from one table.
+
+    Every surface that lists the site's pages - the desktop bar, the mobile menu,
+    the bottom bar, the footer, the breadcrumb trail - is built here from
+    ``engineverse.navigation``. They used to be written out separately in
+    ``base.html`` and had drifted: the bar said "Practice" and the footer said
+    "Practise", the bar said "Code" and the footer said "Learn to code" for the
+    same URL, and the bottom bar highlighted two items at once because each link
+    tested its own overlapping prefixes.
+
+    Computing it here rather than in the template also means the tables are built
+    once per request instead of once per include, and the test suite can assert
+    on the same object the pages render.
+    """
+    items = navigation.primary_nav(signed_in)
+    mobile = navigation.mobile_nav(signed_in)
+    return {
+        "nav_signed_in": signed_in,
+        "nav_primary": items,
+        "nav_mobile": mobile,
+        "nav_active_mobile": navigation.active_mobile(path, mobile),
+        # The mobile panel shows every group expanded, including the two
+        # footer-only ones, so nothing on the site is more than two taps away.
+        "nav_sections": navigation.index_sections(signed_in),
+        "nav_account": [
+            dest for dest in navigation.account_destinations(signed_in) if not dest.minor
+        ],
+        "footer_columns": navigation.footer_columns(signed_in),
+        "footer_account": [
+            dest for dest in navigation.account_destinations(signed_in) if not dest.minor
+        ],
+        "crumbs": navigation.breadcrumb_trail(path, signed_in=signed_in),
+    }
+
+
 def base_context(request: Request, **extra: Any) -> dict[str, Any]:
     viewer = current_user(request)
     context: dict[str, Any] = {
@@ -183,6 +219,17 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "unread": 0,
         "stats": None,
     }
+    # Navigation and breadcrumbs come from one table; see navigation_context().
+    # ``crumb_leaf`` is how a page names the item it fetched - a topic title, a
+    # sheet title - so the trail can end with "Arrays" instead of stopping one
+    # level up. It is consumed here rather than passed to the template.
+    leaf = str(extra.pop("crumb_leaf", "") or "")
+    parents = extra.pop("crumb_parents", None)
+    context.update(navigation_context(request.url.path, viewer is not None))
+    if leaf or parents:
+        context["crumbs"] = navigation.breadcrumb_trail(
+            request.url.path, leaf, parents, signed_in=viewer is not None
+        )
     if viewer:
         context["stats"] = progress.user_stats(viewer.id)
         context["due_cards"] = int(
