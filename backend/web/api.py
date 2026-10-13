@@ -217,7 +217,7 @@ async def api_suggest(request: Request, q: str = ""):
 
 @router.get("/practice/questions/{question_id}")
 async def api_question(request: Request, question_id: str):
-    if not question_id or len(question_id) > 64:
+    if not question_id or len(question_id) > practice.MAX_ID_LENGTH:
         return fail("Invalid question identifier.", 400)
     question = practice.question_by_id(question_id)
     if not question:
@@ -230,7 +230,7 @@ async def api_answer(request: Request, questionId: str = Body(...), optionIndex:
                      answerText: str | None = Body(None), setId: str | None = Body(None),
                      timeMs: int | None = Body(None)):
     viewer = require_user(request)
-    if not questionId or len(questionId) > 64:
+    if not questionId or len(questionId) > practice.MAX_ID_LENGTH:
         return fail("Invalid question identifier.", 400)
     if answerText is not None and len(answerText) > 2000:
         return fail("Keep a written answer under 2,000 characters.", 413)
@@ -251,7 +251,7 @@ async def api_answer(request: Request, questionId: str = Body(...), optionIndex:
 
     if setId is not None:
         setId = setId.strip()
-        if not setId or len(setId) > 64:
+        if not setId or len(setId) > practice.MAX_ID_LENGTH:
             return fail("Invalid practice-set identifier.", 400)
         membership = db.query_one(
             "SELECT 1 FROM dpp_questions dq JOIN dpp_sets d ON d.id = dq.set_id "

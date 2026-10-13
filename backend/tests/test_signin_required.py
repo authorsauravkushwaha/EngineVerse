@@ -311,3 +311,36 @@ def test_mistake_notebook_cards_can_be_answered_again(gated):
     retry = gated.post("/api/practice/answer", json={"questionId": question_id, "optionIndex": wrong_index},
                        headers={"X-CSRF-Token": _page_csrf(html)})
     assert retry.status_code == 200 and retry.json()["ok"] is True
+
+
+def test_every_seeded_question_id_fits_the_answer_endpoints(seeded):
+    from engineverse import practice
+
+    too_long = db.query(
+        "SELECT id FROM questions WHERE is_active = 1 AND length(id) > ?", practice.MAX_ID_LENGTH
+    )
+    assert not too_long, f"{len(too_long)} questions could never be answered, e.g. {too_long[0]['id']}"
+    too_long_sets = db.query("SELECT id FROM dpp_sets WHERE length(id) > ?", practice.MAX_ID_LENGTH)
+    assert not too_long_sets
+
+
+def test_a_long_concept_check_id_can_be_answered(gated):
+    """The 65+ character mastery ids were refused with "Invalid question identifier."."""
+    row = db.query_one(
+        "SELECT id FROM questions WHERE is_active = 1 AND length(id) > 64 ORDER BY length(id) DESC LIMIT 1"
+    )
+    if row is None:
+        pytest.skip("no long question ids in this seed")
+    _sign_in(gated)
+    page = gated.get("/practice/questions").text
+    response = gated.post(
+        "/api/practice/answer", json={"questionId": row["id"], "optionIndex": 0},
+        headers={"X-CSRF-Token": _page_csrf(page)},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["ok"] is True
+    form = gated.post("/practice/check", data={
+        "csrf_token": _csrf(page), "question_id": row["id"], "option": "0", "next": "/practice/questions",
+    })
+    assert form.status_code == 200
+    assert "<h1>Not quite</h1>" in form.text or "<h1>Correct</h1>" in form.text

@@ -315,11 +315,11 @@ async def practice_check(request: Request):
     if not back.startswith("/") or back.startswith("//") or len(back) > 1024:
         back = "/practice/questions"
 
-    question = practice.question_by_id(question_id) if 0 < len(question_id) <= 64 else None
+    question = practice.question_by_id(question_id) if 0 < len(question_id) <= practice.MAX_ID_LENGTH else None
     if not question:
         raise HTTPException(status_code=404, detail="Unknown question")
     options = practice.options_for(question_id)
-    if set_id is not None and (len(set_id) > 64 or not db.query_one(
+    if set_id is not None and (len(set_id) > practice.MAX_ID_LENGTH or not db.query_one(
         "SELECT 1 FROM dpp_questions dq JOIN dpp_sets d ON d.id = dq.set_id "
         "WHERE dq.set_id = ? AND dq.question_id = ? AND d.published = 1",
         set_id, question_id,

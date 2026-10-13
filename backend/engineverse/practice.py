@@ -9,6 +9,14 @@ from .security.ids import now_ms, today, ulid
 
 DIFFICULTY_ORDER = {"easy": 0, "beginner": 0, "medium": 1, "hard": 2, "expert": 3}
 
+#: Longest question or practice-set identifier the answer endpoints accept.
+#: Identifiers are readable slugs, and the mastery "concept-check-..." questions
+#: run to 85 characters. The old hard-coded 64 refused every one of them with
+#: "Invalid question identifier.", so a fifth of the bank could not be answered.
+#: The bound only exists to refuse junk before a database lookup; the columns
+#: are TEXT. test_signin_required checks every seeded id fits.
+MAX_ID_LENGTH = 128
+
 
 def _json(value: Any, fallback: Any) -> Any:
     if value in (None, ""):
