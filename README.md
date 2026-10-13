@@ -85,11 +85,52 @@ what is seeded today, not a completeness guarantee.
 
 Studying does not require leaving the site. Notes, worked examples, diagrams and
 3D models, formula sheets, flashcards, the practice bank, the coding judge and
-the projects are all served from this application, and `/resources` is a
-directory of those in-app shelves rather than a page of outbound links. An older
-shelf of external reading still exists at `/resources/offsite` and is labelled as
-optional: no navigation, lesson or practice flow depends on it, and a deployment
-that never visits it loses no learning material.
+the projects are all served from this application, and `/resources` is the
+complete index of those in-app shelves rather than a page of outbound links. An
+older shelf of external reading still exists at `/resources/offsite` and is
+labelled as optional: no navigation, lesson or practice flow depends on it, and a
+deployment that never visits it loses no learning material.
+
+## Finding things
+
+Sixty pages is only useful if a learner can find the one they want. The whole
+site is described once, in `engineverse/navigation.py`: every destination, the
+group it belongs to, a one-line description, and the URL prefixes that mean "you
+are here". Everything the reader sees is derived from that table — the desktop
+top bar, the mobile bottom bar, the slide-down menu, the footer columns, the
+breadcrumb trail on every page, the index at `/resources`, `/sitemap.xml` and the
+GitHub Pages export list — so they cannot disagree about what exists or what
+something is called. See [Architecture](docs/ARCHITECTURE.md#navigation-is-data)
+for what this replaced.
+
+The top bar is six grouped entries rather than ten flat links. Each group label
+is itself a link to that group's landing page, so the bar is one click from the
+most useful page in every group even for a reader who never opens a menu:
+
+| Group | Landing page | Also in the menu |
+|---|---|---|
+| **My stream** | `/stream` | the full index |
+| **Learn** | `/explore` | formulas, videos, books, roadmaps, the study tutor |
+| **Practice** | `/practice` | the daily set and its archive, the question bank, the mistake notebook |
+| **Code** | `/programming` | coding problems, practice sheets, projects |
+| **Revise** | `/revision` | public flashcards, formulas, roadmaps |
+| **More** | `/resources` | today's plan, streaks, leaderboard, profile, community, placements, about |
+
+On a phone the menu button opens every group expanded, which puts all sixty pages
+one tap away instead of leaving the last fifteen to the footer. Menus open on
+hover *and* on keyboard focus, so the whole navigation works with no JavaScript —
+as does every other page on the site.
+
+Every page below the top level carries a breadcrumb, derived from the same table.
+It is audience-aware: a signed-out reader is never shown a link whose only effect
+would be a bounce to `/login`, and `/stream/{branch}` reads
+"Home › Streams › …" for them rather than pointing at a page they cannot open.
+
+`/resources` is the page that answers *"what is actually on this site?"*. It lists
+every destination in its group with the description and the count this instance
+really has — read from the database, so a deployment seeded with less shows less —
+and opens with three ways in by intent: just started, studying for an exam,
+preparing for interviews.
 
 The generated [curriculum coverage report](docs/CURRICULUM_COVERAGE.md) lists the
 current snapshot by branch and by stream. Use

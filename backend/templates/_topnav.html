@@ -1,0 +1,103 @@
+{# ==========================================================================
+   The main navigation, rendered from engineverse/navigation.py.
+
+   This replaces ten flat links with six grouped entries. Two rules shaped it:
+
+   1. It works with no JavaScript. The menus open on :hover and on
+      :focus-within. Because the group label lives *inside* the group, tabbing
+      to the label opens the menu, so a keyboard reader can continue tabbing into
+      its links and the menu stays open until focus leaves the group. A CSS-only
+      menu that hid its links from the tab order would have been worse than the
+      flat list it replaces.
+
+   2. Every group label is a real link to that group's landing page. A reader who
+      never opens a menu still gets to the most useful page in every group in one
+      click, and nothing here is a control that does nothing without a pointer.
+
+   The desktop bar and the mobile panel below are generated from the same table,
+   which is why they can no longer disagree about labels or URLs.
+   ========================================================================== #}
+{% from "_icons.html" import icon %}
+
+<nav class="mainnav" aria-label="Main">
+  {% for item in nav_primary %}
+    {% set here = item.is_active(path) %}
+    {% if item.children %}
+    <div class="navgroup{{ ' on' if here }}">
+      <a class="navgroup-label" href="{{ item.href }}"
+         {% if here %}aria-current="true"{% endif %}
+         title="{{ item.label }} — open for more">
+        {{ item.label }}
+        <span class="navcaret" aria-hidden="true">{{ icon("caret", 13) }}</span>
+      </a>
+      <div class="navmenu">
+        {% if item.blurb %}<p class="navmenu-head">{{ item.blurb }}</p>{% endif %}
+        {% for child in item.children %}
+          <a href="{{ child.path }}" class="{{ 'on' if child.matches(path) }}">
+            <span class="navmenu-icon" aria-hidden="true">{{ icon(child.icon or 'chevron', 16) }}</span>
+            <span class="navmenu-text">
+              <span class="navmenu-label">{{ child.label }}</span>
+              {% if child.blurb %}<span class="navmenu-desc">{{ child.blurb }}</span>{% endif %}
+            </span>
+            {% if child.signed_in and not user %}<span class="navmenu-lock">sign in</span>{% endif %}
+          </a>
+        {% endfor %}
+      </div>
+    </div>
+    {% else %}
+    <a class="navlink{{ ' on' if here }}" href="{{ item.href }}" {% if here %}aria-current="page"{% endif %}>
+      {{ item.label }}</a>
+    {% endif %}
+  {% endfor %}
+</nav>
+
+{# The mobile panel. Same groups, all expanded: on a phone this is the whole
+   site map in one scroll, which is what makes the forty-odd pages that used to
+   live only in the footer findable on the device most students actually use. #}
+<div class="mobilenav" id="mobilenav" hidden>
+  <div class="mobilenav-inner">
+    <form class="searchbox mobilenav-search" action="/search" method="get" role="search">
+      <input type="search" name="q" value="{{ query.get('q', '') }}" placeholder="Search everything…"
+             autocomplete="off" aria-label="Search {{ brand.site_name }}">
+      <button type="submit" aria-label="Search">{{ icon("search", 16) }}</button>
+    </form>
+
+    {% for section in nav_sections %}
+      {% set links = section.destinations | rejectattr("minor") | list %}
+      {% if links %}
+      <div class="mobilenav-group">
+        {# A group with no public landing page is a plain heading, not a link:
+           an empty href would reload this page, and a gated one would only
+           bounce a signed-out reader to /login. #}
+        {% if section.landing %}
+        <a class="mobilenav-head{{ ' on' if section.landing == path }}" href="{{ section.landing }}">
+          <span aria-hidden="true">{{ icon(section.icon or 'chevron', 16) }}</span>
+          {{ section.label }}
+        </a>
+        {% else %}
+        <div class="mobilenav-head plain">
+          <span aria-hidden="true">{{ icon(section.icon or 'chevron', 16) }}</span>
+          {{ section.label }}
+        </div>
+        {% endif %}
+        <div class="mobilenav-links">
+          {% for child in links %}
+            <a href="{{ child.path }}" class="{{ 'on' if child.matches(path) }}">{{ child.label }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+    {% endfor %}
+
+    <div class="mobilenav-group">
+      <div class="mobilenav-head plain">
+        <span aria-hidden="true">{{ icon("cog", 16) }}</span> Your account
+      </div>
+      <div class="mobilenav-links">
+        {% for child in nav_account %}
+          <a href="{{ child.path }}" class="{{ 'on' if child.matches(path) }}">{{ child.label }}</a>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>

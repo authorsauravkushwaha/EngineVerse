@@ -1,7 +1,6 @@
 {% extends "base.html" %}
 {% block title %}{{ roadmap.title }} — {{ brand.site_name }}{% endblock %}
 {% block content %}
-<nav class="crumbs"><a href="/roadmaps">Roadmaps</a> › <span>{{ roadmap.title }}</span></nav>
 <h1>{{ roadmap.title }}</h1>
 <p class="muted">{{ roadmap.summary }}</p>
 <div class="tags mb"><span class="chip accent">{{ roadmap.kind }}</span>

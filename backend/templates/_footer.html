@@ -1,0 +1,67 @@
+{# ==========================================================================
+   The footer, rendered from engineverse/navigation.py.
+
+   This was the fourth hand-written copy of the navigation and the one that had
+   drifted furthest: it said "Practise" where the top bar said "Practice", and it
+   called /programming "Learn to code" while calling /explore "Learn" - two items
+   one word apart pointing at different things. Every heading and link here now
+   comes from the same table the top bar uses, so the two cannot disagree.
+
+   The columns are the site's groups in reading order. The last column keeps the
+   feedback form, which is the one thing in the footer that is not navigation.
+   ========================================================================== #}
+{% from "_icons.html" import icon %}
+
+<footer class="footer">
+  {% if not gated %}
+  <div class="wrap footer-grid">
+    <div class="footer-brand">
+      <div class="logo logo-footer"><span class="logo-text">{{ brand.site_name }}</span></div>
+      <p class="muted">{{ brand.tagline }}</p>
+      <p class="muted small">{{ brand.free_tier_note }}</p>
+      {# My stream and the full index are the two ways in from anywhere, so they
+         are buttons here rather than a column of their own. #}
+      <p class="footer-cta">
+        <a class="btn btn-soft btn-sm" href="{{ '/stream' if user else '/streams' }}">
+          {{ icon("compass", 15) }} {{ 'My stream' if user else 'All streams' }}</a>
+        <a class="btn btn-soft btn-sm" href="/resources">
+          {{ icon("grid", 15) }} Everything on {{ brand.site_name }}</a>
+      </p>
+    </div>
+
+    {% for column in footer_columns %}
+    <div>
+      <h4>{{ column.heading }}</h4>
+      {% for link in column.links %}
+      <a href="{{ link.path }}" class="{{ 'on' if link.matches(path) }}">{{ link.label }}</a>
+      {% endfor %}
+    </div>
+    {% endfor %}
+
+    <div>
+      <h4>Account</h4>
+      {% for link in footer_account %}
+      <a href="{{ link.path }}" class="{{ 'on' if link.matches(path) }}">{{ link.label }}</a>
+      {% endfor %}
+    </div>
+
+    <div class="footer-feedback">
+      <h4>Tell us what's wrong</h4>
+      <form class="stack" method="post" action="/api/feedback" data-json-form>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <input type="hidden" name="path" value="{{ path }}">
+        <label class="field">
+          <span class="label">Broken page? Wrong answer? Missing subject?</span>
+          <textarea name="message" rows="3" required minlength="5"
+                    placeholder="Be specific — a URL and what you expected helps us fix it."></textarea>
+        </label>
+        <button class="btn btn-soft btn-sm" type="submit">Send feedback</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+  <div class="wrap footer-base">
+    <span>&copy; {{ brand.site_name }}. Built for engineers, by engineers.</span>
+    <span class="muted">{% if gated %}<a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · {% endif %}Self-hosted. No trackers. No third-party scripts.</span>
+  </div>
+</footer>

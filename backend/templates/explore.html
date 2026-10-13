@@ -26,6 +26,39 @@
   </div>
 </form>
 
+{# Every branch, linked.
+
+   The picker above only ever *filtered* this page. The 45 branch pages at
+   /branches/{slug} and the 45 study hubs at /stream/{slug} therefore had no
+   inbound link from the catalogue at all: they were listed in the sitemap and
+   reachable from nowhere else, so a reader who filtered by branch could not
+   discover that the branch had a page of its own. <details> keeps forty-five
+   links from pushing the subject list below the fold, and it opens by itself
+   when a branch filter is already applied. #}
+{% set branch_total = branches | map(attribute='branches') | map('length') | sum %}
+<details class="panel mb branchbrowse"{% if active_branch %} open{% endif %}>
+  <summary>
+    <strong>Browse by branch</strong>
+    <span class="muted small">{{ branch_total }} branches — each has a subject list and a study hub</span>
+  </summary>
+  <div class="grid g3 branchgroups">
+    {% for group in branches %}
+    <div>
+      <h4 class="branchgroup-name">{{ group.name }}</h4>
+      <ul class="branchlist">
+        {% for b in group.branches %}
+        <li class="{{ 'on' if active_branch == b.slug }}">
+          <a href="/branches/{{ b.slug }}">{{ b.name }}</a>
+          <span class="tiny muted" title="{{ b.subject_count }} subjects">{{ b.subject_count }}</span>
+          <a class="branchhub" href="/stream/{{ b.slug }}" title="Study hub for {{ b.name }}">hub</a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
+</details>
+
 <div class="grid g3">
   {% for subject in subjects %}
     {% include "_subject_card.html" %}

@@ -1,0 +1,31 @@
+{# ==========================================================================
+   Breadcrumb trail, rendered from engineverse/navigation.py.
+
+   Twelve of the forty-nine templates used to carry a hand-written trail and the
+   other thirty-seven carried none, so most of the site had no way back up the
+   hierarchy - a reader on a topic deep inside a subject could only use the
+   browser's back button. The hand-written ones disagreed with each other too:
+   /branches/x said "Branches" and /subjects/y said "Subjects" while both pointed
+   at the same URL.
+
+   The trail is now derived from which destination owns the current path, so it
+   is consistent everywhere and a page added to the navigation table gets one
+   automatically. A handler can name the item it fetched with `crumb_leaf`;
+   without one the trail stops at its last link and the page's own heading is the
+   current level, so the page is never announced twice to a screen reader.
+   ========================================================================== #}
+{% if crumbs and crumbs | length > 1 %}
+<nav class="crumbs" aria-label="Breadcrumb">
+  <ol>
+    {% for crumb in crumbs %}
+      <li>
+        {% if crumb.is_current %}
+          <span aria-current="page">{{ crumb.label }}</span>
+        {% else %}
+          <a href="{{ crumb.href }}">{{ crumb.label }}</a>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ol>
+</nav>
+{% endif %}

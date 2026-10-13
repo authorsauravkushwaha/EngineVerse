@@ -1,27 +1,112 @@
 {% extends "base.html" %}
-{% block title %}Resources — {{ brand.site_name }}{% endblock %}
-{% block description %}Every subject, note, question, problem, formula sheet, flashcard and project brief on {{ brand.site_name }}, by engineering stream.{% endblock %}
+{% from "_icons.html" import icon %}
+{% block title %}Everything on {{ brand.site_name }} — the full index{% endblock %}
+{% block description %}Every page and tool on {{ brand.site_name }}, grouped by what you are trying to do, with the live counts of what is actually seeded.{% endblock %}
 {% block content %}
+{# ==========================================================================
+   The complete index of the site.
+
+   This page used to list about a dozen of the site's sixty pages under two
+   headings and was reachable only from the footer, so the pages it did not
+   mention - the mistake notebook, the heatmap, today's plan, the leaderboard,
+   onboarding, installing the app - had no discoverable path at all.
+
+   It is now generated from engineverse/navigation.py, the same table the top bar
+   and the footer are built from. Every destination appears here in its group,
+   with the same label it has everywhere else, so this page and the navigation
+   cannot disagree about what exists. The counts beside each entry come from the
+   database, so the page says what this instance actually has rather than what
+   the project intends to have.
+   ========================================================================== #}
 <div class="between mb">
   <div>
-    <h1>Resources</h1>
-    <p class="muted">Everything you need for your degree is already on this site. Pick your stream and it opens
-      with your subjects, notes, practice sets and projects in one place.</p>
+    <h1>Everything on {{ brand.site_name }}</h1>
+    <p class="muted">Every page and tool here, grouped by what you are trying to do. The counts are read
+      from this instance's database, so they describe what is actually seeded — not a promise.</p>
   </div>
-  <a class="btn btn-ghost" href="{{ '/stream' if user else '/streams' }}">
-    {{ 'My stream' if user else 'Find my stream' }}</a>
+  <a class="btn btn-primary" href="{{ '/stream' if user else '/streams' }}">
+    {{ icon("compass", 16) }} {{ 'Open my stream' if user else 'Find my stream' }}</a>
 </div>
 
-<section class="statgrid mb">
+<section class="statgrid mb" aria-label="What this instance has">
+  <a class="stat" href="/explore"><span class="v">{{ totals.branches }}</span><span class="k">Branches</span></a>
   <a class="stat" href="/explore"><span class="v">{{ totals.subjects }}</span><span class="k">Subjects</span></a>
+  <a class="stat" href="/explore"><span class="v">{{ totals.topics }}</span><span class="k">Topics</span></a>
   <a class="stat" href="/explore"><span class="v">{{ totals.notes }}</span><span class="k">Notes</span></a>
   <a class="stat" href="/practice/questions"><span class="v">{{ totals.questions }}</span><span class="k">Questions</span></a>
   <a class="stat" href="/practice/problems"><span class="v">{{ totals.problems }}</span><span class="k">Coding problems</span></a>
   <a class="stat" href="/sheets"><span class="v">{{ totals.sheets }}</span><span class="k">Sheets</span></a>
   <a class="stat" href="/flashcards"><span class="v">{{ totals.flashcards }}</span><span class="k">Flashcards</span></a>
   <a class="stat" href="/formulas"><span class="v">{{ totals.formulas }}</span><span class="k">Formulas</span></a>
+  <a class="stat" href="/programming"><span class="v">{{ totals.languages }}</span><span class="k">Language paths</span></a>
   <a class="stat" href="/projects"><span class="v">{{ totals.projects }}</span><span class="k">Projects</span></a>
   <a class="stat" href="/roadmaps"><span class="v">{{ totals.roadmaps }}</span><span class="k">Roadmaps</span></a>
+</section>
+
+{# Three ways in, by intent. A reader who does not know the site's vocabulary
+   should not have to guess which of ten groups they want. #}
+<section class="grid g3 mb" aria-label="Where to start">
+  <div class="panel">
+    <h3>{{ icon("compass", 17) }} Just started</h3>
+    <p class="muted small">Set your branch and semester, then open your stream. It collects the subjects,
+      notes, sheets and projects your branch actually has.</p>
+    <p class="startlinks">
+      <a class="btn btn-soft btn-sm" href="{{ '/onboarding' if user else '/register' }}">
+        {{ 'Set my branch' if user else 'Create an account' }}</a>
+      <a class="btn btn-ghost btn-sm" href="{{ '/stream' if user else '/streams' }}">My stream</a>
+    </p>
+  </div>
+  <div class="panel">
+    <h3>{{ icon("target", 17) }} Studying for an exam</h3>
+    <p class="muted small">Read the topic, then prove it. The daily set and the mistake notebook keep the
+      weak spots in front of you; spaced repetition keeps them there.</p>
+    <p class="startlinks">
+      <a class="btn btn-soft btn-sm" href="/dpp">Today's set</a>
+      <a class="btn btn-ghost btn-sm" href="/mistakes">Mistake notebook</a>
+      <a class="btn btn-ghost btn-sm" href="/revision">Revision</a>
+    </p>
+  </div>
+  <div class="panel">
+    <h3>{{ icon("briefcase", 17) }} Preparing for interviews</h3>
+    <p class="muted small">Work the sheets in order, build one project you can defend, then check yourself
+      against the placement patterns.</p>
+    <p class="startlinks">
+      <a class="btn btn-soft btn-sm" href="/sheets">Practice sheets</a>
+      <a class="btn btn-ghost btn-sm" href="/projects">Projects</a>
+      <a class="btn btn-ghost btn-sm" href="/placements">Placement prep</a>
+    </p>
+  </div>
+</section>
+
+{# Every destination, in its group, from the navigation table. #}
+<section class="mb" aria-label="All pages and tools">
+  <h2>Every page, by what it is for</h2>
+  <div class="grid g2">
+    {% for section in index_sections %}
+    <div class="panel indexgroup">
+      <h3>
+        <span class="indexgroup-icon" aria-hidden="true">{{ icon(section.icon or 'grid', 17) }}</span>
+        <a href="{{ section.landing }}">{{ section.label }}</a>
+      </h3>
+      <p class="muted small indexgroup-blurb">{{ section.blurb }}</p>
+      <ul class="indexlist">
+        {% for dest in section.destinations %}
+        <li>
+          <a href="{{ dest.path }}" class="{{ 'on' if dest.matches(path) }}">
+            <span class="indexlist-icon" aria-hidden="true">{{ icon(dest.icon or 'chevron', 15) }}</span>
+            <span class="indexlist-text">
+              <span class="indexlist-label">{{ dest.label }}</span>
+              {% if dest.blurb %}<span class="indexlist-desc">{{ dest.blurb }}</span>{% endif %}
+            </span>
+            {% if counts.get(dest.path) %}<span class="chip indexlist-count">{{ counts[dest.path] }}</span>{% endif %}
+            {% if dest.signed_in and not user %}<span class="chip indexlist-lock">sign in</span>{% endif %}
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endfor %}
+  </div>
 </section>
 
 <section class="mb">
@@ -44,38 +129,6 @@
         </ul>
       </div>
     {% endfor %}
-  </div>
-</section>
-
-<section class="mb">
-  <h2>Browse by kind</h2>
-  <div class="grid g3">
-    <a class="card" href="/explore"><span class="title">Subjects and notes</span>
-      <span class="desc">The full catalogue, four reading depths per topic, from a first look to an industry note.</span></a>
-    <a class="card" href="/practice/questions"><span class="title">Question bank</span>
-      <span class="desc">Multiple choice, numericals, conceptual, debugging and interview questions, filterable by
-        subject and kind.</span></a>
-    <a class="card" href="/practice/problems"><span class="title">Coding problems</span>
-      <span class="desc">A real judge in the browser: run against the samples, submit against every test, keep the
-        verdict.</span></a>
-    <a class="card" href="/sheets"><span class="title">Practice sheets</span>
-      <span class="desc">Curated sets by pattern and by stream, including an interview core of thirty.</span></a>
-    <a class="card" href="/programming"><span class="title">Language paths</span>
-      <span class="desc">Staged modules with checkpoints from foundations to advanced engineering work.</span></a>
-    <a class="card" href="/dpp"><span class="title">Daily practice</span>
-      <span class="desc">A fresh mixed set each day, with a full archive to work through.</span></a>
-    <a class="card" href="/formulas"><span class="title">Formula centre</span>
-      <span class="desc">Searchable formulas with variables, units and where each one applies.</span></a>
-    <a class="card" href="/flashcards"><span class="title">Flashcards and revision</span>
-      <span class="desc">Public decks to browse, spaced repetition once you sign in.</span></a>
-    <a class="card" href="/projects"><span class="title">Projects</span>
-      <span class="desc">Briefs with ordered steps, skills and a capstone for each language path.</span></a>
-    <a class="card" href="/roadmaps"><span class="title">Roadmaps</span>
-      <span class="desc">Term-by-term and career paths, with the steps written out.</span></a>
-    <a class="card" href="/placements"><span class="title">Placement preparation</span>
-      <span class="desc">Interview sets, company patterns and the sheet that covers them.</span></a>
-    <a class="card" href="/tutor"><span class="title">Study tutor</span>
-      <span class="desc">Answers composed only from this site's own material, with its sources cited.</span></a>
   </div>
 </section>
 

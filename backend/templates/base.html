@@ -1,3 +1,13 @@
+{# ==========================================================================
+   The page shell. Every page extends this.
+
+   Navigation, breadcrumbs and the footer are generated from
+   engineverse/navigation.py by way of _topnav.html, _crumbs.html and
+   _footer.html. They used to be written out here by hand, three times over, and
+   the copies had drifted apart - see the note at the top of navigation.py for
+   what disagreed and why one table replaced them.
+   ========================================================================== #}
+{% from "_icons.html" import icon %}
 <!doctype html>
 <html lang="en" data-theme="{{ brand.theme or 'dark' }}">
 <head>
@@ -55,30 +65,13 @@
     </a>
 
     {% if not gated %}
-    <nav class="mainnav" aria-label="Main">
-      {# "My stream" is the way into the catalogue for a student who thinks in
-         terms of their branch rather than in terms of subjects. It is the first
-         item because it is the one that answers "where is my course?" #}
-      <a href="{{ '/stream' if user else '/streams' }}" class="{{ 'on' if path.startswith('/stream') }}">My stream</a>
-      <a href="/explore" class="{{ 'on' if path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}">Learn</a>
-      <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}">Practice</a>
-      <a href="/sheets" class="{{ 'on' if path.startswith('/sheets') }}">Sheets</a>
-      <a href="/programming" class="{{ 'on' if path.startswith('/programming') }}">Code</a>
-      <a href="/projects" class="{{ 'on' if path.startswith('/projects') }}">Projects</a>
-      <a href="{{ '/revision' if user else '/flashcards' }}" class="{{ 'on' if path.startswith('/revision') or path.startswith('/flashcards') or path.startswith('/formulas') or path.startswith('/roadmaps') }}">Revise
-        {% if due_cards %}<span class="pill pill-hot">{{ due_cards }}</span>{% endif %}</a>
-      <a href="/tutor" class="{{ 'on' if path.startswith('/tutor') }}">Tutor</a>
-      <a href="/community" class="{{ 'on' if path.startswith('/community') }}">Community</a>
-      <a href="/placements" class="{{ 'on' if path.startswith('/placements') }}">Placements</a>
-    </nav>
+      {% include "_topnav.html" %}
 
     <form class="searchbox" action="/search" method="get" role="search">
-      <input type="search" name="q" value="{{ query.get('q', '') }}" placeholder="Search notes, problems, sheets..."
+      <input type="search" name="q" value="{{ query.get('q', '') }}"
+             placeholder="Search notes, problems, sheets..."
              autocomplete="off" aria-label="Search {{ brand.site_name }}" id="global-search">
-      <button type="submit" aria-label="Search">
-        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
-      </button>
+      <button type="submit" aria-label="Search">{{ icon("search", 16) }}</button>
       <div class="suggest" id="suggest" hidden></div>
     </form>
     {% endif %}
@@ -90,22 +83,17 @@
           <circle cx="12" cy="12" r="4.5"/><path d="M12 2v2.5M12 19.5V22M2 12h2.5M19.5 12H22M4.9 4.9l1.8 1.8M17.3 17.3l1.8 1.8M19.1 4.9l-1.8 1.8M6.7 17.3l-1.8 1.8"/></svg>
       </button>
       {% if user %}
-        <a class="streak" href="/streaks" title="{{ stats.currentStreak }} day streak">
-          <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true">
-            <path d="M12 2s5 5 5 9a5 5 0 0 1-10 0c0-1.5.7-2.9 1.5-4 .2 1.6 1 2.5 2 2.5 1.4 0 2-1.3 1.5-3-.3-1.6-.5-3.2 0-4.5z"/>
-          </svg><span>{{ stats.currentStreak }}</span>
+        <a class="streak" href="/streaks" title="{{ stats.currentStreak }} day streak — see your heatmap">
+          <span aria-hidden="true">{{ icon("flame", 15, true) }}</span><span>{{ stats.currentStreak }}</span>
         </a>
-        <a class="xpchip" href="/profile" title="Level {{ stats.level }} - {{ stats.rank }}">
+        <a class="xpchip" href="/profile" title="Level {{ stats.level }} — {{ stats.rank }}">
           <span class="lvl">{{ stats.level }}</span><span class="xpv">{{ stats.xp }} XP</span>
         </a>
-        <a class="iconbtn" href="/notifications" aria-label="Notifications">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+        <a class="iconbtn" href="/notifications" aria-label="Notifications{{ ' (unread)' if unread }}">
+          {{ icon("bell", 18) }}
           {% if unread %}<span class="dot"></span>{% endif %}
         </a>
-        {% if is_staff %}<a class="iconbtn" href="/admin" aria-label="Admin">
-          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/></svg></a>{% endif %}
+        {% if is_staff %}<a class="iconbtn" href="/admin" aria-label="Admin console">{{ icon("cog", 18) }}</a>{% endif %}
         <div class="menu" data-menu>
           <button class="avatar" aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ user.username }}">{{ user.initial }}</button>
           <div class="menu-pop" role="menu">
@@ -140,9 +128,9 @@
         <a class="btn btn-primary" href="/register">{{ 'Create account' if gated else 'Start free' }}</a>
       {% endif %}
       {% if not gated %}
-      <button class="iconbtn only-mobile" id="navtoggle" aria-label="Menu" aria-expanded="false">
-        <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none">
-          <path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      <button class="iconbtn only-mobile" id="navtoggle" type="button" aria-label="Menu"
+              aria-expanded="false" aria-controls="mobilenav">
+        {{ icon("menu", 20) }}
       </button>
       {% endif %}
     </div>
@@ -156,93 +144,29 @@
 {% endif %}
 
 <main id="main" class="wrap">
+  {% if not gated %}{% include "_crumbs.html" %}{% endif %}
   {% block content %}{% endblock %}
 </main>
 
-<footer class="footer">
-  {% if not gated %}
-  <div class="wrap footer-grid">
-    <div>
-      <div class="logo logo-footer"><span class="logo-text">{{ brand.site_name }}</span></div>
-      <p class="muted">{{ brand.tagline }}</p>
-      <p class="muted small">{{ brand.free_tier_note }}</p>
-    </div>
-    <div>
-      <h4>Learn</h4>
-      <a href="{{ '/stream' if user else '/streams' }}">My stream</a>
-      <a href="/explore">All subjects</a>
-      <a href="/formulas">Formula centre</a>
-      <a href="/resources">Resources</a>
-      <a href="/videos">Video library</a>
-      <a href="/books">Reference list</a>
-    </div>
-    <div>
-      <h4>Practise</h4>
-      <a href="/dpp">Daily practice</a>
-      <a href="/practice/problems">Coding problems</a>
-      <a href="/sheets">Practice sheets</a>
-      <a href="/programming">Learn to code</a>
-      <a href="/mistakes">Mistake notebook</a>
-      <a href="/revision">Flashcards</a>
-    </div>
-    <div>
-      <h4>Career</h4>
-      <a href="/projects">Projects</a>
-      <a href="/placements">Placement prep</a>
-      <a href="/roadmaps">Roadmaps</a>
-      <a href="/leaderboard">Leaderboard</a>
-    </div>
-    <div>
-      <h4>Platform</h4>
-      <a href="/about">About</a>
-      <a href="/install">Install the app</a>
-      <a href="/community">Community</a>
-      <a href="/privacy">Privacy</a>
-      <a href="/terms">Terms</a>
-    </div>
-    <div>
-      <h4>Tell us what's wrong</h4>
-      <form class="stack" method="post" action="/api/feedback" data-json-form>
-        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-        <input type="hidden" name="path" value="{{ path }}">
-        <label class="field">
-          <span class="label">Broken page? Wrong answer? Missing subject?</span>
-          <textarea name="message" rows="3" required minlength="5"
-                    placeholder="Be specific — a URL and what you expected helps us fix it."></textarea>
-        </label>
-        <button class="btn btn-soft btn-sm" type="submit">Send feedback</button>
-      </form>
-    </div>
-  </div>
-  {% endif %}
-  <div class="wrap footer-base">
-    <span>&copy; {{ brand.site_name }}. Built for engineers, by engineers.</span>
-    <span class="muted">{% if gated %}<a href="/privacy">Privacy</a> · <a href="/terms">Terms</a> · {% endif %}Self-hosted. No trackers. No third-party scripts.</span>
-  </div>
-</footer>
+{% include "_footer.html" %}
 
 {% if not gated %}
+{# The bottom bar. Five slots is the whole budget on a phone, so these are the
+   five things a learner returns to every day; everything else is in the menu
+   button above, which shows the same groups as the desktop bar.
+
+   The active item is chosen by navigation.active_mobile(), which returns at most
+   one. This bar used to light up several items at once - "My stream" while the
+   reader was on /explore, and "Sheets" while they were on /projects - because
+   each link tested its own overlapping prefixes independently. #}
 <nav class="bottomnav" aria-label="Mobile">
-  <a href="/" class="{{ 'on' if path == '/' }}" {% if path == '/' %}aria-current="page"{% endif %}>
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1z"/></svg>
-    Home
-  </a>
-  <a href="{{ '/stream' if user else '/streams' }}" class="{{ 'on' if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') }}" {% if path.startswith('/stream') or path.startswith('/explore') or path.startswith('/branches') or path.startswith('/subjects') or path.startswith('/topics') %}aria-current="page"{% endif %}>
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M4 19.5V6.2A2.2 2.2 0 0 1 6.2 4H20v15.5"/><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/></svg>
-    My stream
-  </a>
-  <a href="/practice" class="{{ 'on' if path.startswith('/practice') or path.startswith('/dpp') }}" {% if path.startswith('/practice') or path.startswith('/dpp') %}aria-current="page"{% endif %}>
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
-    Practice
-  </a>
-  <a href="/sheets" class="{{ 'on' if path.startswith('/sheets') or path.startswith('/projects') }}" {% if path.startswith('/sheets') or path.startswith('/projects') %}aria-current="page"{% endif %}>
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 7l3-3 4 4-3 3"/><path d="M13 8 4.5 16.5a2 2 0 0 0 0 2.8l.2.2a2 2 0 0 0 2.8 0L16 11"/></svg>
-    Sheets
-  </a>
-  <a href="{% if user %}/profile{% else %}/login{% endif %}" class="{{ 'on' if path.startswith('/profile') or path.startswith('/settings') or path.startswith('/login') }}">
-    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="8" r="3.2"/><path d="M5 19.2a7 7 0 0 1 14 0"/></svg>
-    Profile
-  </a>
+  {% for item in nav_mobile %}
+    {% set here = item.label == nav_active_mobile %}
+    <a href="{{ item.href }}" class="{{ 'on' if here }}" {% if here %}aria-current="page"{% endif %}>
+      {{ icon(item.icon, 20) }}
+      {{ item.label }}
+    </a>
+  {% endfor %}
 </nav>
 {% endif %}
 

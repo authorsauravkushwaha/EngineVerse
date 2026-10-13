@@ -200,32 +200,19 @@ def load_app():
 
 
 def public_paths() -> list[str]:
-    from engineverse import catalog, coding, db, library, projects
+    from engineverse import catalog, coding, db, library, navigation, projects
 
-    paths = [
-        "/",
-        "/explore",
-        "/about",
-        "/practice",
-        "/dpp",
-        "/dpp/archive",
-        "/programming",
-        "/projects",
-        "/resources",
-        "/videos",
-        "/books",
-        "/formulas",
-        "/roadmaps",
-        "/community",
-        "/placements",
-        "/leaderboard",
-        "/terms",
-        "/privacy",
-        "/install",
-        "/offline",
-        "/search",
-        "/streaks",
-    ]
+    # The static pages come from the navigation table rather than a list written
+    # out here. This list was a fifth copy of the site's pages and had drifted
+    # from the other four: the nav grew a "Sheets" tab and this function only
+    # listed /sheets further down, by hand, in a comment about the nav. Anything
+    # navigation.py knows about is exported automatically now, and SKIP_PREFIXES
+    # below still strips the pages that are private to one account.
+    paths = list(navigation.indexable_paths(public_only=True))
+    # /revision and /flashcards are the two faces of the nav's "Revise" group.
+    # The exported copy renders anonymously, so its nav points at /flashcards -
+    # but /revision is exported too so a bookmark to it resolves.
+    paths += ["/revision", "/streaks", "/practice/questions"]
     paths += [f"/branches/{row['slug']}" for row in catalog.list_branches()]
     paths += [f"/subjects/{row['slug']}" for row in catalog.list_subjects(limit=500)]
     paths += [
