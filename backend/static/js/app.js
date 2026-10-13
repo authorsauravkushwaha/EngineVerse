@@ -203,7 +203,10 @@
           badge.className = `verdict-inline chip ${res.correct ? "ok" : "bad"}`;
           badge.style.display = "inline-block";
         }
-        if (res.xp) toast(res.correct ? `+${res.xp} XP` : `+${res.xp} XP for the attempt`);
+        if (res.xp) {
+          if (res.correct && res.alreadySolved) toast(`+${res.xp} XP for the attempt - you had already solved this one`);
+          else toast(res.correct ? `+${res.xp} XP` : `+${res.xp} XP for the attempt`);
+        }
       } catch (err) {
         if (err.status === 401) {
           toast("Your session ended. Sign in again to keep practising.", "bad");

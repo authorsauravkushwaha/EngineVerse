@@ -297,6 +297,15 @@ def record_answer(
         raise ValueError("unknown question")
 
     correct, correct_label = grade(question, option_index, answer_text)
+    # A question already answered correctly pays only the attempt XP. A wrong
+    # answer reveals the right option, so without this the same question could
+    # be answered correctly again and again for its full value - XP farming,
+    # limited only by the rate limiter. The first correct answer still earns
+    # the full amount and every answer is still recorded.
+    already_solved = bool(db.scalar(
+        "SELECT 1 AS solved FROM submissions WHERE user_id = ? AND question_id = ? AND is_correct = 1 LIMIT 1",
+        user_id, question_id, default=None,
+    ))
     options = db.query(
         "SELECT label FROM question_options WHERE question_id = ? ORDER BY order_index", question_id
     )
@@ -326,11 +335,15 @@ def record_answer(
                 ts, user_id, question_id,
             )
 
-    xp = {"easy": 5, "beginner": 5, "medium": 10, "hard": 15, "expert": 25}.get(question["difficulty"], 10) if correct else 1
+    first_correct = correct and not already_solved
+    xp = (
+        {"easy": 5, "beginner": 5, "medium": 10, "hard": 15, "expert": 25}.get(question["difficulty"], 10)
+        if first_correct else 1
+    )
 
     from .progress import award_xp, bump_activity, evaluate_badges, update_topic_mastery
 
-    award_xp(user_id, xp, "question.correct" if correct else "question.attempt", "question", question_id)
+    award_xp(user_id, xp, "question.correct" if first_correct else "question.attempt", "question", question_id)
     bump_activity(user_id, "questions_solved", minutes=1, xp=xp)
     if question.get("topic_id"):
         update_topic_mastery(user_id, question["topic_id"])
@@ -341,6 +354,7 @@ def record_answer(
         "correctLabel": correct_label,
         "explanation": question.get("explanation"),
         "xp": xp,
+        "alreadySolved": already_solved,
         "topicSlug": db.scalar("SELECT slug AS s FROM topics WHERE id = ?", question.get("topic_id"), default=None),
     }
 

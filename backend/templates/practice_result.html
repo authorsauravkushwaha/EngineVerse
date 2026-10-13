@@ -8,7 +8,8 @@
   {% elif result %}
     <h1>{{ 'Correct' if result.correct else 'Not quite' }}</h1>
     <p><span class="chip {{ 'ok' if result.correct else 'bad' }}">{{ 'Correct' if result.correct else 'Not quite' }}</span>
-      {% if result.xp %}<span class="chip">+{{ result.xp }} XP{{ '' if result.correct else ' for the attempt' }}</span>{% endif %}</p>
+      {% if result.xp %}<span class="chip">+{{ result.xp }} XP{{ '' if result.correct and not result.alreadySolved else ' for the attempt' }}</span>{% endif %}
+      {% if result.correct and result.alreadySolved %}<span class="small muted">You had already solved this one, so it earns attempt XP.</span>{% endif %}</p>
   {% endif %}
   <div class="q-stem mt">{{ question.stem }}</div>
   <div class="mt">

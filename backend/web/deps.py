@@ -218,6 +218,14 @@ def render(
         request, template, context, status_code=status_code, background=background
     )
     response.headers["Vary"] = "Cookie"
+    if context.get("flash"):
+        # A flash is shown once. The cookie used to live out its 8 seconds, so
+        # "Welcome back" or "Signed out." appeared again on the next page too.
+        from engineverse.security.sessions import public_cookie_kwargs
+
+        options = public_cookie_kwargs(0)
+        response.delete_cookie("ev_flash", path=options["path"], secure=options["secure"],
+                               samesite=options["samesite"])
     if context.get("user") is not None:
         response.headers["Cache-Control"] = "private, no-store, max-age=0"
     else:

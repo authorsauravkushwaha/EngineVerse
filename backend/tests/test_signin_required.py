@@ -344,3 +344,47 @@ def test_a_long_concept_check_id_can_be_answered(gated):
     })
     assert form.status_code == 200
     assert "<h1>Not quite</h1>" in form.text or "<h1>Correct</h1>" in form.text
+
+
+def test_a_solved_question_pays_full_xp_only_once(gated):
+    """A wrong answer reveals the right option; re-answering must not farm full XP."""
+    from engineverse import progress
+
+    _sign_in(gated, identifier="priya@example.com")
+    user_id = db.scalar("SELECT id FROM users WHERE email = 'priya@example.com'")
+    page = gated.get("/practice/questions?difficulty=hard").text
+    question_id, _ = _first_card(page)
+    rows = db.query(
+        "SELECT is_correct FROM question_options WHERE question_id = ? ORDER BY order_index", question_id
+    )
+    right = next(i for i, row in enumerate(rows) if row["is_correct"])
+    wrong = next(i for i, row in enumerate(rows) if not row["is_correct"])
+    headers = {"X-CSRF-Token": _page_csrf(page)}
+
+    def answer(index):
+        return gated.post("/api/practice/answer", json={"questionId": question_id, "optionIndex": index},
+                          headers=headers).json()
+
+    before = progress.total_xp(user_id)
+    assert answer(wrong)["xp"] == 1
+    first = answer(right)
+    assert first["correct"] is True and first["alreadySolved"] is False and first["xp"] == 15
+    for _ in range(3):
+        again = answer(right)
+        assert again["correct"] is True and again["alreadySolved"] is True
+        assert again["xp"] == 1, "a question already solved must pay only the attempt XP"
+    assert progress.total_xp(user_id) == before + 1 + 15 + 3
+    full = db.scalar(
+        "SELECT count(*) FROM xp_events WHERE user_id = ? AND reason = 'question.correct' AND entity_id = ?",
+        user_id, question_id,
+    )
+    assert full == 1
+
+
+def test_the_flash_message_is_shown_once(gated):
+    response = _sign_in(gated)
+    assert response.status_code == 303
+    first = gated.get("/")
+    assert 'class="flash"' in first.text
+    assert "ev_flash=" in first.headers.get("set-cookie", "")
+    assert 'class="flash"' not in gated.get("/practice").text
