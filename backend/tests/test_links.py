@@ -388,7 +388,7 @@ def _representative_paths(limit_per_kind: int = 3) -> list[str]:
     return paths
 
 
-def test_no_page_skips_a_heading_level(signed_in):
+def test_no_page_skips_a_heading_level(signed_in, client):
     """A reader who navigates by heading hears the outline, and a page that goes
     from h1 to h4 tells them three levels of structure are missing.
 
@@ -400,22 +400,23 @@ def test_no_page_skips_a_heading_level(signed_in):
     """
     offenders: dict[str, str] = {}
     checked = 0
-    for path in _representative_paths():
-        response = signed_in.get(path)
-        if response.status_code != 200:
-            continue
-        checked += 1
-        previous = 0
-        for level in (int(x) for x in re.findall(r"<h([1-6])\b", response.text)):
-            if previous and level > previous + 1:
-                offenders[path] = f"h{previous} -> h{level}"
-                break
-            previous = level
+    for label, viewer in (("signed-in", signed_in), ("anon", client)):
+        for path in _representative_paths():
+            response = viewer.get(path)
+            if response.status_code != 200:
+                continue
+            checked += 1
+            previous = 0
+            for level in (int(x) for x in re.findall(r"<h([1-6])\b", response.text)):
+                if previous and level > previous + 1:
+                    offenders[f"{label}:{path}"] = f"h{previous} -> h{level}"
+                    break
+                previous = level
     assert checked > 20, f"only {checked} pages were checked"
     assert not offenders, f"{len(offenders)} page(s) skip a heading level: {offenders}"
 
 
-def test_no_rendered_link_is_empty(signed_in):
+def test_no_rendered_link_is_empty(signed_in, client):
     """A link with no text is invisible to a screen reader and, when it is the
     only thing in a table cell, invisible to everyone.
 
@@ -426,17 +427,37 @@ def test_no_rendered_link_is_empty(signed_in):
     column was blank and the link pointed at ``/practice/problems/``.
     """
     offenders: dict[str, int] = {}
-    for path in _representative_paths():
-        response = signed_in.get(path)
-        if response.status_code != 200:
-            continue
-        for match in re.finditer(r"<a\b([^>]*)>(.*?)</a>", response.text, re.S):
-            attrs, inner = match.group(1), match.group(2)
-            if "aria-label" in attrs or "title=" in attrs:
+    for label, viewer in (("signed-in", signed_in), ("anon", client)):
+        for path in _representative_paths():
+            response = viewer.get(path)
+            if response.status_code != 200:
                 continue
-            if not re.sub(r"<[^>]+>", "", inner).strip():
-                offenders[path] = offenders.get(path, 0) + 1
+            for match in re.finditer(r"<a\b([^>]*)>(.*?)</a>", response.text, re.S):
+                attrs, inner = match.group(1), match.group(2)
+                if "aria-label" in attrs or "title=" in attrs:
+                    continue
+                if not re.sub(r"<[^>]+>", "", inner).strip():
+                    key = f"{label}:{path}"
+                    offenders[key] = offenders.get(key, 0) + 1
     assert not offenders, f"pages render links with no text: {offenders}"
+
+
+def test_anonymous_home_renders_real_sample_problems(client, seeded):
+    """``coding.list_problems()`` returns ``(rows, total)``. Passing the tuple
+    straight to ``home.html`` made ``sample_problems`` a two-element tuple on
+    the landing page and on the GitHub Pages reading copy, rendering blank
+    cards that linked to ``/practice/problems/`` with no slug."""
+    page = client.get("/").text
+    assert 'href="/practice/problems/"' not in page
+    problem_links = re.findall(r'href="/practice/problems/([a-z0-9\-]+)"', page)
+    assert len(problem_links) >= 6, f"expected sample problems on home.html, found {problem_links}"
+
+
+def test_pages_workflow_exports_reading_copy():
+    from pathlib import Path
+
+    workflow = (Path(__file__).resolve().parents[2] / ".github" / "workflows" / "pages.yml").read_text(encoding="utf-8")
+    assert "export_pages.py --out site --reading-copy" in workflow
 
 
 # ---------------------------------------------------------------------------

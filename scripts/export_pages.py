@@ -923,25 +923,26 @@ def self_check() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Write the GitHub Pages site: a sign-in gateway, or the public reading copy.")
+    parser = argparse.ArgumentParser(description="Write the GitHub Pages site: the public reading copy, or a sign-in gateway.")
     parser.add_argument("--out", default="site", help="output directory, relative to the repo root")
     parser.add_argument("--base", default=None, help="URL prefix, for example /EngineVerse/ or /")
     parser.add_argument("--self-check", action="store_true", help="check URL rewriting and exit")
     parser.add_argument("--skip-seed", action="store_true", help="reuse ENGINEVERSE_DB_PATH")
     parser.add_argument("--app-url", default=None,
                         help="hosted app address for the sign-in buttons (default: $ENGINEVERSE_APP_URL)")
+    parser.add_argument("--gateway", action="store_true",
+                        help="publish the sign-in gateway instead of the public reading copy")
     parser.add_argument("--reading-copy", action="store_true",
-                        help="publish the public catalogue instead of the sign-in gateway "
-                             "(only for instances run with ENGINEVERSE_SIGNIN=optional)")
+                        help="publish the public reading copy (the default unless --gateway or an app URL is set)")
     args = parser.parse_args()
     if args.self_check:
         self_check()
         return 0
     base = repo_base(args.base)
-    if not args.reading_copy:
-        app_url = normalise_app_url(
-            args.app_url if args.app_url is not None else os.environ.get("ENGINEVERSE_APP_URL", "")
-        )
+    app_url = normalise_app_url(
+        args.app_url if args.app_url is not None else os.environ.get("ENGINEVERSE_APP_URL", "")
+    )
+    if (args.gateway or app_url) and not args.reading_copy:
         export_gateway(ROOT / args.out, base, app_url)
         return 0
     db_path = ROOT / "data" / "pages-export.sqlite"
