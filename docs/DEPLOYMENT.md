@@ -192,29 +192,45 @@ account's authenticator seal. The password and the seal are not printed.
 
 ## GitHub Pages sign-in gateway
 
-GitHub Pages can serve files only, so it cannot run accounts, a database or the
-code judge. Sign-in is compulsory on EngineVerse (`ENGINEVERSE_SIGNIN=required`,
-the default), so `.github/workflows/pages.yml` publishes a **sign-in gateway**
-rather than the catalogue: one landing page whose buttons go to the hosted
-app's `/login` and `/register`, and a 404 page that sends any old deep link (a
-bookmarked `/topics/...` or `/dpp/...` from the former reading copy) to the
-app's sign-in with that page kept as `next`. No notes, questions or answers are
-published there.
-
-Point it at the hosted app by setting the repository variable
-`ENGINEVERSE_APP_URL` (Settings -> Secrets and variables -> Actions ->
-Variables) to the app's `https://` address, then re-run the workflow. Until the
-variable is set the page says the app is not hosted yet. Locally:
+GitHub Pages serves files only: it cannot run accounts, a database, live lab
+operators or the code judge. The current `.github/workflows/pages.yml` explicitly
+publishes a **public reading copy** with `--reading-copy`, including the four
+[advanced capability pages](ADVANCED_CAPABILITIES.md). The export renders a fresh
+no-demo seed as a signed-out visitor, checks all local links and heading outlines,
+refuses leaked demo passwords, and disables backend-only lab controls in HTML.
+This is separate from the real app's compulsory sign-in policy.
 
 ```bash
-python scripts/export_pages.py --out site --app-url https://learn.example.org
+python scripts/export_pages.py --out site --reading-copy
 ```
 
-An operator who deliberately runs the app with `ENGINEVERSE_SIGNIN=optional`
-can still publish the older public reading copy with
-`python scripts/export_pages.py --out site --reading-copy`. That copy publishes
-every public page to anyone and has no accounts, saved progress or code
-execution.
+Directory/schema filters, snippet copies and n8n JSON downloads work in the
+reading copy. SQL queries, workflow runs and new swarm simulations do not; the
+pages show labelled seeded examples and explain that execution needs a
+self-hosted backend. Accounts, cross-device progress and the judge are likewise
+not deployed to Pages.
 
-The Pages address is not the application. It is not a production deployment,
-not a Play submission, and not a certificate.
+The workflow uploads and deploys the files, then verifies the live HTTPS origin:
+`deployment.json` must match the exact `main` commit, and the home page, all four
+new capability pages, navigation/headings and shared CSS/JS assets must resolve.
+The verifier retries briefly for CDN propagation. A green Pages workflow thus
+includes a post-deployment check, not just an artifact upload.
+
+### Optional gateway instead of a reading copy
+
+An operator who wants no catalogue published can export a **sign-in gateway**:
+one landing page whose buttons go to a self-hosted app's `/login` and `/register`,
+with old deep links preserved as `next`. No catalogue or answers are published in
+this mode. The workflow's explicit `--reading-copy` must be changed to `--gateway`
+if choosing it, and its reading-copy-specific verification step must be adjusted.
+
+```bash
+python scripts/export_pages.py --out site --gateway --app-url https://learn.example.org
+```
+
+The exporter also accepts `ENGINEVERSE_APP_URL` as the gateway destination.
+Without an app URL the gateway says the app is not hosted yet. Setting that
+variable alone does not override the current workflow's `--reading-copy` flag.
+
+The Pages address is not the Python application. It is not a production backend
+deployment, a Play submission or an accredited certificate.

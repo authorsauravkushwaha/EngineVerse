@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% from "_lab_results.html" import swarm_result %}
+{% block title %}Multi-agent engineering swarm lab — {{ brand.site_name }}{% endblock %}
+{% block description %}Five engineering personas review only seeded catalogue evidence, with cross-agent challenges, explicit gaps and citations.{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/capabilities.css">{% endblock %}
+{% block content %}
+<div class="panel hero lab-hero" data-engineverse-capability="swarm">
+  <span class="chip accent">{{ icon('network', 16) }} LEARN / REVIEW</span>
+  <h1>Multi-agent engineering swarm lab</h1><p class="lead">Five lenses. One evidence boundary.</p>
+  <p class="muted">A citation-first, deterministic engineering review inspired by <a href="https://github.com/666ghj/MiroFish">MiroFish</a>. The personas quote published catalogue material, ask cross-agent questions and abstain when evidence is missing. No external model, autonomous tools or predictions are running.</p>
+  <div class="grid g3 mt"><div class="stat"><div class="n">{{ personas | length }}</div><div class="l">Specialist personas</div></div><div class="stat"><div class="n">6</div><div class="l">Allowed source kinds</div></div><div class="stat"><div class="n">2</div><div class="l">Evidence / challenge rounds</div></div></div>
+</div>
+<section class="section" aria-labelledby="swarm-team-title">
+<h2 id="swarm-team-title">The review team</h2>
+<div class="grid g3">{% for persona in personas %}<article class="card"><h3 class="h-sub">{{ persona.name }}</h3><p class="desc">{{ persona.lens }}</p><p class="tiny muted">{{ persona.question }}</p></article>{% endfor %}</div>
+<p class="tiny muted">Permitted evidence: <code>topics</code>, <code>note_sections</code>, <code>formulas</code>, <code>questions</code>, <code>coding_problems</code> and <code>projects</code>. Drafts, private learner data, hidden test cases and external claims are excluded. A persona is a review heuristic, not a real specialist.</p>
+</section>
+<section class="section panel" aria-labelledby="swarm-task-title">
+<h2 id="swarm-task-title">Give the swarm a task</h2>
+<p class="callout warning" data-lab-mode-notice hidden>This is a static reading copy. The seeded review below is readable; running a new simulation requires a self-hosted EngineVerse backend.</p>
+<form id="swarm-form" action="/api/swarm/simulate" method="post" data-live-only>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label for="swarm-prompt">Engineering task or review question</label><textarea id="swarm-prompt" name="prompt" minlength="4" maxlength="400" required rows="3" data-live-control>{{ prompt }}</textarea>
+  <div class="grid g2 mt"><label>Optional topic grounding<select name="topic_slug" data-live-control><option value="">Retrieve from the request</option>{% for topic in topics %}<option value="{{ topic.slug }}" {{ 'selected' if topic_slug == topic.slug }}>{{ topic.title }}</option>{% endfor %}</select></label><label>Optional project grounding<select name="project_slug" data-live-control><option value="">Retrieve from the request</option>{% for project in projects %}<option value="{{ project.slug }}" {{ 'selected' if project_slug == project.slug }}>{{ project.title }}</option>{% endfor %}</select></label></div>
+  <div class="row mt"><button class="btn btn-primary" type="submit" data-live-control>Simulate evidence review</button><span class="tiny muted">30 reviews/hour · quotes only · no external calls</span></div>
+</form>
+<div class="chips-row"><button type="button" class="chip" data-swarm-prompt="Explain arrays and memory locality">Arrays & locality</button><button type="button" class="chip" data-swarm-prompt="Review SQL database performance and testing">Database & testing</button><button type="button" class="chip" data-swarm-prompt="Review calibration error and measurement uncertainty">Sensor uncertainty</button></div>
+<p id="swarm-status" role="status" class="tiny muted">{{ 'Simulation executed against the public catalogue.' if was_run and simulation else 'Below is a seeded demonstration, not a simulation you have run.' }}</p>
+<p id="swarm-error" role="alert" class="callout warning" {{ 'hidden' if not lab_error }}>{{ lab_error }}</p>
+</section>
+<div id="swarm-result" aria-live="polite">{{ swarm_result(simulation) }}</div>
+<section class="section panel"><h2>Take the review into a build</h2><p class="row"><a class="btn btn-ghost" href="/workflows">Make a repeatable study plan</a><a class="btn btn-ghost" href="/studio">Inspect data boundaries</a><a class="btn btn-ghost" href="/projects">Browse project briefs</a></p></section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/capabilities.js" defer></script>{% endblock %}

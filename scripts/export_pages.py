@@ -55,7 +55,7 @@ SKIP_PREFIXES = (
     "/today",
     "/onboarding",
     "/mistakes",
-    "/api",
+    "/api/",
     "/certificates",
     "/portfolio",
 )
@@ -494,8 +494,29 @@ def write_tutor_corpus(site: Path, base: str) -> None:
     )
 
 
+def reading_copy_controls(text: str) -> str:
+    """Do not leave backend-only lab forms looking executable on Pages.
+
+    Server-rendered examples and JSON downloads remain readable. Controls are
+    disabled in HTML as well as JS, so a no-script visitor cannot accidentally
+    POST to a static host. The form action has already been rewritten to the
+    hosting explanation; change its method to GET as a final fallback.
+    """
+    text = re.sub(
+        r'(<form\b[^>]*\bdata-live-only\b[^>]*>)',
+        lambda match: match.group(0).replace('method="post"', 'method="get"'),
+        text,
+    )
+    text = re.sub(
+        r'(<(?:button|input|textarea|select)\b[^>]*\bdata-live-control\b[^>]*)(>)',
+        lambda match: match.group(1) + ' disabled aria-disabled="true"' + match.group(2),
+        text,
+    )
+    return text.replace("data-lab-mode-notice hidden", "data-lab-mode-notice")
+
+
 def inject(text: str, base: str, *, search: bool, dpp_dates: list[str] | None = None) -> str:
-    text = rewrite_html(text, base)
+    text = reading_copy_controls(rewrite_html(text, base))
     text = text.replace('href="/explore?year=1"', f'href="{rewrite_url("/explore/first-year", base)}"', 1)
     # The year link may already have been rewritten before this replacement.
     year = rewrite_url("/explore", base)
@@ -627,17 +648,37 @@ def mirror_script() -> str:
 def assert_links(site: Path, base: str) -> None:
     prefix = "" if base == "/" else base.rstrip("/")
     missing: list[str] = []
+    checked = 0
     for page in site.rglob("*.html"):
         text = page.read_text(encoding="utf-8", errors="replace")
         for url in re.findall(r'(?:href|src|action)="([^"]+)"', text):
             target = _link_target(page, url, site, prefix)
             if target is None:
                 continue
+            checked += 1
             if not target.exists():
                 missing.append(f"{page.relative_to(site)} -> {url}")
     if missing:
         sample = "\n".join(missing[:25])
         raise SystemExit(f"Refusing to publish. {len(missing)} links do not resolve:\n{sample}")
+    print(f"Checked {checked} local URL references: 0 broken links")
+
+
+def assert_heading_outlines(site: Path) -> None:
+    offenders = []
+    checked = 0
+    for page in site.rglob("*.html"):
+        previous = 0
+        checked += 1
+        for raw in re.findall(r"<h([1-6])\b", page.read_text(encoding="utf-8"), re.I):
+            level = int(raw)
+            if previous and level > previous + 1:
+                offenders.append(f"{page.relative_to(site)}: h{previous} -> h{level}")
+                break
+            previous = level
+    if offenders:
+        raise SystemExit("Refusing to publish invalid heading outlines:\n" + "\n".join(offenders[:25]))
+    print(f"Checked {checked} HTML heading outlines: 0 skipped levels")
 
 
 def _link_target(page: Path, url: str, site: Path, prefix: str) -> Path | None:
@@ -768,6 +809,14 @@ def export(site: Path, base: str) -> int:
         raise SystemExit("Refusing to publish. These pages did not render:\n" + "\n".join(failed))
     assert_clean(site)
     assert_links(site, base)
+    assert_heading_outlines(site)
+    revision = os.environ.get("GITHUB_SHA", "") or subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    (site / "deployment.json").write_text(json.dumps({
+        "revision": revision, "mode": "reading-copy", "base": base, "pages": written,
+        "capabilities": [rewrite_url(path, base) for path in ("/apis", "/studio", "/workflows", "/swarm")],
+    }, indent=2) + "\n", encoding="utf-8")
     print(f"Wrote {written} pages and {len(index)} search rows to {site}")
     return written
 
@@ -919,7 +968,19 @@ def self_check() -> None:
     gate = gateway_page("/EngineVerse/", "https://learn.example.org", "EngineVerse")
     assert 'href="https://learn.example.org/login"' in gate and "/EngineVerse/static/css/app.css" in gate
     assert "Not hosted yet" in gateway_page("/EngineVerse/", "", "EngineVerse")
-    print("self-check ok")
+    # /apis is a page, not part of /api/. This boundary once silently dropped
+    # the directory while exporting navigation links to it on every page.
+    assert "/api/" in SKIP_PREFIXES and "/api" not in SKIP_PREFIXES
+    assert not any("/apis".startswith(prefix) for prefix in SKIP_PREFIXES)
+    assert any("/api/public-apis".startswith(prefix) for prefix in SKIP_PREFIXES)
+    controls = reading_copy_controls(
+        '<form method="post" data-live-only><button data-live-control>Run</button></form>'
+        '<p data-lab-mode-notice hidden>Backend required</p>'
+    )
+    assert 'method="get"' in controls and ' disabled ' in controls
+    assert 'data-lab-mode-notice hidden' not in controls
+    assert 'href="/EngineVerse/apis/"' in rewrite_html('<a href="/apis">APIs</a>', "/EngineVerse/")
+    print("self-check ok (API/page boundary, base URLs, backend-only controls)")
 
 
 def main() -> int:

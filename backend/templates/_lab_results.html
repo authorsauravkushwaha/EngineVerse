@@ -1,0 +1,65 @@
+{# Server-rendered fallbacks. JS renders the same plain-text response contract. #}
+{% macro sql_result(result) %}
+{% if result %}
+<p class="tiny muted">{{ result.row_count }} rows{% if result.truncated %} (capped at 100){% endif %} · {{ result.elapsed_ms }} ms including snapshot setup · read-only
+  {% if result.clipped_cells %} · {{ result.clipped_cells }} long cells shortened{% endif %}</p>
+{% if result.snapshot_truncated_tables %}<p class="callout warning">Snapshot row caps applied to {{ result.snapshot_truncated_tables | join(', ') }}.</p>{% endif %}
+<div class="tablewrap"><table><caption class="sr-only">SQL query result</caption>
+<thead><tr>{% for column in result.columns %}<th scope="col">{{ column }}</th>{% endfor %}</tr></thead>
+<tbody>{% for row in result.rows %}<tr>{% for cell in row %}<td class="lab-cell">{{ 'NULL' if cell is none else cell }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+</table></div>
+{% if not result.rows %}<p class="muted">The SELECT returned no rows.</p>{% endif %}
+<h3 class="h-sub">EXPLAIN QUERY PLAN</h3>
+<ul class="mono tiny">{% for item in result.plan %}<li>{{ item.detail }}</li>{% else %}<li>No table scans for this constant expression.</li>{% endfor %}</ul>
+<p class="tiny muted">{{ result.disclosure }}</p>
+{% endif %}
+{% endmacro %}
+
+{% macro workflow_result(result) %}
+{% if result %}
+<p class="tiny muted">{{ result.name }} · {{ result.steps | length }} executed steps · read-only</p>
+<ol class="lab-steps">
+{% for step in result.steps %}
+<li class="lab-step">
+  <div class="between"><strong>{{ step.label }}</strong><span class="chip ok">{{ step.status }} · {{ step.elapsed_ms }} ms</span></div>
+  {% if step.output.message %}<p class="tiny muted">{{ step.output.message }}</p>{% endif %}
+  {% if step.output['items'] %}<ul class="tiny">{% for item in step.output['items'] %}<li><a href="{{ item.url }}">{{ item.title or item.name }}</a>{% if item.rows is defined %} · {{ item.rows }} rows{% endif %}{% if item.body %}<p class="muted">{{ item.body }}</p>{% endif %}</li>{% endfor %}</ul>{% else %}<p class="tiny muted">No items selected for this step.</p>{% endif %}
+  <details><summary>Inspect node output</summary><pre class="lab-code"><code>{{ step.output | tojson(indent=2) }}</code></pre></details>
+</li>
+{% endfor %}
+</ol>
+{% endif %}
+{% endmacro %}
+
+{% macro swarm_result(result) %}
+{% if result %}
+<p class="callout"><strong>Evidence boundary.</strong> {{ result.disclosure }}</p>
+<p>{{ result.message }}</p>
+{% if result.matched_terms %}<p class="tiny muted">Matched terms: {{ result.matched_terms | join(', ') }}. This is partial evidence, not verification of the entire request.</p>{% endif %}
+<h2>Round 1 · Evidence review</h2>
+<div class="grid g2">
+{% for agent in result.agents %}
+<article class="panel tight">
+  <div class="between"><h3 class="h-sub">{{ agent.name }}</h3><span class="chip {{ 'ok' if agent.findings else 'warn' }}">{{ agent.status }}</span></div>
+  <p class="tiny muted">{{ agent.lens }}</p>
+  {% for finding in agent.findings %}<blockquote class="lab-quote">{{ finding.quote }} <a href="#swarm-source-{{ finding.source }}">[{{ finding.source }}]</a></blockquote>{% endfor %}
+  <p class="tiny muted">{{ agent.message }}</p><p class="tiny"><strong>Review question:</strong> {{ agent.review_question }}</p>
+</article>
+{% endfor %}
+</div>
+<h2>Round 2 · Cross-agent trade-offs</h2>
+{% for tradeoff in result.tradeoffs %}
+<article class="panel tight mb">
+  <h3 class="h-sub">{{ tradeoff.tension }}</h3><p class="tiny muted">{{ tradeoff.agents | join(' ↔ ') }}</p>
+  <p>{{ tradeoff.challenge }} {% for number in tradeoff.citations %}<a href="#swarm-source-{{ number }}">[{{ number }}]</a> {% endfor %}</p>
+  <p class="tiny muted">{{ tradeoff.resolution }}</p>
+</article>
+{% else %}<p class="muted">Insufficient evidence for a cross-agent challenge. No trade-off was invented.</p>{% endfor %}
+<h2>Catalogue citations</h2>
+<ol class="source-list">
+{% for source in result.sources %}<li id="swarm-source-{{ source.n }}"><a href="{{ source.url }}">{{ source.title }}</a>
+  <span class="tiny muted"> · {{ source.kind }} · review: {{ source.review_state }}</span>
+  <p class="tiny muted">{{ source.excerpt }}</p></li>{% else %}<li>No relevant sources found.</li>{% endfor %}
+</ol>
+{% endif %}
+{% endmacro %}

@@ -48,8 +48,9 @@ signed-out visitor can reach only the sign-in, registration, password-recovery
 and legal pages (plus certificate verification and static assets); every other
 page redirects to `/login` and returns to the requested page after sign-in, and
 the JSON API answers `401`. Set `ENGINEVERSE_SIGNIN=optional` to allow anonymous
-browsing of the public catalogue instead. The GitHub Pages site is only a
-sign-in gateway to the hosted app; see
+browsing of the public catalogue instead. The current GitHub Pages workflow
+publishes an explicitly public **reading copy**, not the Python backend. An
+optional sign-in gateway export is also available; see
 [Deployment](docs/DEPLOYMENT.md#github-pages-sign-in-gateway).
 
 Sign-in is password-only by default (`ENGINEVERSE_LOGIN_OTP=disabled`): no mail
@@ -91,6 +92,26 @@ older shelf of external reading still exists at `/resources/offsite` and is
 labelled as optional: no navigation, lesson or practice flow depends on it, and a
 deployment that never visits it loses no learning material.
 
+## Integrated engineering and developer labs
+
+Four advanced capabilities are wired into the existing catalogue and navigation:
+
+| Lab | What is integrated |
+|---|---|
+| **Public APIs directory** (`/apis`) | 12 curated developer/engineering APIs with category, auth, CORS, search and exact-slug filters; paired local topics/projects and cURL, Python and JavaScript examples. Inspired by `public-apis/public-apis`. |
+| **Data & BaaS studio** (`/studio`) | Five-service comparison and SDK snippets, a 26-table public schema inspector, an access/RLS policy matrix, and a bounded SELECT runner with `EXPLAIN QUERY PLAN`. SQL runs only on a disposable public snapshot—never the live app database. Inspired by Supabase and Appwrite. |
+| **Workflow automations** (`/workflows`) | Declarative study, revision, placement and catalogue-audit pipelines with real streamed step outputs and importable n8n JSON. Operators are allowlisted and read-only; custom code and webhooks cannot execute. Inspired by n8n. |
+| **Engineering swarm lab** (`/swarm`) | Five deterministic specialist review lenses, using only seeded topics, note sections, formulas, questions, coding briefs and projects. Quotes have citations; trade-offs are explicitly unresolved review prompts. No external model or autonomous tools are running. Inspired by MiroFish. |
+
+On GitHub Pages these pages show the directory, schema, blueprints, JSON downloads
+and clearly labelled seeded examples. New SQL queries, workflow runs and swarm
+reviews require a self-hosted backend; exported controls are disabled rather than
+pretending to execute. Normal account policy, CSRF and rate limits apply on the
+real app. No operator changes learner progress, grading or SRS state.
+
+See [Advanced capabilities](docs/ADVANCED_CAPABILITIES.md) for endpoint contracts,
+isolation limits, grounding guarantees, n8n setup and deployment verification.
+
 ## Finding things
 
 Sixty pages is only useful if a learner can find the one they want. The whole
@@ -110,11 +131,11 @@ most useful page in every group even for a reader who never opens a menu:
 | Group | Landing page | Also in the menu |
 |---|---|---|
 | **My stream** | `/stream` | the full index |
-| **Learn** | `/explore` | formulas, videos, books, roadmaps, the study tutor |
+| **Learn** | `/explore` | formulas, videos, books, roadmaps, the study tutor, engineering swarm lab |
 | **Practice** | `/practice` | the daily set and its archive, the question bank, the mistake notebook |
-| **Code** | `/programming` | coding problems, practice sheets, projects |
+| **Code** | `/programming` | coding problems, practice sheets, projects, public APIs, data & BaaS studio |
 | **Revise** | `/revision` | public flashcards, formulas, roadmaps |
-| **More** | `/resources` | today's plan, streaks, leaderboard, profile, community, placements, about |
+| **More** | `/resources` | today's plan, streaks, leaderboard, profile, workflow automations, community, placements, about |
 
 On a phone the menu button opens every group expanded, which puts all sixty pages
 one tap away instead of leaving the last fifteen to the footer. Menus open on
