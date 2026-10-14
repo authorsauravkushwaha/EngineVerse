@@ -93,7 +93,7 @@ async def home(request: Request):
         "FROM topics t JOIN subjects s ON s.id = t.subject_id WHERE t.status='published' "
         "ORDER BY t.view_count DESC, t.order_index LIMIT 9"
     )
-    context["sample_problems"] = coding.list_problems(limit=6)
+    context["sample_problems"] = coding.list_problems(limit=6)[0]
     context["sample_projects"] = projects.list_projects(limit=3)
     context["paths"] = catalog.featured_paths()
     context["first_year"] = catalog.list_subjects(first_year=True, limit=200)

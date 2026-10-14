@@ -1,14 +1,8 @@
 name: GitHub Pages
 
-# Publishes the sign-in gateway. Sign-in is compulsory on EngineVerse and
-# GitHub Pages cannot run accounts, so Pages carries no notes, questions or
-# answers: only a landing page whose buttons (and any old deep link) go to the
-# hosted app's /login. It does not deploy the Python app, a database, or the
-# code judge.
-#
-# Set the hosted app's https address as the repository variable
-# ENGINEVERSE_APP_URL (Settings -> Secrets and variables -> Actions ->
-# Variables). Until it is set, the page says the app is not hosted yet.
+# Publishes a static reading copy. It does not deploy the Python app,
+# a database, or the code judge. The live URL is
+# https://<user>.github.io/<repository>/ once this workflow succeeds.
 
 on:
   push:
@@ -44,10 +38,8 @@ jobs:
       - name: Check the exporter
         run: python scripts/export_pages.py --self-check
 
-      - name: Write the sign-in gateway
-        env:
-          ENGINEVERSE_APP_URL: ${{ vars.ENGINEVERSE_APP_URL }}
-        run: python scripts/export_pages.py --out site
+      - name: Export the reading copy
+        run: python scripts/export_pages.py --out site --reading-copy
 
       - name: Refuse leaked demo passwords
         run: |
