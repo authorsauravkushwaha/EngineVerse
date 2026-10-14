@@ -10,7 +10,7 @@ from typing import Any
 from urllib.parse import urlencode
 from xml.sax.saxutils import escape
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse
 
 from engineverse import (
@@ -30,6 +30,10 @@ from engineverse import (
     projects,
     recommend,
     search,
+    public_apis,
+    studio,
+    workflows,
+    swarm,
 )
 
 from engineverse.config import get_settings
@@ -773,6 +777,10 @@ def _index_counts() -> dict[str, str]:
         "/streams": f"{totals['branches']} branches",
         "/stream": f"{totals['branches']} branches",
         "/resources/offsite": f"{library.count_resources()} links",
+        "/apis": f"{len(public_apis.APIS)} public APIs",
+        "/studio": f"{len(studio.PUBLIC_TABLES)} public tables · {len(studio.SERVICES)} services",
+        "/workflows": f"{len(workflows.WORKFLOWS)} pipelines",
+        "/swarm": f"{len(swarm.PERSONAS)} specialist personas",
     }
     return counts
 
@@ -882,6 +890,84 @@ async def formulas_page(request: Request, category: str | None = None, q: str | 
         categories=catalog.formula_categories(), active_category=category, q=q,
         active_slug=slug, pager=pager,
     )
+
+
+# ---------------------------------------------------------------------------
+# Integrated developer and engineering labs
+# ---------------------------------------------------------------------------
+
+
+def apis_context(*, q: str = "", category: str = "", auth: str = "", cors: str = "", slug: str = "") -> dict:
+    return {
+        "apis": public_apis.list_apis(q=q, category=category, auth=auth, cors=cors, slug=slug),
+        "api_total": len(public_apis.APIS), "categories": public_apis.categories(),
+        "auth_types": public_apis.AUTH_TYPES, "cors_types": public_apis.CORS_TYPES,
+        "filters": {"q": q, "category": category, "auth": auth, "cors": cors, "slug": slug},
+    }
+
+
+@router.get("/apis")
+async def apis_page(
+    request: Request, q: str = Query("", max_length=160), category: str = Query("", max_length=80),
+    auth: str = Query("", max_length=16), cors: str = Query("", max_length=16), slug: str = Query("", max_length=128),
+):
+    return render(request, "apis.html", **apis_context(q=q, category=category, auth=auth, cors=cors, slug=slug))
+
+
+def studio_context(*, sql: str = "", query_result: dict | None = None, was_run: bool = False, error: str = "") -> dict:
+    if not was_run:
+        sql = studio.EXAMPLES[1]["sql"]
+        query_result = studio.run_query(sql)
+    return {
+        "schema": studio.schema(), "services": studio.SERVICES, "examples": studio.EXAMPLES,
+        "sql": sql, "query_result": query_result, "was_run": was_run, "lab_error": error,
+    }
+
+
+@router.get("/studio")
+async def studio_page(request: Request):
+    return render(request, "studio.html", **studio_context())
+
+
+def capability_topics() -> list[dict]:
+    return db.query("SELECT slug, title FROM topics WHERE status='published' ORDER BY title LIMIT 1000")
+
+
+def workflows_context(*, slug: str = "study", inputs: dict | None = None, workflow_result: dict | None = None,
+                      was_run: bool = False, error: str = "") -> dict:
+    selected = workflows.get_workflow(slug)
+    return {
+        "workflows": workflows.catalogue(), "selected_workflow": selected,
+        "workflow_demos": {workflow.slug: workflows.run(workflow.slug) for workflow in workflows.WORKFLOWS},
+        "topics": capability_topics(), "inputs": inputs or {"topic_slug": selected.default_topic, "limit": 5},
+        "workflow_result": workflow_result, "was_run": was_run, "lab_error": error,
+    }
+
+
+@router.get("/workflows")
+async def workflows_page(request: Request, slug: str = Query("study", max_length=32)):
+    try:
+        context = workflows_context(slug=slug)
+    except workflows.WorkflowError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from None
+    return render(request, "workflows.html", **context)
+
+
+def swarm_context(*, prompt: str = "Explain arrays and memory locality", topic_slug: str = "", project_slug: str = "",
+                  simulation: dict | None = None, was_run: bool = False, error: str = "") -> dict:
+    if not was_run:
+        simulation = swarm.simulate(prompt)
+    return {
+        "personas": swarm.roster(), "topics": capability_topics(),
+        "projects": db.query("SELECT slug, title FROM projects WHERE status='published' ORDER BY title"),
+        "prompt": prompt, "topic_slug": topic_slug, "project_slug": project_slug,
+        "simulation": simulation, "was_run": was_run, "lab_error": error,
+    }
+
+
+@router.get("/swarm")
+async def swarm_page(request: Request):
+    return render(request, "swarm.html", **swarm_context())
 
 
 @router.get("/tutor")

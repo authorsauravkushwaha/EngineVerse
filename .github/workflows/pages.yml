@@ -35,8 +35,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Check the exporter
-        run: python scripts/export_pages.py --self-check
+      - name: Check navigation, labs and the exporter
+        run: |
+          pytest backend/tests/test_navigation.py backend/tests/test_links.py backend/tests/test_capabilities.py
+          python scripts/export_pages.py --self-check
+          python scripts/verify_pages.py --self-check
 
       - name: Export the reading copy
         run: python scripts/export_pages.py --out site --reading-copy
@@ -55,9 +58,21 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
       - id: deployment
         uses: actions/deploy-pages@v4
+
+      - name: Verify the published reading copy
+        run: python scripts/verify_pages.py --url "$PAGES_URL" --sha "$GITHUB_SHA"
+        env:
+          PAGES_URL: ${{ steps.deployment.outputs.page_url }}

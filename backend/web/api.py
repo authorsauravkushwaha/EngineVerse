@@ -6,11 +6,14 @@ Every mutating endpoint requires a signed-in session plus the CSRF header.
 """
 from __future__ import annotations
 
+import json
 import re
+import sqlite3
 from typing import Any
 
-from fastapi import APIRouter, Body, Form, Request
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Body, Form, Query, Request
+from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
+from starlette.concurrency import run_in_threadpool
 
 from engineverse import (
     auth,
@@ -27,6 +30,10 @@ from engineverse import (
     recommend,
     srs,
     tutor,
+    public_apis,
+    studio,
+    workflows,
+    swarm,
 )
 from engineverse.security import rbac, ratelimit
 from engineverse.security.audit import record
@@ -432,6 +439,144 @@ async def api_tutor_ask(request: Request):
     return ok(question=question, answer=result["answer"], sources=result["sources"],
               grounded=result["grounded"], disclosure=result["disclosure"],
               message=result["message"])
+
+
+# ---------------------------------------------------------------------------
+# Public API directory, isolated data studio, automations and engineering swarm
+# ---------------------------------------------------------------------------
+
+
+@router.get("/public-apis")
+async def api_public_apis(
+    q: str = Query("", max_length=160), category: str = Query("", max_length=80),
+    auth: str = Query("", max_length=16), cors: str = Query("", max_length=16), slug: str = Query("", max_length=128),
+):
+    entries = public_apis.list_apis(q=q, category=category, auth=auth, cors=cors, slug=slug)
+    return ok(apis=entries, count=len(entries), total=len(public_apis.APIS),
+              categories=public_apis.categories(), auth_types=public_apis.AUTH_TYPES, cors_types=public_apis.CORS_TYPES)
+
+
+@router.get("/studio/schema")
+async def api_studio_schema():
+    return ok(**studio.schema())
+
+
+@router.post("/studio/query")
+async def api_studio_query(request: Request):
+    data = await payload(request)
+    sql = text_field(data, "sql", maximum=studio.MAX_SQL_CHARS)
+    result, error = None, ""
+    try:
+        result = await run_in_threadpool(studio.run_query, sql)
+    except studio.QueryError as exc:
+        error = str(exc)
+    if wants_html(request):
+        from .deps import render
+        from .pages import studio_context
+
+        return render(request, "studio.html", status_code=400 if error else 200,
+                      **studio_context(sql=sql, query_result=result, was_run=True, error=error))
+    if error:
+        return fail(error, 400)
+    return ok(**result)
+
+
+@router.get("/workflows")
+async def api_workflows(
+    slug: str = Query("", max_length=32), format: str = Query("json", max_length=16),
+    node: str = Query("", max_length=32), topic_slug: str | None = Query(None, max_length=128),
+    q: str = Query("", max_length=160), difficulty: str = Query("", max_length=16),
+    limit: int = Query(5, ge=1, le=workflows.MAX_ITEMS),
+):
+    if format not in ("json", "n8n"):
+        return fail("Format must be json or n8n.", 422)
+    try:
+        if slug:
+            workflows.get_workflow(slug)
+        if format == "n8n":
+            if not slug or node:
+                return fail("Choose one workflow slug and omit node to export n8n JSON.", 422)
+            return JSONResponse(workflows.n8n_export(slug), headers={"Content-Disposition": f'attachment; filename="engineverse-{slug}.json"'})
+        if node:
+            inputs = {"q": q, "difficulty": difficulty, "limit": limit}
+            if topic_slug is not None:
+                inputs["topic_slug"] = topic_slug
+            step = await run_in_threadpool(workflows.run_node, slug, node, inputs)
+            return ok(step=step, read_only=True)
+        templates = workflows.catalogue(slug)
+        return ok(workflows=templates, count=len(templates))
+    except workflows.WorkflowError as exc:
+        return fail(str(exc), 404 if slug and not workflows.catalogue(slug) else 422)
+
+
+@router.post("/workflows/run")
+async def api_workflows_run(request: Request):
+    data = await payload(request)
+    slug = text_field(data, "slug", maximum=32)
+    inputs = data.get("inputs")
+    if inputs is None:
+        inputs = {key: data[key] for key in ("topic_slug", "q", "difficulty", "limit") if key in data}
+    error = ""
+    try:
+        if set(data) - {"csrf_token", "slug", "inputs", "topic_slug", "q", "difficulty", "limit"}:
+            raise workflows.WorkflowError("Custom nodes, code, webhooks and unsupported fields are not executable.")
+        workflow, clean = await run_in_threadpool(workflows.prepare, slug, inputs)
+    except workflows.WorkflowError as exc:
+        error = str(exc)
+    if error:
+        if wants_html(request):
+            from .deps import render
+            from .pages import workflows_context
+
+            selected = slug if workflows.catalogue(slug) and slug else "study"
+            return render(request, "workflows.html", status_code=422,
+                          **workflows_context(slug=selected, was_run=True, error=error))
+        return fail(error, 422)
+    if "application/x-ndjson" in (request.headers.get("accept") or ""):
+        def stream():
+            steps = []
+            try:
+                for step in workflows.iter_steps(workflow, clean):
+                    steps.append(step)
+                    yield json.dumps({"type": "step", "step": step}, ensure_ascii=False) + "\n"
+                yield json.dumps({"type": "complete", "result": workflows.finish(workflow, clean, steps)}, ensure_ascii=False) + "\n"
+            except (workflows.WorkflowError, db.DatabaseError, sqlite3.Error):
+                yield json.dumps({"type": "error", "error": "Workflow execution failed. No state was changed."}) + "\n"
+        return StreamingResponse(stream(), media_type="application/x-ndjson",
+                                 headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"})
+    steps = await run_in_threadpool(lambda: list(workflows.iter_steps(workflow, clean)))
+    result = workflows.finish(workflow, clean, steps)
+    if wants_html(request):
+        from .deps import render
+        from .pages import workflows_context
+
+        return render(request, "workflows.html", **workflows_context(slug=slug, inputs=clean, workflow_result=result, was_run=True))
+    return ok(**result)
+
+
+@router.post("/swarm/simulate")
+async def api_swarm_simulate(request: Request):
+    data = await payload(request)
+    prompt = text_field(data, "prompt", maximum=swarm.MAX_PROMPT_CHARS)
+    topic_slug = text_field(data, "topic_slug", maximum=128)
+    project_slug = text_field(data, "project_slug", maximum=128)
+    result, error = None, ""
+    try:
+        if any(key in data and not isinstance(data[key], str) for key in ("prompt", "topic_slug", "project_slug")):
+            raise ValueError("Prompt and optional grounding slugs must be text.")
+        result = await run_in_threadpool(swarm.simulate, prompt, topic_slug=topic_slug, project_slug=project_slug)
+    except ValueError as exc:
+        error = str(exc)
+    if wants_html(request):
+        from .deps import render
+        from .pages import swarm_context
+
+        return render(request, "swarm.html", status_code=422 if error else 200,
+                      **swarm_context(prompt=prompt, topic_slug=topic_slug, project_slug=project_slug,
+                                      simulation=result, was_run=True, error=error))
+    if error:
+        return fail(error, 422)
+    return ok(**result)
 
 
 # ---------------------------------------------------------------------------

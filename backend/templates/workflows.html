@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "_lab_results.html" import workflow_result as render_workflow %}
+{% block title %}Workflow automations — {{ brand.site_name }}{% endblock %}
+{% block description %}Declarative study, revision, placement and audit pipelines with live node execution and n8n JSON exports.{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/capabilities.css">{% endblock %}
+{% block content %}
+<div class="panel hero lab-hero" data-engineverse-capability="workflows">
+  <span class="chip accent">{{ icon('workflow', 16) }} PROGRESS / AUTOMATE</span>
+  <h1>Workflow automations</h1><p class="lead">A repeatable learning plan, one visible step at a time.</p>
+  <p class="muted">Run an allowlisted graph against the public catalogue. Each node consumes explicit dependencies and reports actual output. No arbitrary scripts, external webhooks, grading or progress writes.</p>
+  <div class="grid g3 mt"><div class="stat"><div class="n">{{ workflows | length }}</div><div class="l">Runnable pipelines</div></div><div class="stat"><div class="n">Live</div><div class="l">NDJSON step execution</div></div><div class="stat"><div class="n">n8n</div><div class="l">Importable JSON</div></div></div>
+</div>
+<section class="section" aria-labelledby="workflow-blueprints-title">
+<h2 id="workflow-blueprints-title">Declarative blueprints</h2>
+<p class="muted">Inspired by <a href="https://github.com/n8n-io/n8n">n8n</a>. These small, deterministic workflows run locally in EngineVerse; no n8n installation is required. Exported n8n HTTP nodes call the same read-only operators on your self-hosted app.</p>
+<div class="grid g2">{% for workflow in workflows %}<article class="panel tight lab-blueprint" data-workflow-card="{{ workflow.slug }}">
+  <h3 class="h-sub">{{ workflow.name }}</h3><p class="tiny muted">{{ workflow.description }}</p>
+  <ol class="lab-graph" aria-label="{{ workflow.name }} node graph">{% for node in workflow.nodes %}<li data-node-id="{{ node.id }}"><strong>{{ node.label }}</strong><span class="tiny muted">{{ node.operator }}{% if node.depends_on %} · after {{ node.depends_on | join(', ') }}{% endif %}</span><span class="chip" data-node-state>not run</span></li>{% endfor %}</ol>
+  <div class="row mt"><a class="btn btn-sm btn-ghost" href="/workflows?slug={{ workflow.slug }}">Choose {{ workflow.slug }}</a><button type="button" class="btn btn-sm btn-ghost" data-n8n-export="{{ workflow.slug }}">Download n8n JSON</button></div>
+  <details class="mt"><summary>Inspect declaration & n8n JSON</summary><pre class="lab-code"><code>{{ workflow.n8n | tojson(indent=2) }}</code></pre></details>
+  <details class="mt"><summary>Seeded example run · {{ workflow.default_topic or 'public catalogue' }}</summary>{{ render_workflow(workflow_demos[workflow.slug]) }}</details>
+</article>{% endfor %}</div>
+</section>
+
+<section class="section panel" aria-labelledby="workflow-run-title">
+<h2 id="workflow-run-title">Run a pipeline</h2>
+<p class="callout warning" data-lab-mode-notice hidden>This is a static reading copy. Blueprints, seeded examples and JSON downloads work here; executing a pipeline requires a self-hosted EngineVerse backend.</p>
+<form id="workflow-form" action="/api/workflows/run" method="post" data-live-only>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <div class="lab-filters">
+  <label>Pipeline<select name="slug" id="workflow-slug" data-live-control>{% for workflow in workflows %}<option value="{{ workflow.slug }}" {{ 'selected' if selected_workflow.slug == workflow.slug }}>{{ workflow.name }}</option>{% endfor %}</select></label>
+  <label>Published topic<select name="topic_slug" id="workflow-topic" data-live-control><option value="">Search instead / catalogue audit</option>{% for topic in topics %}<option value="{{ topic.slug }}" {{ 'selected' if inputs.get('topic_slug') == topic.slug }}>{{ topic.title }}</option>{% endfor %}</select></label>
+  <label>Topic search<input name="q" value="{{ inputs.get('q', '') }}" maxlength="160" placeholder="Used when no topic is selected" data-live-control></label>
+  <label>Difficulty<select name="difficulty" data-live-control><option value="">Any difficulty</option>{% for difficulty in ['easy','medium','hard'] %}<option value="{{ difficulty }}" {{ 'selected' if inputs.get('difficulty') == difficulty }}>{{ difficulty | title }}</option>{% endfor %}</select></label>
+  <label>Items per step<input name="limit" type="number" min="1" max="10" value="{{ inputs.get('limit', 5) }}" required data-live-control></label>
+  </div>
+  <button class="btn btn-primary mt" type="submit" data-live-control>Execute pipeline</button>
+</form>
+<p id="workflow-status" role="status" class="tiny muted">{{ 'Pipeline executed.' if workflow_result else 'The blueprint examples above are precomputed demonstrations. Run the selected pipeline to execute it now.' }}</p>
+<p id="workflow-error" role="alert" class="callout warning" {{ 'hidden' if not lab_error }}>{{ lab_error }}</p>
+<div id="workflow-result" aria-live="polite">{{ render_workflow(workflow_result) }}</div>
+</section>
+<section class="section panel"><h2>Use the n8n export</h2>
+<ol class="tiny"><li>Import the downloaded JSON into your own n8n instance.</li><li>Set the n8n variable <code>engineverse_url</code> to your EngineVerse origin, without a trailing slash. Optionally set <code>engineverse_topic</code> to a published topic slug.</li><li>If your app requires sign-in, configure an authenticated Cookie header/credential on the HTTP Request nodes. No cookie or credential is included in the export.</li><li>Use the manual trigger. Each HTTP node calls an allowlisted GET operator and recomputes its dependencies read-only. The local dependency graph is shown above; the n8n transport calls run in sequence.</li></ol>
+<p class="tiny muted">This is not a scheduler and does not send notifications. A revision plan does not mark cards reviewed; a placement plan does not certify interview readiness.</p>
+<p class="row"><a class="btn btn-ghost" href="/studio">Inspect the public schema</a><a class="btn btn-ghost" href="/swarm">Review trade-offs with the swarm</a></p>
+</section>
+<script id="workflows-data" type="application/json">{{ workflows | tojson }}</script>
+{% endblock %}
+{% block scripts %}<script src="/static/js/capabilities.js" defer></script>{% endblock %}

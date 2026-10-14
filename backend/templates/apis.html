@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% block title %}Public APIs directory — {{ brand.site_name }}{% endblock %}
+{% block description %}Curated engineering and developer public APIs, with auth, CORS, local learning pairings and client snippets.{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/capabilities.css">{% endblock %}
+{% block content %}
+<div class="panel hero lab-hero" data-engineverse-capability="apis">
+  <span class="chip accent">{{ icon('globe', 16) }} CODE / CONNECT</span>
+  <h1>Public APIs directory</h1>
+  <p class="lead">Connect an engineering idea to real public data.</p>
+  <p class="muted">Every entry pairs an outside API with a topic and a buildable project on {{ brand.site_name }}. Explore the contract, inspect the access rules, then copy a small client. Nothing is called automatically.</p>
+  <div class="grid g3 mt"><div class="stat"><div class="n">{{ api_total }}</div><div class="l">Curated APIs</div></div><div class="stat"><div class="n">{{ categories | length }}</div><div class="l">Engineering & developer categories</div></div><div class="stat"><div class="n">3</div><div class="l">Client languages per API</div></div></div>
+</div>
+
+<section class="section" aria-labelledby="api-filter-title">
+<h2 id="api-filter-title">Find an API</h2>
+<form id="apis-filter" class="panel lab-filters" action="/apis" method="get">
+  <label>Search<input name="q" type="search" value="{{ filters.q }}" maxlength="160" placeholder="Weather, SQL, repositories…"></label>
+  <label>Category<select name="category"><option value="">All categories</option>{% for category in categories %}<option value="{{ category }}" {{ 'selected' if filters.category | lower == category | lower }}>{{ category }}</option>{% endfor %}</select></label>
+  <label>Authentication<select name="auth"><option value="">Any auth</option>{% for auth in auth_types %}<option value="{{ auth }}" {{ 'selected' if filters.auth | lower == auth | lower }}>{{ 'No key for public reads' if auth == 'none' else auth }}</option>{% endfor %}</select></label>
+  <label>CORS<select name="cors"><option value="">Any CORS</option>{% for cors in cors_types %}<option value="{{ cors }}" {{ 'selected' if filters.cors | lower == cors | lower }}>{{ cors | title }}</option>{% endfor %}</select></label>
+  <label>API slug<input name="slug" value="{{ filters.slug }}" maxlength="128" placeholder="Optional exact deep link"></label>
+  <div class="row"><button class="btn btn-primary" type="submit">Filter directory</button><a class="btn btn-ghost" href="/apis">Clear</a></div>
+</form>
+<p class="tiny muted">Auth and CORS are curated hints, not live probes. “Unknown” means verify with the provider. Browser CORS support is separate from permission to use an API. Keep private keys on your server.</p>
+<p id="apis-count" role="status">{{ apis | length }} of {{ api_total }} APIs match{% if filters.slug %} · filtered to “{{ filters.slug }}”{% endif %}.</p>
+</section>
+
+<section aria-labelledby="api-directory-title">
+<h2 id="api-directory-title">Directory & learning pairings</h2>
+<div class="grid g2" id="apis-directory">
+{% for api in apis %}
+<article class="panel lab-api" id="api-{{ api.slug }}" data-api-slug="{{ api.slug }}" data-api-category="{{ api.category }}" data-api-auth="{{ api.auth }}" data-api-cors="{{ api.cors }}" data-api-search="{{ api.name }} {{ api.slug }} {{ api.category }} {{ api.description }} {{ api.exercise }} {{ api.topic_slug }} {{ api.project_slug }}">
+  <div class="between"><h3 class="h-sub">{{ api.name }}</h3><span class="chip accent">{{ api.category }}</span></div>
+  <p class="muted">{{ api.description }}</p>
+  <div class="tags"><span class="chip">Auth: {{ api.auth }}</span><span class="chip">CORS: {{ api.cors }}</span><span class="chip ok">HTTPS</span></div>
+  <p class="tiny"><strong>Engineering exercise:</strong> {{ api.exercise }}</p>
+  <div class="lab-pairing"><span class="tiny muted">LEARN → BUILD</span>
+    {% if api.topic_url %}<a href="{{ api.topic_url }}">{{ api.topic_title }}</a>{% else %}<span class="tiny muted">Topic not published on this instance</span>{% endif %}
+    {% if api.project_url %}<a href="{{ api.project_url }}">{{ api.project_title }}</a>{% else %}<span class="tiny muted">Project not published on this instance</span>{% endif %}
+  </div>
+  <p class="tiny muted">{{ api.caveat }}</p>
+  <p><a href="{{ api.docs_url }}" rel="noopener noreferrer">Provider documentation ↗</a> · <a href="/apis?slug={{ api.slug }}">Link to this API</a></p>
+  <details><summary>cURL · Python · JavaScript examples</summary>
+  {% for language, snippet in api.snippets.items() %}
+    <div class="between mt"><strong>{{ 'cURL' if language == 'curl' else language | title }}</strong><button class="btn btn-sm btn-ghost" type="button" data-copy-target="snippet-{{ api.slug }}-{{ language }}">Copy {{ language }}</button></div>
+    <pre class="lab-code"><code id="snippet-{{ api.slug }}-{{ language }}">{{ snippet }}</code></pre>
+  {% endfor %}
+  <p class="tiny muted">Python examples use the optional <code>requests</code> package. JavaScript examples are for your own integration, not executed here.</p>
+  </details>
+</article>
+{% endfor %}
+</div>
+<div class="empty" id="apis-empty" {{ 'hidden' if apis }}>No public APIs match all the selected filters. Try fewer filters or clear the slug.</div>
+</section>
+<section class="section panel">
+<h2>Curated, not connected</h2>
+<p class="tiny muted">Inspired by <a href="https://github.com/public-apis/public-apis" rel="noopener noreferrer">public-apis/public-apis</a>. This is an original, intentionally small learning directory. Availability, rate limits, data rights and CORS can change. Provider accounts, keys and network access are never required to read the paired EngineVerse lessons.</p>
+<p class="row"><a class="btn btn-ghost" href="/studio">Inspect the data studio</a><a class="btn btn-ghost" href="/workflows">Build a study workflow</a></p>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/capabilities.js" defer></script>{% endblock %}

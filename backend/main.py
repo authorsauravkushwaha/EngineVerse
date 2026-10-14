@@ -334,7 +334,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             key = "run_code" if path.endswith("/run") else "submit_code"
             count, window = ratelimit.LIMITS[key]
             limit = ("judge", count, window)
-        elif path.startswith("/api/tutor/"):
+        elif request.method == "POST" and path in ("/api/studio/query", "/api/workflows/run"):
+            limit = ("catalogue-lab", 60, 60)
+        elif path.startswith("/api/tutor/") or path == "/api/swarm/simulate":
             # Reads the configured ceiling rather than a literal, so the "ai"
             # entry in LIMITS - defined but previously unused - is what applies.
             count, window = ratelimit.LIMITS["ai"]

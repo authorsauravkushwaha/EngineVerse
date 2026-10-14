@@ -270,6 +270,11 @@ LEARN = Section(
             "Answers composed only from this site's own material, with the sources cited.",
             icon="spark",
         ),
+        Destination(
+            "Engineering swarm lab", "/swarm",
+            "Five specialist perspectives review seeded evidence, challenge trade-offs and cite their sources.",
+            icon="network",
+        ),
     ),
 )
 
@@ -339,6 +344,16 @@ CODE = Section(
             "Briefs with ordered steps, skills, resources and a shippable result.",
             match=("/projects",), icon="hammer",
         ),
+        Destination(
+            "Public APIs directory", "/apis",
+            "Engineering and developer APIs, paired with local topics, projects and copyable client examples.",
+            icon="globe",
+        ),
+        Destination(
+            "Data & BaaS studio", "/studio",
+            "Compare backend services, inspect the public catalogue schema and run isolated read-only SQL.",
+            icon="database",
+        ),
     ),
 )
 
@@ -404,6 +419,11 @@ PROGRESS = Section(
             "My profile", "/profile",
             "Your badges, certificates, submissions and public portfolio.",
             signed_in=True, indexable=False, icon="user",
+        ),
+        Destination(
+            "Workflow automations", "/workflows",
+            "Run declarative study, revision, placement and catalogue-audit pipelines with live step outputs.",
+            icon="workflow",
         ),
     ),
 )

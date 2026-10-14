@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+{% from "_lab_results.html" import sql_result %}
+{% block title %}Data & BaaS studio — {{ brand.site_name }}{% endblock %}
+{% block description %}Compare five backend services, inspect 26 public catalogue projections and experiment with isolated read-only SQL.{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/capabilities.css">{% endblock %}
+{% block content %}
+<div class="panel hero lab-hero" data-engineverse-capability="studio">
+  <span class="chip accent">{{ icon('database', 16) }} CODE / DATA</span>
+  <h1>Data & BaaS studio</h1><p class="lead">Understand the backend, not just the SDK.</p>
+  <p class="muted">Compare service models, inspect the actual public learning catalogue, and run a SELECT against a disposable copy. Private accounts and judge tests are never in the playground.</p>
+  <div class="grid g3 mt"><div class="stat"><div class="n">{{ services | length }}</div><div class="l">Backend service models</div></div><div class="stat"><div class="n">{{ schema.table_count }}</div><div class="l">Public table projections</div></div><div class="stat"><div class="n">SELECT</div><div class="l">No writes · no private tables</div></div></div>
+</div>
+<section class="section" aria-labelledby="baas-title">
+<h2 id="baas-title">Five-service BaaS matrix</h2>
+<p class="muted">Inspired by <a href="https://github.com/supabase/supabase">Supabase</a> and <a href="https://github.com/appwrite/appwrite">Appwrite</a>. These are architectural comparisons and SDK examples, not installed services, pricing claims or production integrations. Provision the provider schema and access policies before using an example.</p>
+<div class="tablewrap"><table><caption class="sr-only">Backend-as-a-service comparison</caption><thead><tr><th scope="col">Service</th><th scope="col">Building blocks</th><th scope="col">Access boundary</th><th scope="col">Hosting / fit</th></tr></thead>
+<tbody>{% for service in services %}<tr><th scope="row"><a href="{{ service.docs }}" rel="noopener noreferrer">{{ service.name }} ↗</a></th><td>{{ service.model }}</td><td>{{ service.access }}</td><td>{{ service.hosting }}<br><span class="tiny muted">{{ service.fit }}</span></td></tr>{% endfor %}</tbody></table></div>
+<div class="grid g2 mt">{% for service in services %}<details class="panel tight"><summary>{{ service.name }} · JavaScript SDK example</summary><pre class="lab-code"><code id="sdk-{{ loop.index }}">{{ service.sdk }}</code></pre><button class="btn btn-sm btn-ghost" type="button" data-copy-target="sdk-{{ loop.index }}">Copy example</button></details>{% endfor %}</div>
+</section>
+
+<section class="section" aria-labelledby="schema-title">
+<div class="section-head"><h2 id="schema-title">Public catalogue schema inspector</h2><span class="chip">{{ schema.table_count }} tables</span></div>
+<label class="lab-schema-search">Find a table or column<input id="schema-search" type="search" placeholder="topics, subject_id, projects…" aria-label="Filter public schema tables"></label>
+<div class="grid g2 mt" id="schema-tables">
+{% for table in schema.tables %}
+<details class="panel tight lab-table" id="table-{{ table.name }}" data-schema-search="{{ table.name }} {{ table.purpose }} {% for column in table.columns %}{{ column.name }} {% endfor %}">
+<summary><span class="mono">{{ table.name }}</span> <span class="chip">{{ table.row_count }} public rows</span></summary>
+<p class="tiny muted">{{ table.purpose }}</p>
+<div class="tablewrap"><table><caption class="sr-only">{{ table.name }} public columns</caption><thead><tr><th scope="col">Column</th><th scope="col">Type</th><th scope="col">Null / key</th></tr></thead><tbody>{% for column in table.columns %}<tr><th scope="row"><code>{{ column.name }}</code></th><td>{{ column.type }}</td><td>{{ 'PK' if column.primary_key else ('nullable' if column.nullable else 'required') }}</td></tr>{% endfor %}</tbody></table></div>
+{% if table.foreign_keys %}<p class="tiny"><strong>Public relationships</strong></p><ul class="tiny">{% for key in table.foreign_keys %}<li><code>{{ key.column }}</code> → <a href="#table-{{ key.table }}">{{ key.table }}.{{ key.target }}</a></li>{% endfor %}</ul>{% endif %}
+<p class="tiny muted">{{ table.indexes | length }} reproducible catalogue indexes. Only listed columns are queryable.</p>
+</details>
+{% endfor %}
+</div>
+<p class="empty" id="schema-empty" hidden>No public tables match that name or column.</p>
+</section>
+
+<section class="section" aria-labelledby="policies-title">
+<h2 id="policies-title">RLS policy matrix & access boundaries</h2>
+<p class="callout">{{ schema.disclosure }}</p>
+<div class="tablewrap"><table><caption class="sr-only">Catalogue and account access policy matrix</caption><thead><tr><th scope="col">Scope</th><th scope="col">Read</th><th scope="col">Write</th><th scope="col">Enforcement</th></tr></thead><tbody>{% for policy in schema.policies %}<tr><th scope="row">{{ policy.scope }}</th><td>{{ policy.read }}</td><td>{{ policy.write }}</td><td>{{ policy.enforcement }}</td></tr>{% endfor %}</tbody></table></div>
+<p class="tiny muted">A public SDK key identifies a client, not its authority. Native PostgreSQL RLS, provider document rules and EngineVerse's route authorization are different mechanisms. This lab neither changes them nor claims that a policy example has been applied.</p>
+</section>
+
+<section class="section panel" aria-labelledby="sql-title">
+<h2 id="sql-title">Read-only SELECT runner</h2>
+<p class="muted">Single SELECTs, joins and SELECT-only CTEs are supported. DDL/DML, private tables, schema introspection, extension functions and unsafe functions are blocked. The same isolation is used even when EngineVerse runs on PostgreSQL.</p>
+<p class="callout warning" data-lab-mode-notice hidden>This is a static reading copy. The schema and seeded query example are readable here; executing SQL requires a self-hosted EngineVerse backend.</p>
+<form id="studio-form" action="/api/studio/query" method="post" data-live-only>
+  <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+  <label for="studio-sql">SQL query</label><textarea id="studio-sql" name="sql" class="mono" maxlength="{{ schema.limits.sql_chars }}" rows="6" required data-live-control>{{ sql }}</textarea>
+  <div class="row mt"><button class="btn btn-primary" type="submit" data-live-control>Run SELECT + explain</button><span class="tiny muted">{{ schema.limits.result_rows }} rows max · {{ schema.limits.execution_seconds }} s VM budget · {{ schema.limits.vm_steps }} VM steps</span></div>
+</form>
+<div class="chips-row">{% for example in examples %}<button type="button" class="chip" data-sql-example="{{ example.sql }}">{{ example.title }}</button>{% endfor %}</div>
+<p id="studio-status" role="status" class="tiny muted">{{ 'Query executed on a public snapshot.' if was_run and query_result else 'Below is a seeded example result, not a query you have run.' }}</p>
+<p id="studio-error" role="alert" class="callout warning" {{ 'hidden' if not lab_error }}>{{ lab_error }}</p>
+<div id="studio-result" aria-live="polite">{{ sql_result(query_result) }}</div>
+</section>
+<section class="section panel"><h2>Continue the build</h2><p class="row"><a class="btn btn-ghost" href="/projects/sql-ops-reporting-db">SQL reporting project</a><a class="btn btn-ghost" href="/workflows">Audit with a workflow</a><a class="btn btn-ghost" href="/apis">Choose an outside API</a></p></section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/capabilities.js" defer></script>{% endblock %}
