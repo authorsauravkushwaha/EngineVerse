@@ -73,10 +73,14 @@ def questions_for_topic(topic_id: str, limit: int = 20) -> list[dict]:
 
 def list_questions(
     *, subject_id: str | None = None, topic_id: str | None = None, kind: str | None = None,
-    difficulty: str | None = None, q: str | None = None, limit: int = 40, offset: int = 0,
+    difficulty: str | None = None, q: str | None = None, slug: str | None = None,
+    limit: int = 40, offset: int = 0,
 ) -> tuple[list[dict], int]:
     clauses = ["q.is_active = 1"]
     args: list[Any] = []
+    if slug:
+        clauses.append("q.slug = ?")
+        args.append(slug)
     if subject_id:
         clauses.append("q.subject_id = ?")
         args.append(subject_id)

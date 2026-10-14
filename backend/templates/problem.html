@@ -25,12 +25,12 @@
       <ol>{% for hint in (problem.hints | fromjson([])) %}<li>{{ hint }}</li>{% endfor %}</ol></details>
     <details class="panel mt"><summary><strong>Editorial</strong> — full explanation and complexity</summary>
       <div class="prose mt">{{ problem.editorial | md | safe }}</div>
-      {% if problem.solution_md %}<h3>Reference solution</h3>
+      {% if problem.solution_md %}<h2 class="h-sub">Reference solution</h2>
         <pre class="console">{{ problem.solution_md }}</pre>{% endif %}
       <p class="small muted">Expected time {{ problem.expected_time }} · space {{ problem.expected_space }}</p></details>
 
     {% if submissions %}
-    <section class="panel mt"><h3>Your submissions</h3>
+    <section class="panel mt"><h2 class="h-sub">Your submissions</h2>
       <div class="tablewrap"><table><thead><tr><th>Status</th><th>Language</th><th>Tests</th><th>Time</th><th>When</th></tr></thead>
       <tbody>{% for s in submissions %}
         <tr><td><span class="chip {{ 'ok' if s.is_accepted else 'bad' }}">{{ s.status | replace('_',' ') }}</span></td>
@@ -75,7 +75,7 @@
     <div id="run-output" class="mt" aria-live="polite"></div>
 
     {% if samples %}
-    <h3 class="mt">Sample tests</h3>
+    <h2 class="h-sub mt">Sample tests</h2>
     {% for tc in samples %}
       <div class="testcase"><div class="lbl">Example {{ loop.index }}</div>
         <pre>input:    {{ tc.input or '(none)' }}

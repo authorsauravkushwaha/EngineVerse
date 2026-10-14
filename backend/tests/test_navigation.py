@@ -556,9 +556,16 @@ def test_the_rendered_top_bar_is_grouped_not_flat(signed_in):
 
 
 def test_the_rendered_footer_headings_come_from_the_table(signed_in):
+    """The footer's heading level is part of the page outline, not decoration.
+
+    These were ``<h4>``, which meant a reader navigating by heading heard the
+    page jump from an ``<h2>`` straight to a fourth-level heading - and because
+    the footer is on every page, that skip was site-wide. ``.footer h2`` in the
+    stylesheet keeps them looking the same.
+    """
     html = signed_in.get("/explore").text
     footer = html.split('class="footer"', 1)[-1]
-    headings = re.findall(r"<h4>([^<]+)</h4>", footer)
+    headings = re.findall(r"<h2>([^<]+)</h2>", footer)
     expected = [column.heading for column in navigation.footer_columns()] + ["Account", "Tell us what's wrong"]
     assert headings == expected, f"footer headings {headings} != {expected}"
 

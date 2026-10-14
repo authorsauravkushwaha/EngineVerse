@@ -6,9 +6,10 @@
   source — nothing is re-hosted.</p>
 <div class="chips-row"><a class="chip {{ 'on' if not active_category }}" href="/videos">All</a>
   {% for c in categories %}<a class="chip {{ 'on' if active_category == c.category }}" href="/videos?category={{ c.category }}">{{ c.category }} ({{ c.count }})</a>{% endfor %}</div>
+{% with narrow_noun="video", narrow_all="the whole library", narrow_clear="/videos" %}{% include "_slugfilter.html" %}{% endwith %}
 <div class="grid g3">
   {% for v in videos %}
-    <a class="card" href="{{ v.url }}" target="_blank" rel="noopener noreferrer nofollow">
+    <a class="card" id="{{ v.slug }}" href="{{ v.url }}" target="_blank" rel="noopener noreferrer nofollow">
       <span class="title">{{ v.title }}</span>
       <span class="desc">{{ v.channel }} · {{ (v.duration_s / 60) | round | int }} min · {{ v.level }}</span>
       <p class="small muted">{{ v.why_useful }}</p>

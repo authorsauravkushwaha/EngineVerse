@@ -109,6 +109,13 @@ h1, h2, h3, h4 { line-height: 1.22; margin: 0 0 .45em; font-weight: 740; letter-
 h1 { font-size: clamp(1.8rem, 4.2vw, 2.7rem); }
 h2 { font-size: clamp(1.28rem, 2.6vw, 1.7rem); }
 h3 { font-size: 1.08rem; }
+/* A heading whose level is chosen by where it sits in the document outline but
+   whose size is a design decision. Pages used to reach for <h3> or <h4> because
+   that is the size they wanted, which left most of the site skipping a level -
+   a screen reader moving by heading heard "h1, h3" on /formulas and "h1, h4" on
+   every page in the site, because the footer's headings were <h4>. Promoting
+   the level and keeping the size fixes the outline without moving a pixel. */
+.h-sub { font-size: 1.08rem; }
 p { margin: 0 0 1em; }
 .muted { color: var(--text-2); }
 .small { font-size: .86rem; }
@@ -372,6 +379,19 @@ a.card:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
 .card .title { font-weight: 700; color: var(--text); font-size: 1.02rem; line-height: 1.35; }
 .card .desc { color: var(--text-2); font-size: .88rem; margin: 0; flex: 1; }
 .card a.title:hover { text-decoration: none; }
+/* Search results and the recommendation cards point at one item inside a long
+   list with a fragment - /formulas#slug, /videos#slug, /books#slug. Two things
+   made that useless: the video, book and off-site resource pages rendered no
+   matching id at all, so the browser stayed at the top of the list and the
+   reader had to hunt for the item they had clicked; and the top bar is sticky,
+   so even a real anchor scrolled its target underneath it. The ids are in the
+   templates now - this keeps the target clear of the bar and marks it. */
+.card[id], .panel[id] { scroll-margin-top: calc(var(--nav) + 30px); }
+.card:target, .panel:target { animation: anchorflash 1.8s ease-out; }
+@keyframes anchorflash {
+  0%, 35% { box-shadow: 0 0 0 3px var(--accent); }
+  100% { box-shadow: var(--neu-sm); }
+}
 .subject-card { min-height: 100%; }
 .meta {
   display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: auto;
@@ -909,7 +929,7 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
 .footer-brand, .footer-feedback { grid-column: span 2; }
 .footer-cta { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0 0; }
 .footer a.on { color: var(--accent-ink); }
-.footer h4 { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
+.footer h2 { font-size: .74rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 10px; }
 .footer a { display: block; color: var(--text-2); font-size: .9rem; padding: 3px 0; }
 .footer a:hover { color: var(--text); }
 .footer-base {

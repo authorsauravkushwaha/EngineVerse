@@ -31,7 +31,7 @@
 
     {% for column in footer_columns %}
     <div>
-      <h4>{{ column.heading }}</h4>
+      <h2>{{ column.heading }}</h2>
       {% for link in column.links %}
       <a href="{{ link.path }}" class="{{ 'on' if link.matches(path) }}">{{ link.label }}</a>
       {% endfor %}
@@ -39,14 +39,14 @@
     {% endfor %}
 
     <div>
-      <h4>Account</h4>
+      <h2>Account</h2>
       {% for link in footer_account %}
       <a href="{{ link.path }}" class="{{ 'on' if link.matches(path) }}">{{ link.label }}</a>
       {% endfor %}
     </div>
 
     <div class="footer-feedback">
-      <h4>Tell us what's wrong</h4>
+      <h2>Tell us what's wrong</h2>
       <form class="stack" method="post" action="/api/feedback" data-json-form>
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <input type="hidden" name="path" value="{{ path }}">

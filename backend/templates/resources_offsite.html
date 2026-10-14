@@ -14,9 +14,10 @@
   <a class="chip {{ 'on' if not active_kind }}" href="/resources/offsite">All</a>
   {% for k in kinds %}<a class="chip {{ 'on' if active_kind == k.kind }}" href="/resources/offsite?kind={{ k.kind }}">{{ k.kind }} ({{ k.count }})</a>{% endfor %}
 </div>
+{% with narrow_noun="resource", narrow_all="the whole shelf", narrow_clear="/resources/offsite" %}{% include "_slugfilter.html" %}{% endwith %}
 <div class="grid g3">
   {% for r in resources %}
-    <a class="card" href="{{ r.url }}" target="_blank" rel="noopener noreferrer nofollow">
+    <a class="card" id="{{ r.slug }}" href="{{ r.url }}" target="_blank" rel="noopener noreferrer nofollow">
       <span class="title">{{ r.title }}</span><span class="desc">{{ r.description }}</span>
       <div class="tags"><span class="chip accent">{{ r.kind }}</span>
         <span class="chip">{{ r.level }}</span>

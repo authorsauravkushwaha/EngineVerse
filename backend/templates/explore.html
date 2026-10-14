@@ -44,7 +44,7 @@
   <div class="grid g3 branchgroups">
     {% for group in branches %}
     <div>
-      <h4 class="branchgroup-name">{{ group.name }}</h4>
+      <h2 class="branchgroup-name">{{ group.name }}</h4>
       <ul class="branchlist">
         {% for b in group.branches %}
         <li class="{{ 'on' if active_branch == b.slug }}">

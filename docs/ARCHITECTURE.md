@@ -165,6 +165,41 @@ redirecting to some default branch, which is not what "My stream" promises.
 landing page, so no surface ever offers a signed-out reader a link whose only
 effect is a bounce.
 
+Two surfaces exist to answer "what is on this site?" rather than "where next?".
+`/resources` lists every destination in its group with the blurb from the table
+and the row count this instance actually holds, read from the database, so a
+deployment seeded with less shows less. It opens with three ways in by intent —
+just started, revising for an exam, preparing for interviews — because a taxonomy
+is not an answer to "I have twenty minutes". `/explore` carries the branch
+browser: all 45 branch hubs with links to both `/branches/{slug}` and their study
+hub, collapsed by default. Before it those 45 pages had no inbound link anywhere,
+because the catalogue's branch picker only ever filtered the page it sat on.
+
+## The page outline is part of the interface
+
+A reader who navigates by heading hears the outline, and a page that goes from
+`<h1>` to `<h4>` tells them three levels of structure are missing. Nearly every
+page did, for two separate reasons.
+
+The footer's column headings were `<h4>`, and the footer is on every page, so the
+skip was site-wide from the bottom of every document. They are `<h2>` now;
+`.footer h2` in the stylesheet keeps them at the size the design wanted.
+
+The other reason was `markdown.py`, which shifted every heading by a flat `+2` on
+the assumption that content is rendered inside a section that is itself an `<h2>`
+under the page's `<h1>`. That holds for topic notes. It does not hold for a
+problem statement, which sits directly under the `<h1>` and writes its first
+heading as `###` — so +2 made it an `<h5>` with no `<h2>`, `<h3>` or `<h4>`
+before it, on all 95 coding problems. `render()` now takes a `base` level and
+aligns the block's *shallowest* heading to it, keeping the relative depth the
+author wrote and guaranteeing the block starts where its container expects.
+`_heading_shift()` ignores fenced code blocks, because a `#` comment inside one
+is not a heading.
+
+`test_links.py::test_no_page_skips_a_heading_level` walks every indexable
+destination plus a sample of detail pages and fails on any skip, so a new
+template cannot reintroduce one.
+
 ## The judge
 
 Submissions never run in the web process. `engineverse/judge` picks a provider:
@@ -246,6 +281,26 @@ maximum of 11.3k, and the previous 4000-character cap truncated 47 of 48 topics.
 The same index includes each public programming module and flashcard prompt, so a
 search can deep-link to a module section or the public card browser. Flashcard
 answers are deliberately excluded from indexed text and search snippets.
+
+`ENTITY_URLS` is the only place that knows how to turn an indexed row into a
+link, and four of its sixteen entries were wrong in a way a 404 check cannot
+see. A URL that resolves to *something else* still answers 200:
+
+| Entry | Was | Why it failed |
+|---|---|---|
+| `question` | `/practice/questions/{slug}` | no such page; that path exists only under `/api` |
+| `video` | `/videos#{slug}` | the page renders no ids, and paginates 400 rows 24 at a time |
+| `book` | `/books#{slug}` | same, over 395 rows |
+| `resource` | `/resources#{slug}` | `/resources` is the site index; the shelf is `/resources/offsite` |
+| `formula` | `/formulas#{slug}` | the sheet capped at 300 of 365 rows, so 65 had no anchor anywhere |
+
+The four collection entries now carry `?slug=` and the pages filter on it, which
+is the one approach that survives pagination: a fragment is never sent to the
+server, so the reader landed on page one of a long list with the item they had
+clicked several pages in. `backend/tests/test_links.py` asserts the property
+that was missing — not that a URL resolves, but that it *shows the thing it
+named* — and picks its sample from the far end of each collection, where a
+fragment could never reach.
 
 ## 3D models are data, not markup
 
