@@ -49,6 +49,7 @@ from seed_data import foundations as topics_foundations  # noqa: E402
 from seed_data import subject_paths  # noqa: E402
 from seed_data import community_data  # noqa: E402
 from seed_data import language_paths  # noqa: E402
+from seed_data import language_foundations  # noqa: E402
 from seed_data import language_curriculum  # noqa: E402
 from seed_data import language_projects  # noqa: E402
 
@@ -694,8 +695,16 @@ def seed_languages() -> dict[str, str]:
             )
         modules_by_language: dict[str, list[tuple]] = {}
         for language_slug in ids:
-            modules = list(library_data.LANGUAGE_MODULES.get(language_slug, []))
-            seen = {row[0] for row in modules}
+            modules: list[tuple] = []
+            seen: set[str] = set()
+            for row in language_foundations.FOUNDATION_MODULES.get(language_slug, []):
+                if row[0] not in seen:
+                    modules.append(row)
+                    seen.add(row[0])
+            for row in library_data.LANGUAGE_MODULES.get(language_slug, []):
+                if row[0] not in seen:
+                    modules.append(row)
+                    seen.add(row[0])
             for row in language_paths.EXTRA_MODULES.get(language_slug, []):
                 if row[0] not in seen:
                     modules.append(row)

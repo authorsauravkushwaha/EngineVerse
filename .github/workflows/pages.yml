@@ -1,7 +1,7 @@
 name: GitHub Pages
 
-# Publishes a static reading copy. It does not deploy the Python app,
-# a database, or the code judge. The live URL is
+# Publishes the public EngineVerse site (static catalogue). GitHub Pages
+# cannot run the Python process, a database, or the code judge. The live URL is
 # https://<user>.github.io/<repository>/ once this workflow succeeds.
 
 on:

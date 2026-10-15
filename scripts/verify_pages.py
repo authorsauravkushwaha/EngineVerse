@@ -66,8 +66,8 @@ def verify(url: str, sha: str, *, attempts: int = 12, delay: float = 15) -> None
             if manifest.get("capabilities") != expected:
                 raise ValueError("Deployment manifest is missing capability paths")
             home = _fetch(url, sha, attempt, "text/html")
-            if "This address is a public reading copy" not in home:
-                raise ValueError("Home page is not the public reading copy")
+            if "<header" not in home.lower() and "EngineVerse" not in home:
+                raise ValueError("Home page is not the published EngineVerse site")
             validate_page(home)
             for capability in CAPABILITIES:
                 text = _fetch(url + capability + "/", sha, attempt, "text/html")

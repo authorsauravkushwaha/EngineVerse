@@ -290,20 +290,15 @@ def search_index(base: str) -> list[dict[str, str]]:
 
 
 def banner(base: str) -> str:
-    home = html.escape(rewrite_url("/hosting", base), quote=True)
-    source = html.escape(REPO, quote=True)
-    return (
-        '<div class="announce">This address is a public reading copy. The date, tutor and streak use this browser. '
-        "Sign-in and code execution are not running here. "
-        f'<a href="{home}">What this copy is</a> | '
-        f'<a href="{source}">Source</a>.</div>'
-    )
+    """GitHub Pages is the public site. Do not put a reading-copy strip above the product."""
+    del base
+    return ""
 
 
 def hosting_main() -> str:
     return """
-<h1>This is the reading copy</h1>
-<p class="lead">GitHub Pages can only serve files. It cannot run the EngineVerse server, a database, or the code judge.</p>
+<h1>This is EngineVerse</h1>
+<p class="lead">You are on the public site. Notes, language paths, problems and labs are here. An account, live code execution and cross-device progress need the install you run yourself — they are not a second website.</p>
 <div class="grid g2">
   <article class="panel">
     <h2>What you can do here</h2>
@@ -338,7 +333,7 @@ def search_script(base: str) -> str:
     host.hidden = false;
     var heading = document.createElement("p");
     heading.className = "muted";
-    heading.textContent = hits.length + (hits.length === 1 ? " result" : " results") + " in this reading copy";
+    heading.textContent = hits.length + (hits.length === 1 ? " result" : " results");
     host.appendChild(heading);
     var grid = document.createElement("div");
     grid.className = "grid g3";
@@ -367,7 +362,7 @@ def search_script(base: str) -> str:
     if (!hits.length) {{
       var empty = document.createElement("div");
       empty.className = "empty";
-      empty.textContent = "Nothing in this reading copy matched. Try a shorter term.";
+      empty.textContent = "Nothing matched. Try a shorter term.";
       host.appendChild(empty);
     }}
   }}).catch(function () {{

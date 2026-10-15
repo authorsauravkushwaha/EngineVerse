@@ -66,16 +66,20 @@ LANGUAGE_ORDER = ("python", "java", "javascript", "typescript", "cpp", "go", "ru
 CHECKPOINT_SUBJECT = "programming-fundamentals"
 
 #: language -> stage -> module slugs, in reading order. Together these lists
-#: must be exactly the merged module set (library_data.LANGUAGE_MODULES plus
-#: language_paths.EXTRA_MODULES) for that language - ``validate()`` fails the
-#: seed otherwise.
+#: must be exactly the merged module set (language_foundations, then
+#: library_data.LANGUAGE_MODULES, then language_paths.EXTRA_MODULES) for that
+#: language - ``validate()`` fails the seed otherwise.
 MODULE_STAGES = {
     "python": {
         "foundations": [
+            "python-why", "python-hello-setup", "python-operators",
+            "python-decisions", "python-loops-from-scratch", "python-input-practice",
+            "python-real-world-1", "python-lists-scratch",
             "python-variables", "python-control-flow", "python-functions",
             "python-collections", "python-strings-files",
         ],
         "working_practice": [
+            "python-stdlib-os", "python-packaging",
             "python-oop", "python-errors", "python-modules", "python-testing",
         ],
         "advanced_engineering": [
@@ -84,45 +88,67 @@ MODULE_STAGES = {
         ],
     },
     "java": {
-        "foundations": ["java-basics", "java-control-flow", "java-oop"],
-        "working_practice": ["java-interfaces", "java-exceptions", "java-build-test"],
+        "foundations": [
+            "java-why", "java-hello", "java-operators", "java-decisions",
+            "java-loops-from-scratch", "java-real-world-1", "java-methods",
+            "java-basics", "java-control-flow", "java-oop",
+        ],
+        "working_practice": ["java-interfaces", "java-exceptions", "java-testing", "java-build-test"],
         "advanced_engineering": [
             "java-http-service", "java-jdbc-data", "java-concurrency",
             "java-agent-tools", "java-application-capstone",
         ],
     },
     "javascript": {
-        "foundations": ["js-basics", "js-dom"],
-        "working_practice": ["js-async", "js-node-service", "js-testable-app"],
+        "foundations": [
+            "js-why", "js-hello", "js-operators", "js-decisions-loops",
+            "js-real-world-1", "js-functions-scratch", "js-basics", "js-objects", "js-dom",
+        ],
+        "working_practice": ["js-async", "js-errors", "js-modules", "js-node-service", "js-testable-app"],
         "advanced_engineering": ["js-browser-security", "js-agent-tools", "js-fullstack-capstone"],
     },
     "typescript": {
-        "foundations": ["ts-types-functions"],
+        "foundations": [
+            "ts-why", "ts-hello", "ts-decisions-loops", "ts-real-world-1",
+            "ts-types-functions",
+        ],
         "working_practice": ["ts-web-app", "ts-http-validation"],
         "advanced_engineering": ["ts-node-service", "ts-agent-tools", "ts-test-release-capstone"],
     },
     "cpp": {
-        "foundations": ["cpp-basics", "cpp-memory"],
-        "working_practice": ["cpp-classes", "cpp-raii-memory-safety", "cpp-build-test"],
-        "advanced_engineering": ["cpp-parse-safe-input", "cpp-safe-app-project"],
+        "foundations": [
+            "cpp-why", "cpp-hello", "cpp-variables-operators", "cpp-decisions-loops",
+            "cpp-real-world-1", "cpp-functions-scratch", "cpp-basics", "cpp-memory",
+        ],
+        "working_practice": ["cpp-classes", "cpp-containers", "cpp-raii-memory-safety", "cpp-build-test"],
+        "advanced_engineering": ["cpp-parse-safe-input", "cpp-professional", "cpp-safe-app-project"],
     },
     "go": {
-        "foundations": ["go-types-errors"],
+        "foundations": [
+            "go-why", "go-hello", "go-variables-operators", "go-decisions-loops",
+            "go-real-world-1", "go-types-errors",
+        ],
         "working_practice": ["go-packages-tests", "go-http-api", "go-sql-data"],
         "advanced_engineering": ["go-concurrency-context", "go-agent-capstone"],
     },
     "rust": {
-        "foundations": ["rust-ownership-errors"],
+        "foundations": [
+            "rust-why", "rust-hello", "rust-variables-operators", "rust-decisions-loops",
+            "rust-real-world-1", "rust-ownership-errors",
+        ],
         "working_practice": ["rust-collections-iterators", "rust-tests-modules"],
         "advanced_engineering": ["rust-http-service", "rust-agent-tools", "rust-application-capstone"],
     },
     "c": {
-        "foundations": ["c-basics", "c-pointers"],
-        "working_practice": ["c-structs", "c-functions"],
+        "foundations": [
+            "c-why", "c-hello", "c-variables", "c-operators", "c-if-else", "c-loops",
+            "c-arrays-scratch", "c-real-world-1", "c-basics", "c-pointers",
+        ],
+        "working_practice": ["c-structs", "c-functions", "c-headers-modules"],
         "advanced_engineering": ["c-files"],
     },
     "sql": {
-        "foundations": ["sql-select", "sql-filter"],
+        "foundations": ["sql-why", "sql-hello", "sql-select", "sql-filter", "sql-real-world-1"],
         "working_practice": ["sql-joins", "sql-group", "sql-null"],
         "advanced_engineering": ["sql-professional"],
     },
