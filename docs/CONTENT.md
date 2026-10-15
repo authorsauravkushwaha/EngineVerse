@@ -89,19 +89,19 @@ that every branch is a complete syllabus:
 ```
 universities 10 · colleges 13 · branches 45 · semesters 9 · curricula 180
 curriculum_subjects 2836 · subjects 93 · modules 93 · topics 406 · notes 1624
-note_sections 10556 · diagrams 406 · models_3d 406 · formulas 365 · questions 525
-question_options 2100 · dpp_sets 105 · dpp_questions 525 · programming_languages 9
-language_modules 68 · language_stages 27 · language_checkpoints 81
-coding_problems 95 · coding_sheets 12 · coding_sheet_problems 125 ·
-coding_problem_stubs 98 · coding_testcases 403 · projects 16
-project_steps 92 · project_resources 27 · videos 400 · books 395 · resources 544
+note_sections 10556 · diagrams 406 · models_3d 406 · formulas 365 · questions 534
+question_options 2136 · dpp_sets 107 · dpp_questions 535 · programming_languages 10
+language_modules 225 · language_stages 30 · language_checkpoints 90
+coding_problems 105 · coding_sheets 14 · coding_sheet_problems 135 ·
+coding_problem_stubs 108 · coding_testcases 461 · projects 17
+project_steps 98 · project_resources 30 · videos 400 · books 395 · resources 544
 roadmaps 5 · roadmap_nodes 57 · flashcards 281 · plans 3 · site_config 12
-badges 12 · search index 3653
+badges 12 · search index 3836
 ```
 
 Every active branch has at least one published subject, every published subject
 has a published lesson and active question, and every active question appears in
-the 105-set DPP rotation, covering all 93 subjects and all nine language tracks.
+the 107-set DPP rotation, covering all 93 subjects and all ten language tracks.
 The archive is paginated at
 `/dpp/archive`, so older seeded sets remain discoverable. All 281 seeded
 flashcards can be browsed at `/flashcards`, searched without exposing their
@@ -127,15 +127,19 @@ of being templated from its name. All 350 generated topics are marked
 not imply expert sign-off, and three generated lessons per subject is starter
 depth, not exhaustive coverage.
 
-The nine programming paths are staged — 129 modules assigned across 27
+The ten programming paths are staged — 225 modules assigned across 30
 Foundations / Working Practice / Advanced Engineering stages — and each stage
-ends with three checkpoint questions (81 total). Checkpoints are ordinary bank
+ends with three checkpoint questions (90 total). Checkpoints are ordinary bank
 questions linked through `language_checkpoints`, so they run through the normal
 practice-answer flow: the answer key, correct-option flag and explanation are
 stripped from the page and only returned after a submission, and a wrong attempt
 still awards attempt XP and lands in the mistake notebook. Their correct-answer
 positions are rotated deterministically, so a reseed reproduces the same bank.
-The sixteen project briefs span hardware and engineering tools as well as
+The five flagship paths (Python, Java, C, C++, C#) run to full book depth, and
+every depth module stores a `practice_slug` linking it to the judged problem
+that closes its learn-then-code loop; the path page renders it as a "Code what
+you learned" button. The seventeen project briefs span hardware and engineering
+tools as well as
 software, and include a substantial capstone linked to each language path
 (forward from the path page, back from the brief); the study-planner brief starts
 model-free and treats an optional agent as an allowlisted, confirmation-gated
@@ -148,14 +152,15 @@ longer exists, so a renamed topic cannot silently drop content.
 
 ### The coding bank
 
-Problems live in three authored modules and are assembled by `seed.py`:
+Problems live in four authored modules and are assembled by `seed.py`:
 
 | Module | Holds |
 |---|---|
 | `seed_data/practice_data.py` | The 13 original problems, with their hand-written stubs and wrappers. |
 | `seed_data/coding_core.py` | 44 interview-pattern problems (arrays, windows, trees, graphs, DP, SQL). |
 | `seed_data/coding_streams.py` | 38 problems written for a branch: signals, control, surveying, process calculations and the like. Each names its audience category. |
-| `seed_data/coding_sheets.py` | The 12 curated sheets: title, audience categories, estimated hours and the ordered problem slugs. |
+| `seed_data/coding_book.py` | 10 problems for the book-depth language paths: six raw beginner drills plus the pattern staples (merge intervals, rain water, word ladder, tree codec) the stage plans reference. |
+| `seed_data/coding_sheets.py` | The 14 curated sheets: title, audience categories, estimated hours and the ordered problem slugs. |
 
 `scripts/check_problems.py` runs every reference solution against its own test
 cases through the same wrapper the judge uses, so an expected output that no

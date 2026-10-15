@@ -41,9 +41,9 @@ from engineverse.judge import outputs_match  # noqa: E402
 
 
 def load_problems() -> list[dict]:
-    from seed_data import coding_core, coding_streams
+    from seed_data import coding_book, coding_core, coding_streams
 
-    problems = list(coding_core.PROBLEMS) + list(coding_streams.PROBLEMS)
+    problems = list(coding_core.PROBLEMS) + list(coding_streams.PROBLEMS) + list(coding_book.PROBLEMS)
     seen: dict[str, int] = {}
     for problem in problems:
         slug = problem["slug"]

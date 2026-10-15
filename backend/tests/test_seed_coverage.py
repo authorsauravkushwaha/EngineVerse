@@ -917,7 +917,7 @@ def test_every_language_module_sits_in_exactly_one_real_stage(seeded):
 
 def test_each_language_has_three_stages_and_three_checkpoints_each(seeded):
     languages = db.query("SELECT id, slug FROM programming_languages")
-    assert len(languages) == 9
+    assert len(languages) == 10
     for language in languages:
         stages = db.query(
             "SELECT stage FROM language_stages WHERE language_id = ? ORDER BY order_index", language["id"]
@@ -929,8 +929,8 @@ def test_each_language_has_three_stages_and_three_checkpoints_each(seeded):
                 language["id"], stage["stage"],
             ) or 0)
             assert n == 3, f"{language['slug']}/{stage['stage']} has {n} checkpoints, expected 3"
-    assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 27
-    assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 81
+    assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 30
+    assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 90
 
 
 def test_checkpoint_questions_are_active_with_one_correct_option(seeded):
@@ -938,7 +938,7 @@ def test_checkpoint_questions_are_active_with_one_correct_option(seeded):
         "SELECT lc.question_id, q.is_active, q.answer_index FROM language_checkpoints lc "
         "JOIN questions q ON q.id = lc.question_id"
     )
-    assert len(links) == 81
+    assert len(links) == 90
     for link in links:
         qid = link["question_id"]
         assert link["is_active"] == 1, f"checkpoint question {qid} is not active"
@@ -956,12 +956,12 @@ def test_checkpoint_answer_positions_are_rotated_and_reproducible(seeded):
     """The key must not sit at a fixed visible position, and a reseed must
     reproduce the same bank. Compare the DB against a fresh recomputation."""
     entries = _recomputed_checkpoints()
-    assert len(entries) == 81
+    assert len(entries) == 90
     positions = [entry["correct"] for entry in entries]
     counts = {pos: positions.count(pos) for pos in range(4)}
     assert set(counts) == {0, 1, 2, 3}, f"not all four answer positions are used: {counts}"
     for pos, n in counts.items():
-        assert n <= 30, f"position {pos} carries {n}/81 checkpoints - the rotation is not spreading the key"
+        assert n <= 30, f"position {pos} carries {n}/90 checkpoints - the rotation is not spreading the key"
 
     for entry in entries:
         qid = entry["slug"]
@@ -980,7 +980,7 @@ def test_checkpoint_answer_positions_are_rotated_and_reproducible(seeded):
 
 def test_language_capstone_links_forward_and_back(client, seeded):
     languages = db.query("SELECT id, slug FROM programming_languages")
-    assert len(languages) == 9
+    assert len(languages) == 10
     for language in languages:
         capstone = db.query_one(
             "SELECT slug FROM projects WHERE language_id = ? AND status = 'published' "
@@ -999,7 +999,7 @@ def test_language_capstone_links_forward_and_back(client, seeded):
         )
 
 
-def test_published_dpps_cover_all_nine_language_tracks(seeded):
+def test_published_dpps_cover_all_ten_language_tracks(seeded):
     covered = db.query(
         "SELECT DISTINCT lc.language_id FROM dpp_questions dq "
         "JOIN dpp_sets d ON d.id = dq.set_id AND d.published = 1 "
@@ -1014,12 +1014,56 @@ def test_published_dpps_cover_all_nine_language_tracks(seeded):
 def test_fresh_seed_reproduces_the_expected_curriculum_counts(seeded):
     """One number per acceptance criterion, so a regression in any seeder is
     named by count rather than discovered by a broken page."""
-    assert int(db.scalar("SELECT count(*) FROM programming_languages") or 0) == 9
-    assert int(db.scalar("SELECT count(*) FROM language_modules") or 0) == 129
-    assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 27
-    assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 81
-    assert int(db.scalar("SELECT count(*) FROM questions WHERE is_active = 1") or 0) == 525
-    assert int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0) == 105
-    assert int(db.scalar("SELECT count(*) FROM projects WHERE status = 'published'") or 0) == 16
+    assert int(db.scalar("SELECT count(*) FROM programming_languages") or 0) == 10
+    assert int(db.scalar("SELECT count(*) FROM language_modules") or 0) == 225
+    assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 30
+    assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 90
+    assert int(db.scalar("SELECT count(*) FROM questions WHERE is_active = 1") or 0) == 534
+    assert int(db.scalar("SELECT count(*) FROM dpp_sets WHERE published = 1") or 0) == 107
+    assert int(db.scalar("SELECT count(*) FROM projects WHERE status = 'published'") or 0) == 17
     assert int(db.scalar(
-        "SELECT count(*) FROM projects WHERE status = 'published' AND language_id IS NOT NULL") or 0) == 9
+        "SELECT count(*) FROM projects WHERE status = 'published' AND language_id IS NOT NULL") or 0) == 10
+
+
+def test_every_module_practice_link_resolves_to_a_seeded_problem(seeded):
+    """A practice button that 404s is worse than no button. Every stored
+    practice_slug must name a coding problem that was actually seeded."""
+    from seed_data import (language_book_c, language_book_cpp,
+                           language_book_csharp, language_book_java,
+                           language_book_js, language_book_other,
+                           language_book_py)
+
+    books = (language_book_py, language_book_java, language_book_c,
+             language_book_cpp, language_book_csharp, language_book_js,
+             language_book_other)
+    authored = {}
+    for book in books:
+        for module_slug, problem_slug in book.MODULE_PRACTICE.items():
+            assert module_slug not in authored, f"two books map {module_slug!r}"
+            authored[module_slug] = problem_slug
+    assert len(authored) == 96, f"{len(authored)} book modules mapped, expected 96"
+
+    stored = {
+        row["slug"]: row["practice_slug"]
+        for row in db.query("SELECT slug, practice_slug FROM language_modules WHERE practice_slug IS NOT NULL")
+    }
+    assert stored == authored, (
+        f"stored practice links drifted from the authored maps: "
+        f"missing {sorted(set(authored) - set(stored))[:5]}, "
+        f"extra {sorted(set(stored) - set(authored))[:5]}"
+    )
+    problems = {row["slug"] for row in db.query("SELECT slug FROM coding_problems")}
+    dangling = sorted(set(authored.values()) - problems)
+    assert dangling == [], f"practice links name unseeded problems: {dangling}"
+
+
+def test_language_pages_render_the_practice_buttons(client, seeded):
+    """The staged path page must carry each module's 'code what you learned'
+    button through to the browser, for a legacy path and the all-new C# one."""
+    python_page = client.get("/programming/python")
+    assert python_page.status_code == 200
+    assert "/practice/problems/binary-search" in python_page.text
+    csharp_page = client.get("/programming/csharp")
+    assert csharp_page.status_code == 200
+    assert "/practice/problems/drill-times-table" in csharp_page.text
+    assert "csharp-interview-mastery" in csharp_page.text

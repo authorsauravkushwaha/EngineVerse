@@ -1436,6 +1436,9 @@ LANGUAGES = [
     ("c", "C", "c", "#a8b9cc",
      "The language every other language is measured against. Learning C teaches you what a pointer, a stack frame "
      "and a memory allocation actually are.", "c"),
+    ("csharp", "C#", "cs", "#9b4f96",
+     "The .NET language: C-like roots with modern types, LINQ and async built in. The path runs from first "
+     "program to interview depth, including the collections and patterns FAANG interviews expect.", "csharp"),
     ("sql", "SQL", "sql", "#e38c00",
      "Not a general-purpose language, but the one every engineer uses daily. Data lives in relational databases "
      "and SQL is how you talk to them.", None),

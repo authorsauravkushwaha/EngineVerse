@@ -40,6 +40,7 @@ from seed_data import diagrams_data  # noqa: E402
 from seed_data import notes_extra  # noqa: E402
 from seed_data import resource_sources  # noqa: E402
 from seed_data import practice_data  # noqa: E402
+from seed_data import coding_book  # noqa: E402
 from seed_data import coding_core  # noqa: E402
 from seed_data import coding_sheets as sheet_data  # noqa: E402
 from seed_data import coding_streams  # noqa: E402
@@ -50,8 +51,31 @@ from seed_data import subject_paths  # noqa: E402
 from seed_data import community_data  # noqa: E402
 from seed_data import language_paths  # noqa: E402
 from seed_data import language_foundations  # noqa: E402
+from seed_data import language_book_c  # noqa: E402
+from seed_data import language_book_cpp  # noqa: E402
+from seed_data import language_book_csharp  # noqa: E402
+from seed_data import language_book_java  # noqa: E402
+from seed_data import language_book_js  # noqa: E402
+from seed_data import language_book_other  # noqa: E402
+from seed_data import language_book_py  # noqa: E402
 from seed_data import language_curriculum  # noqa: E402
 from seed_data import language_projects  # noqa: E402
+
+
+#: The book-depth modules merged after the legacy catalogue in
+#: ``seed_languages`` (language -> module rows), and the per-module judged
+#: problem each book module ends with (module slug -> problem slug).
+BOOK_MODULES_BY_LANGUAGE: dict[str, list[tuple]] = {}
+BOOK_PRACTICE: dict[str, str] = {}
+for _book in (language_book_py, language_book_java, language_book_c, language_book_cpp,
+              language_book_csharp, language_book_js, language_book_other):
+    for _language, _rows in _book.BOOK_MODULES.items():
+        BOOK_MODULES_BY_LANGUAGE.setdefault(_language, []).extend(_rows)
+    for _module, _problem in _book.MODULE_PRACTICE.items():
+        if _module in BOOK_PRACTICE:
+            raise RuntimeError(f"two book modules share the slug {_module!r}")
+        BOOK_PRACTICE[_module] = _problem
+del _book, _language, _rows, _module, _problem
 
 
 def now_ms() -> int:
@@ -709,6 +733,10 @@ def seed_languages() -> dict[str, str]:
                 if row[0] not in seen:
                     modules.append(row)
                     seen.add(row[0])
+            for row in BOOK_MODULES_BY_LANGUAGE.get(language_slug, []):
+                if row[0] not in seen:
+                    modules.append(row)
+                    seen.add(row[0])
             modules_by_language[language_slug] = modules
 
         # Fail before writing anything if the staged curriculum has drifted from
@@ -719,6 +747,23 @@ def seed_languages() -> dict[str, str]:
             set(ids), {slug: [row[0] for row in rows] for slug, rows in modules_by_language.items()}
         )
         stage_of = language_curriculum.module_stage_map()
+
+        # The same for the "code what you learned" links: a practice slug that
+        # names no problem would render a button to a 404. Problems are seeded
+        # after languages, so this is checked against the authored banks.
+        known_problems = {entry["slug"] for entry in practice_data.CODING_PROBLEMS}
+        known_problems |= {entry["slug"] for entry in coding_core.PROBLEMS}
+        known_problems |= {entry["slug"] for entry in coding_streams.PROBLEMS}
+        known_problems |= {entry["slug"] for entry in coding_book.PROBLEMS}
+        dangling = sorted(
+            f"{module}->{problem}" for module, problem in BOOK_PRACTICE.items() if problem not in known_problems
+        )
+        if dangling:
+            raise SeedRefused(f"book practice links name unknown problems: {dangling}")
+        seeded_slugs = {row[0] for rows in modules_by_language.values() for row in rows}
+        orphaned = sorted(slug for slug in BOOK_PRACTICE if slug not in seeded_slugs)
+        if orphaned:
+            raise SeedRefused(f"book practice links for unseeded modules: {orphaned}")
 
         for language_slug, language_id in ids.items():
             for order, (stage, title, summary) in enumerate(language_curriculum.STAGES):
@@ -731,10 +776,11 @@ def seed_languages() -> dict[str, str]:
             for order, (slug, title, summary, body, example, exercise) in enumerate(modules_by_language[language_slug]):
                 db.execute(
                     "INSERT INTO language_modules (id,language_id,slug,title,summary,body,example,exercise,"
-                    "stage,order_index) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
-                    "body=excluded.body, stage=excluded.stage, order_index=excluded.order_index",
+                    "stage,order_index,practice_slug) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                    "body=excluded.body, stage=excluded.stage, order_index=excluded.order_index, "
+                    "practice_slug=excluded.practice_slug",
                     slug, language_id, slug, title, summary, body, example, exercise,
-                    stage_of[language_slug][slug], order,
+                    stage_of[language_slug][slug], order, BOOK_PRACTICE.get(slug),
                 )
     return ids
 
@@ -770,17 +816,18 @@ def seed_language_checkpoints(language_ids: dict[str, str], question_ids: dict[s
 
 
 def _problem_bank() -> list[dict]:
-    """Every problem the platform ships, from all three banks.
+    """Every problem the platform ships, from all four banks.
 
     ``practice_data`` holds the original hand-written 13 with stubs for four
-    languages; ``coding_core`` and ``coding_streams`` hold the sheet bank, which
-    declares one Python entry point per problem and generates its stub. The
-    seeder treats them identically, so a problem is a problem whichever module
-    it was written in.
+    languages; ``coding_core``, ``coding_streams`` and ``coding_book`` hold the
+    sheet bank, which declares one Python entry point per problem and generates
+    its stub. The seeder treats them identically, so a problem is a problem
+    whichever module it was written in.
     """
     bank = list(practice_data.CODING_PROBLEMS)
     bank += list(coding_core.PROBLEMS)
     bank += list(coding_streams.PROBLEMS)
+    bank += list(coding_book.PROBLEMS)
     seen: set[str] = set()
     for entry in bank:
         slug = entry["slug"]

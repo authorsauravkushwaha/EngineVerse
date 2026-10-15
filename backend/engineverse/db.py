@@ -475,6 +475,10 @@ def migrate(schema_file: str | Path | None = None) -> int:
     # Staged language paths: a module that predates staging keeps the honest
     # default until the seeder restages it from seed_data/language_curriculum.py.
     ensure_column("language_modules", "stage", "TEXT NOT NULL DEFAULT 'foundations'")
+    # The per-module "code what you learned" link; NULL means no linked problem.
+    # Plain TEXT, not a foreign key: languages seed before problems, so the
+    # seeder validates the links against the authored banks instead.
+    ensure_column("language_modules", "practice_slug", "TEXT")
     # Language-linked capstone projects; NULL simply means "not a capstone".
     ensure_column("projects", "language_id", "TEXT REFERENCES programming_languages(id) ON DELETE SET NULL")
     # search_log is created on demand by the search module. Creating it here,
