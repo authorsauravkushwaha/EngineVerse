@@ -376,7 +376,7 @@ EXTRA_MODULES = {
 # Modules below deliberately bridge language syntax to tested, bounded apps and
 # tool-using agents. These are learning paths and project blueprints, not claims
 # that one short course makes a learner production-ready.
-EXTRA_MODULES.update({
+ADVANCED_MODULES = {
     "python": [
         (
             "python-fastapi-app",
@@ -725,4 +725,7 @@ EXTRA_MODULES.update({
             "Publish a threat model, ownership explanation, test report, dependency review, and a two-user isolation demo.",
         ),
     ],
-})
+}
+
+for _language, _rows in ADVANCED_MODULES.items():
+    EXTRA_MODULES.setdefault(_language, []).extend(_rows)

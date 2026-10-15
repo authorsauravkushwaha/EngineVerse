@@ -4,11 +4,12 @@
 {% block content %}
 <h1 style="color:{{ language.color }}">{{ language.name }}</h1>
 <p class="muted">{{ language.blurb }}</p>
-<p class="muted">The path runs through three stages — <strong>Foundations</strong>, <strong>Working
-  Practice</strong> and <strong>Advanced Engineering</strong>. Work the modules in order, copy and run every
-  example, then take the stage checkpoint: three questions answered through the normal practice flow, with
-  feedback, explanation and XP after you submit. The path ends in a capstone project brief you can ship.
-  This page is not a complete reference, and reading it is not the same as being able to build with it.</p>
+<p class="muted">Start at the first module even if you have seen the language before: <strong>why it
+  exists</strong>, then variables, operators, decisions, loops, and a real-world drill before anything
+  fancy. The path then runs <strong>Foundations</strong> → <strong>Working Practice</strong> →
+  <strong>Advanced Engineering</strong> (functions, modules, errors, tests, services). Copy and run every
+  example. Each stage ends with three checkpoint questions through the normal practice flow. The path ends
+  in a capstone brief. Reading is not the same as being able to build with it.</p>
 {% if not language.runnable %}
   <div class="callout warning"><span class="label">No active runtime for this language</span>
     You can still read every module, take every checkpoint and build the capstone on your own machine. Run

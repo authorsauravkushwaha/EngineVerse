@@ -49,8 +49,9 @@ and legal pages (plus certificate verification and static assets); every other
 page redirects to `/login` and returns to the requested page after sign-in, and
 the JSON API answers `401`. Set `ENGINEVERSE_SIGNIN=optional` to allow anonymous
 browsing of the public catalogue instead. The current GitHub Pages workflow
-publishes an explicitly public **reading copy**, not the Python backend. An
-optional sign-in gateway export is also available; see
+publishes the public catalogue (notes, language paths, problems). It is not the
+Python backend: accounts, live judging and cross-device progress need a
+self-hosted install. An optional sign-in gateway export is also available; see
 [Deployment](docs/DEPLOYMENT.md#github-pages-sign-in-gateway).
 
 Sign-in is password-only by default (`ENGINEVERSE_LOGIN_OTP=disabled`): no mail

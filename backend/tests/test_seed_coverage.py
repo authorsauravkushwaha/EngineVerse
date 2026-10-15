@@ -1015,7 +1015,7 @@ def test_fresh_seed_reproduces_the_expected_curriculum_counts(seeded):
     """One number per acceptance criterion, so a regression in any seeder is
     named by count rather than discovered by a broken page."""
     assert int(db.scalar("SELECT count(*) FROM programming_languages") or 0) == 9
-    assert int(db.scalar("SELECT count(*) FROM language_modules") or 0) == 68
+    assert int(db.scalar("SELECT count(*) FROM language_modules") or 0) == 129
     assert int(db.scalar("SELECT count(*) FROM language_stages") or 0) == 27
     assert int(db.scalar("SELECT count(*) FROM language_checkpoints") or 0) == 81
     assert int(db.scalar("SELECT count(*) FROM questions WHERE is_active = 1") or 0) == 525
