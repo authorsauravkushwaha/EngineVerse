@@ -1,0 +1,84 @@
+name: Learner Data Sync
+
+# Saves validated learner progress snapshots from the public website and
+# Android APK into `data/learners/registry.json` on this GitHub repository.
+on:
+  issues:
+    types: [opened, edited]
+  repository_dispatch:
+    types: [engineverse-learner-sync]
+  workflow_dispatch:
+    inputs:
+      payload:
+        description: "Learner snapshot JSON"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: learner-data-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: >-
+      github.event_name != 'issues' ||
+      startsWith(github.event.issue.title, '[engineverse-sync]') ||
+      contains(github.event.issue.labels.*.name, 'engineverse-sync')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Validate and merge learner snapshot
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          DISPATCH_PAYLOAD: ${{ toJson(github.event.client_payload) }}
+          INPUT_PAYLOAD: ${{ inputs.payload }}
+        run: |
+          set -euo pipefail
+          python scripts/sync_learner_data.py --self-check
+          payload="$INPUT_PAYLOAD"
+          if [ "$EVENT_NAME" = "issues" ]; then
+            payload="$ISSUE_BODY"
+          elif [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            payload="$DISPATCH_PAYLOAD"
+          fi
+          printf '%s' "$payload" > "$RUNNER_TEMP/payload.txt"
+          python scripts/sync_learner_data.py --file "$RUNNER_TEMP/payload.txt"
+
+      - name: Commit updated learner vault to GitHub
+        run: |
+          set -euo pipefail
+          if git diff --quiet data/learners/registry.json; then
+            echo "No changes to data/learners/registry.json"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/learners/registry.json
+          git commit -m "chore(learners): save learner progress to GitHub vault"
+          git push origin HEAD:main
+
+      - name: Acknowledge and close sync issue
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY" \
+            --body "Your EngineVerse account and progress have been validated and saved to \`data/learners/registry.json\` on \`$GITHUB_REPOSITORY\`."
+          gh issue close "$ISSUE_NUMBER" --repo "$GITHUB_REPOSITORY"
