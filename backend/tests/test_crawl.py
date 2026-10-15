@@ -54,6 +54,10 @@ PARAM_SOURCES = {
     "/portfolio/{username}": "SELECT username FROM users",
     "/practice/problems/{slug}": "SELECT slug FROM coding_problems",
     "/programming/{language}": "SELECT slug AS language FROM programming_languages",
+    "/programming/{language}/lessons/{module}": (
+        "SELECT l.slug AS language, m.slug AS module FROM language_modules m "
+        "JOIN programming_languages l ON l.id = m.language_id"
+    ),
     "/projects/{slug}": "SELECT slug FROM projects",
     "/roadmaps/{slug}": "SELECT slug FROM roadmaps",
     "/sheets/{slug}": "SELECT slug FROM coding_sheets",
@@ -66,9 +70,8 @@ PARAM_SOURCES = {
 def _every_url() -> list[str]:
     urls = list(_static_page_paths())
     for pattern, sql in PARAM_SOURCES.items():
-        name = pattern.rsplit("{", 1)[1].rstrip("}")
         for row in db.query(sql):
-            urls.append(pattern.replace("{" + name + "}", str(row[name])))
+            urls.append(pattern.format_map({key: str(value) for key, value in row.items()}))
     # Deep enough to reach the last page of every paginated shelf. /resources
     # itself is the in-app directory now; the paginated link shelf it forwards
     # to for ?page= is at /resources/offsite.

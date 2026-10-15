@@ -241,6 +241,7 @@ def public_paths() -> list[str]:
         slug = lang.get("slug")
         if slug:
             paths.append(f"/programming/{slug}")
+            paths += [f"/programming/{slug}/lessons/{row['slug']}" for row in coding.modules_for_language(lang["id"])]
     for roadmap in library.list_roadmaps():
         slug = roadmap.get("slug")
         if slug:

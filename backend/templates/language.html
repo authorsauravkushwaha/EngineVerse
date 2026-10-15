@@ -4,12 +4,18 @@
 {% block content %}
 <h1 style="color:{{ language.color }}">{{ language.name }}</h1>
 <p class="muted">{{ language.blurb }}</p>
-<p class="muted">Start at the first module even if you have seen the language before: <strong>why it
-  exists</strong>, then variables, operators, decisions, loops, and a real-world drill before anything
-  fancy. The path then runs <strong>Foundations</strong> → <strong>Working Practice</strong> →
-  <strong>Advanced Engineering</strong> (functions, modules, errors, tests, services). Copy and run every
-  example. Each stage ends with three checkpoint questions through the normal practice flow. The path ends
-  in a capstone brief. Reading is not the same as being able to build with it.</p>
+<div class="callout"><span class="label">Academy coverage — work in progress</span>
+  {{ academy_coverage.structured }} of {{ academy_coverage.total }} modules have structured learn–practice–prove units.
+  The remaining modules use the legacy lesson format. A syllabus goal is not a completed lesson;
+  reading or self-review is not graded mastery. Existing stage quizzes and coding submissions are separate assessments.</div>
+<details class="panel mt"><summary><strong>Seven-level syllabus and expansion goals</strong></summary>
+  <p class="muted">This is the target learning sequence, not a completeness claim. The three existing course stages below remain unchanged.
+  Module counts do not measure objective, exercise or compiler verification coverage.</p>
+  <ol>{% for level in syllabus %}<li><strong>Level {{ level.level }} · {{ level.title }}</strong><p>{{ level.goals }}</p></li>{% endfor %}</ol>
+</details>
+<p class="mt"><label for="module-filter">Find a module in this course</label>
+  <input id="module-filter" type="search" placeholder="Title or summary" aria-controls="course-modules">
+  <span id="module-filter-status" role="status" class="small muted"></span></p>
 {% if not language.runnable %}
   <div class="callout warning"><span class="label">No active runtime for this language</span>
     You can still read every module, take every checkpoint and build the capstone on your own machine. Run
@@ -17,7 +23,7 @@
     see <code>docs/ARCHITECTURE.md</code>.</div>
 {% endif %}
 
-<div class="stack section">
+<div class="stack section" id="course-modules">
   {% for stage in stages %}
   <section class="panel" id="stage-{{ stage.stage }}">
     <div class="between">
@@ -29,14 +35,13 @@
 
     <div class="stack">
       {% for module in stage.modules %}
-      <section class="panel tight" id="{{ module.slug }}">
+      <section class="panel tight" id="{{ module.slug }}" data-module-card>
         <h3>{{ module.order_index + 1 }}. {{ module.title }}</h3>
         <p class="muted">{{ module.summary }}</p>
-        <div class="prose">{{ module.body | md | safe }}</div>
-        <h4>Example</h4><pre class="console">{{ module.example }}</pre>
-        <div class="callout exam"><span class="label">Exercise</span>{{ module.exercise }}</div>
+        <p><span class="chip">{{ 'Structured learning unit' if module.has_structured_lesson else 'Legacy module · expansion pending' }}</span></p>
+        <p><a class="btn btn-primary" href="/programming/{{ language.slug }}/lessons/{{ module.slug }}">Read lesson and practice →</a></p>
         {% if module.practice %}
-        <p class="mt"><a class="btn btn-primary" href="/practice/problems/{{ module.practice.slug }}">Code what you learned: {{ module.practice.title }} →</a>
+        <p class="mt"><a class="btn btn-primary" href="/practice/problems/{{ module.practice.slug }}">Related problem: {{ module.practice.title }} →</a>
           <span class="chip diff-{{ module.practice.difficulty }}">{{ module.practice.difficulty }}</span></p>
         {% endif %}
       </section>
@@ -90,3 +95,5 @@
   <p class="small mt"><a href="/practice/problems">All coding problems →</a></p>
 </section>
 {% endblock %}
+
+{% block scripts %}<script src="/static/js/academy.js" defer></script>{% endblock %}

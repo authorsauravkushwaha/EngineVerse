@@ -11,6 +11,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 from fastapi.templating import Jinja2Templates
 
+from engineverse.code_format import color_code
 from engineverse import auth, brand, db, markdown, navigation, progress
 from engineverse.config import get_settings
 from engineverse.security import csrf
@@ -25,6 +26,7 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.autoescape = True
 templates.env.trim_blocks = True
 templates.env.lstrip_blocks = True
+templates.env.filters["code_color"] = color_code
 
 
 # ---------------------------------------------------------------------------

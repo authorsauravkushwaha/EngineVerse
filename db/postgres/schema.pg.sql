@@ -305,6 +305,7 @@ CREATE TABLE IF NOT EXISTS language_modules (
   stage                TEXT NOT NULL DEFAULT 'foundations',
   order_index          BIGINT NOT NULL DEFAULT 0,
   practice_slug        TEXT,
+  lesson_data          TEXT,
   UNIQUE (language_id, slug),
   PRIMARY KEY (id)
 );

@@ -75,6 +75,9 @@ jobs:
             echo "::notice::${line}"
           done
 
+      - name: Verify trusted academy examples (report missing compilers explicitly)
+        run: python scripts/verify_academy.py
+
       - name: Every resource URL is well-formed
         # Offline: no network needed, so it runs on every push. Catches
         # malformed URLs, non-https links, private hosts and placeholders.

@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+{% block title %}{{ module.title }} · {{ language.name }} — {{ brand.site_name }}{% endblock %}
+{% block head %}<link rel="stylesheet" href="/static/css/academy.css">{% endblock %}
+{% block content %}
+<p><a href="/programming/{{ language.slug }}#{{ module.slug }}">← {{ language.name }} course index</a></p>
+<header class="section">
+  <h1>{{ module.title }}</h1><p class="lead">{{ module.summary }}</p>
+  {% if unit %}<div class="tags"><span class="chip">Structured learning unit</span><span class="chip">Level {{ unit.level }}</span>
+    <span class="chip">About {{ unit.minutes }} minutes including practice</span><span class="chip">{{ unit.version }}</span></div>
+  {% else %}<p class="callout warning">Legacy lesson: the full learn–practice–prove expansion is pending.
+    This reader does not label this module complete or its examples compiler-verified.</p>{% endif %}
+</header>
+{% if unit %}
+<div class="academy-layout">
+  <aside class="academy-toc panel" aria-label="Lesson table of contents">
+    <h2 class="h-sub">In this lesson</h2>
+    <nav><ol>{% for key, title in sections %}<li><a href="#{{ key }}">{{ title }}</a></li>{% endfor %}
+      <li><a href="#references">Sources and review</a></li></ol></nav>
+    <details><summary>Switch language</summary><ul>{% for lang in languages %}
+      <li><a href="/programming/{{ lang.slug }}">{{ lang.name }} course</a></li>{% endfor %}</ul></details>
+  </aside>
+  <article class="academy-reading">
+    <section class="panel"><h2 class="h-sub">Before you start</h2>
+      <p>{{ unit.prerequisite_text }}</p>
+      {% if prerequisite_modules %}<ul>{% for item in prerequisite_modules %}<li><a href="/programming/{{ language.slug }}/lessons/{{ item.slug }}">Review {{ item.title }}</a></li>{% endfor %}</ul>{% endif %}
+      <p>{{ unit.setup }}</p>
+      <p class="small muted">Local-execution / reference-solution lesson. No code is uploaded or run by this page.
+        Drafts and self-review answers are not saved; navigating away loses them. Do not paste secrets.</p>
+    </section>
+    {% for key, title in sections %}
+    <section class="panel mt academy-section" id="{{ key }}">
+      <h2>{{ title }}</h2><div class="prose">{{ unit[key] | md | safe }}</div>
+      {% if key == 'examples' %}
+        {% for example in unit.code_examples %}<h3>{{ example.label }}</h3>
+          <pre class="console"><code>{{ example.code | code_color | safe }}</code></pre>
+          <button class="btn btn-soft btn-sm academy-copy" type="button">Copy code</button>
+          {% if example.expected is not none %}<p class="small">Expected output:</p><pre>{{ example.expected }}</pre>{% endif %}
+        {% endfor %}
+      {% elif key == 'visual' %}
+        <div data-trace>
+          <div class="tablewrap"><table><caption>Conceptual execution trace — all steps available without JavaScript</caption>
+            <thead><tr><th scope="col">Step</th><th scope="col">Input / decision</th><th scope="col">State after step</th></tr></thead>
+            <tbody>{% for row in unit.trace %}<tr><th scope="row">{{ row.step }}</th><td>{{ row.value }}</td><td>{{ row.state }}</td></tr>{% endfor %}</tbody>
+          </table></div>
+          <button class="btn btn-soft btn-sm" data-trace-next type="button" hidden>Step through trace</button>
+          <p class="small muted" data-trace-status role="status"></p>
+        </div>
+      {% elif key == 'check' %}
+        <label for="concept-answer">Your reasoning (not submitted or graded)</label>
+        <textarea id="concept-answer" rows="3"></textarea>
+        <details class="mt"><summary>Compare your reasoning</summary><p>{{ unit.check_answer }}</p></details>
+      {% elif key == 'guided' %}
+        {% for hint in unit.guided_hints %}<details class="mt"><summary>Guided hint {{ loop.index }}</summary><p>{{ hint }}</p></details>{% endfor %}
+        <label for="guided-draft">Your guided-practice draft</label><textarea id="guided-draft" rows="6" spellcheck="false"></textarea>
+      {% elif key == 'challenge' %}
+        <p class="callout warning"><strong>Execution is not enabled in this lesson.</strong> Use your local toolchain and compare actual output.
+          “Record attempt” only opens a reference for self-review; it does not compile, submit, award XP or prove correctness.</p>
+        {% for hint in unit.challenge_hints %}<details class="mt"><summary>Challenge hint {{ loop.index }}</summary><p>{{ hint }}</p></details>{% endfor %}
+        <form id="academy-attempt">
+          <label for="academy-code">{{ language.name }} code draft (or an attempted approach in words)</label>
+          <textarea id="academy-code" rows="12" spellcheck="false" required></textarea>
+          <div class="row mt"><button class="btn btn-primary" type="submit">Record attempt for self-review</button>
+            <button class="btn btn-soft" type="reset">Reset and retry</button></div>
+        </form>
+        <p role="status" id="academy-attempt-status" class="small muted">Compare the fixtures locally. No compiler results are generated here.</p>
+        <details class="mt" id="academy-solution"><summary>Reference solution — try the challenge first</summary>
+          <p>{{ unit.solution_explanation }}</p><pre class="console"><code>{{ unit.reference | code_color | safe }}</code></pre>
+          <button class="btn btn-soft btn-sm academy-copy" type="button">Copy code</button>
+          <p>{{ unit.test_strategy }}</p>
+          <div class="tablewrap"><table><caption>Disclosed test fixtures / coverage</caption><thead><tr><th scope="col">Input</th><th scope="col">Expected</th><th scope="col">Purpose</th></tr></thead>
+          <tbody>{% for test in unit.tests %}<tr><td><pre class="academy-test-input">{{ test.input }}</pre></td><td><code>{{ test.expected }}</code></td><td>{{ test.reason }}</td></tr>{% endfor %}</tbody></table></div>
+        </details>
+        <noscript><p>You can draft offline and open the reference above after your attempt. The local attempt button requires JavaScript and sends no data.</p></noscript>
+      {% elif key == 'mastery' %}
+        <fieldset><legend>Self-review checklist — not a recorded mastery score</legend>
+          <label><input type="checkbox"> I explained the concept in my own words.</label>
+          <label><input type="checkbox"> I ran my code locally and checked edge cases.</label>
+          <label><input type="checkbox"> I justified correctness and complexity.</label>
+        </fieldset>
+        <p><a href="/programming/{{ language.slug }}#stage-{{ module.stage }}">Return to stage modules and graded conceptual checkpoints →</a></p>
+      {% elif key == 'further' and next_topic %}
+        <p><a href="/programming/{{ language.slug }}/lessons/{{ next_topic.slug }}">Recommended next topic: {{ next_topic.title }} →</a></p>
+      {% endif %}
+    </section>
+    {% endfor %}
+    <section class="panel mt" id="references"><h2>Sources and review</h2><ul>{% for ref in unit.references %}
+      <li><a href="{{ ref.url }}" rel="noopener noreferrer">{{ ref.title }}</a></li>{% endfor %}</ul><p class="small muted">{{ unit.review }}</p>
+      <p class="small muted">Expected outputs are specifications, not a report that this browser ran the program.
+        Toolchain verification and unavailable compilers are documented in the repository’s academy verification report.</p>
+    </section>
+  </article>
+</div>
+{% else %}
+<article class="panel prose">{{ module.body | md | safe }}
+  <h2>Example</h2><pre class="console"><code>{{ module.example }}</code></pre>
+  <h2>Practice prompt</h2>{{ module.exercise | md | safe }}
+  <p>Run the example with your local toolchain; execution availability in the separate coding workspace depends on the configured judge.</p>
+</article>
+{% endif %}
+<nav class="between section" aria-label="Previous and next lesson">
+  {% if previous %}<a class="btn btn-soft" href="/programming/{{ language.slug }}/lessons/{{ previous.slug }}">← {{ previous.title }}</a>{% endif %}
+  {% if following %}<a class="btn btn-primary" href="/programming/{{ language.slug }}/lessons/{{ following.slug }}">{{ following.title }} →</a>{% else %}<a class="btn btn-primary" href="/programming/{{ language.slug }}">Return to course and capstone →</a>{% endif %}
+</nav>
+{% endblock %}
+{% block scripts %}<script src="/static/js/academy.js" defer></script>{% endblock %}
