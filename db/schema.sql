@@ -486,6 +486,8 @@ CREATE TABLE IF NOT EXISTS language_modules (
   -- every link against the authored banks instead, and the coverage tests
   -- assert each stored slug resolves to a seeded problem.
   practice_slug TEXT,
+  -- Optional validated learn-practice-prove unit; NULL preserves legacy modules.
+  lesson_data TEXT,
   UNIQUE (language_id, slug)
 );
 CREATE INDEX IF NOT EXISTS idx_langmod_stage ON language_modules(language_id, stage, order_index);

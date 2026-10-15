@@ -85,6 +85,7 @@ def collect_from_database() -> dict[str, list[dict]]:
 def collect_from_source() -> dict[str, list[dict]]:
     """URLs from the registries, so a link can be checked before it is seeded."""
     sys.path.insert(0, str(REPO_ROOT))
+    sys.path.insert(0, str(REPO_ROOT / "backend"))
     found: dict[str, list[dict]] = {}
     try:
         from seed_data import resource_sources
@@ -103,6 +104,12 @@ def collect_from_source() -> dict[str, list[dict]]:
                     )
     except Exception:
         pass
+    from seed_data import academy
+    for slug, unit in academy.UNITS.items():
+        for ref in unit['references']:
+            found.setdefault(ref['url'], []).append(
+                {'table': 'academy_reference', 'id': slug, 'title': ref['title']}
+            )
     return found
 
 

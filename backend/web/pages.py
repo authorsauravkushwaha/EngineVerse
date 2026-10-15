@@ -15,6 +15,7 @@ from fastapi.responses import RedirectResponse
 
 from engineverse import (
     brand,
+    academy,
     catalog,
     certificates,
     coding,
@@ -408,6 +409,7 @@ async def programming_home(request: Request):
     viewer = current_user(request)
     return render(
         request, "programming.html",
+        academy_coverage=academy.coverage(db.query("SELECT slug, language_id, lesson_data FROM language_modules")),
         languages=coding.list_languages(),
         problems=coding.list_problems(limit=60)[0],
         topics=coding.problem_topics(),
@@ -426,6 +428,9 @@ async def language_page(request: Request, language: str):
     if not lang:
         raise HTTPException(status_code=404, detail="Unknown language")
     stages = coding.stages_for_language(lang["id"])
+    for stage in stages:
+        for module in stage["modules"]:
+            module["has_structured_lesson"] = academy.decode_unit(module) is not None
     viewer = current_user(request)
     # Attempt history for the stage checkpoints, so a signed-in learner sees
     # which gates they have already answered. Read-only; the answer key never
@@ -437,11 +442,35 @@ async def language_page(request: Request, language: str):
         crumb_leaf=lang["name"],
         stages=stages,
         modules=coding.modules_for_language(lang["id"]),
+        academy_coverage=academy.coverage(coding.modules_for_language(lang["id"])),
+        syllabus=academy.syllabus(language),
         capstone=coding.capstone_for_language(lang["id"]),
         # Only problems this language has a starter for: a problem without a
         # stub renders an editor that cannot run in the page's language.
         problems=coding.problems_with_starter(lang["id"], limit=30),
         attempts=attempts,
+    )
+
+
+@router.get("/programming/{language}/lessons/{module}")
+async def programming_lesson(request: Request, language: str, module: str):
+    lang = coding.language_by_slug(language)
+    if not lang:
+        raise HTTPException(status_code=404, detail="Unknown language")
+    selected = academy.lesson(lang["id"], module)
+    if not selected:
+        raise HTTPException(status_code=404, detail="Unknown lesson for this language")
+    modules = coding.modules_for_language(lang["id"])
+    index = next(i for i, row in enumerate(modules) if row["slug"] == module)
+    unit = academy.decode_unit(selected)
+    return render(
+        request, "programming_lesson.html", language=lang, module=selected,
+        unit=unit, sections=academy.SECTION_TITLES,
+        previous=modules[index - 1] if index else None,
+        following=modules[index + 1] if index + 1 < len(modules) else None,
+        prerequisite_modules=[row for row in modules if unit and row["slug"] in unit["prerequisites"]],
+        next_topic=next((row for row in modules if unit and row["slug"] == unit.get("next_slug")), None),
+        languages=coding.list_languages(), crumb_leaf=selected["title"],
     )
 
 
@@ -1335,6 +1364,8 @@ async def sitemap():
         "SELECT slug FROM topics WHERE status = 'published' ORDER BY slug")]
     urls += [f"/sheets/{row['slug']}" for row in coding.list_sheets(limit=200)]
     urls += [f"/programming/{row['slug']}" for row in coding.list_languages()]
+    urls += [f"/programming/{row['language_id']}/lessons/{row['slug']}" for row in db.query(
+        "SELECT language_id, slug FROM language_modules")]
     urls += [f"/roadmaps/{row['slug']}" for row in library.list_roadmaps()]
     urls += [f"/projects/{row['slug']}" for row in db.query(
         "SELECT slug FROM projects WHERE status = 'published' ORDER BY order_index, title")]

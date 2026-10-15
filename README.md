@@ -78,7 +78,7 @@ what is seeded today, not a completeness guarantee.
 | **Cyber Security** | 13 published starter topics; on an instance run with `ENGINEVERSE_SIGNIN=optional` learners can read them without signing in. They remain starter material and need expert review. |
 | **Diagrams and models** | 406 topic-linked SVG diagrams and 406 interactive 3D learning models. The WebGL renderer has no external runtime dependency. |
 | **Practice** | 534 active questions and 107 published Daily Practice Problem sets (535 slots); every active question, all 93 subjects and all ten language tracks appear in the seeded DPP archive. Practice XP is attempt-based: wrong and correct answer attempts both award XP, subject to the API rate limit; a question's full XP is paid only for its first correct answer, and later attempts earn the flat attempt XP. |
-| **Programming paths** | 10 learning paths and 225 staged, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, C#, Go, Rust and SQL. Each path is staged — Foundations, then Working Practice, then Advanced Engineering — across 30 stages, and each stage ends with three checkpoint questions (90 total) answered through the normal practice flow, with feedback, explanation and XP only after submission. The five flagship paths (Python, Java, C, C++, C#) run to full book depth, and every depth module ends with a linked judged problem so reading always turns into coding. |
+| **Programming paths** | 10 learning paths and 225 staged, searchable modules across Python, Java, JavaScript, TypeScript, C, C++, C#, Go, Rust and SQL. Each path is staged — Foundations, then Working Practice, then Advanced Engineering — across 30 stages, and each stage ends with three checkpoint questions (90 total) answered through the normal practice flow, with feedback, explanation and XP only after submission. All modules have a focused reader. Fifteen modules now have structured learn–practice–prove units: one foundational unit per language plus priority-language complexity units. The other 210 retain legacy content; this is not a complete textbook curriculum. See [academy scope and authoring](docs/ACADEMY.md). |
 | **Coding practice** | 105 problems with language stubs and test cases, grouped into 14 curated sheets (first drills, arrays, two pointers and windows, stacks and search, linked lists, trees and heaps, graphs, dynamic programming, advanced patterns, SQL and stream sets) plus a 30-problem interview set. Every problem appears in at least one sheet, and every sheet is reachable at `/sheets` in a recommended order with hints, editorials and progress. Which languages can execute depends on the configured judge and installed toolchains; see [Code execution](#code-execution). |
 | **My stream** | Each branch has a study hub at `/stream/{slug}` that gathers the subjects, notes, formula sheets, flashcards, question mix, sheets and projects that branch actually has, with the counts taken from the database rather than promised. `/stream` opens on the branch saved in the profile and `/streams` switches between them. Every stream also reaches the branch-neutral pattern sheets and the interview set, so no branch gets an empty page. |
 | **Projects** | 17 project briefs with ordered steps, skills and resources, spanning hardware, engineering software, full-stack apps and a model-free study planner with an optional allowlisted, confirmation-gated agent — including a substantial capstone brief linked to each of the ten language paths. |
@@ -196,15 +196,19 @@ Depending on the path, modules cover collections, functions, object-oriented
 design, error handling, testing, safe input handling, APIs, persistence,
 concurrency, authorization and project structure. C and C++ paths also emphasize
 memory/resource safety and undefined-behavior avoidance. The Python, Java, C,
-C++ and C# paths continue to full book depth — complexity analysis, strings,
-recursion, sorting, stacks, linked lists, trees, heaps, graphs and dynamic
-programming — and every depth module ends with a linked judged problem ("Code
-what you learned"), so each subtopic is learned and then coded before moving on.
+C++ and C# paths also contain legacy modules on complexity, strings, recursion,
+sorting, stacks, linked lists, trees, heaps, graphs and dynamic programming.
+A linked problem is related practice, not evidence of a matching language starter
+or per-subtopic mastery. The new [academy reader](docs/ACADEMY.md) explicitly
+tracks structured-unit coverage and gives seven-level expansion goals for all ten
+languages. Initial units include traces, precise exercises, progressive hints,
+local code drafts, references and self-review rubrics. They do not execute drafts
+or save self-reported mastery; existing stage quizzes and submissions are separate.
 
 The coding problems on a language page are limited to the ones that language has
 a usable editor starter for; where a path has no starter yet the page says so
 rather than opening an editor that cannot run that language. The modules,
-checkpoints and capstone brief are fully usable regardless.
+checkpoints and capstone brief remain available regardless.
 
 Runnable support is a deployment property, not just a curriculum promise. The
 UI marks a language runnable only when the active provider supports it on that

@@ -479,6 +479,7 @@ def migrate(schema_file: str | Path | None = None) -> int:
     # Plain TEXT, not a foreign key: languages seed before problems, so the
     # seeder validates the links against the authored banks instead.
     ensure_column("language_modules", "practice_slug", "TEXT")
+    ensure_column("language_modules", "lesson_data", "TEXT")
     # Language-linked capstone projects; NULL simply means "not a capstone".
     ensure_column("projects", "language_id", "TEXT REFERENCES programming_languages(id) ON DELETE SET NULL")
     # search_log is created on demand by the search module. Creating it here,

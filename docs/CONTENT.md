@@ -135,10 +135,11 @@ practice-answer flow: the answer key, correct-option flag and explanation are
 stripped from the page and only returned after a submission, and a wrong attempt
 still awards attempt XP and lands in the mistake notebook. Their correct-answer
 positions are rotated deterministically, so a reseed reproduces the same bank.
-The five flagship paths (Python, Java, C, C++, C#) run to full book depth, and
-every depth module stores a `practice_slug` linking it to the judged problem
-that closes its learn-then-code loop; the path page renders it as a "Code what
-you learned" button. The seventeen project briefs span hardware and engineering
+Legacy book modules store a `practice_slug` linking related coding practice;
+this does not prove language-specific exercise coverage. Fifteen existing modules
+now have validated `lesson_data` with A–O sections; 210 remain legacy format.
+Every module has a focused reader. See [Academy authoring and scope](ACADEMY.md)
+for coverage, validation and deployment instructions. The seventeen project briefs span hardware and engineering
 tools as well as
 software, and include a substantial capstone linked to each language path
 (forward from the path page, back from the brief); the study-planner brief starts

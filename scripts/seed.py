@@ -60,6 +60,7 @@ from seed_data import language_book_other  # noqa: E402
 from seed_data import language_book_py  # noqa: E402
 from seed_data import language_curriculum  # noqa: E402
 from seed_data import language_projects  # noqa: E402
+from seed_data import academy  # noqa: E402
 
 
 #: The book-depth modules merged after the legacy catalogue in
@@ -746,6 +747,7 @@ def seed_languages() -> dict[str, str]:
         language_curriculum.validate(
             set(ids), {slug: [row[0] for row in rows] for slug, rows in modules_by_language.items()}
         )
+        academy.validate_catalogue({slug: [row[0] for row in rows] for slug, rows in modules_by_language.items()})
         stage_of = language_curriculum.module_stage_map()
 
         # The same for the "code what you learned" links: a practice slug that
@@ -774,13 +776,19 @@ def seed_languages() -> dict[str, str]:
                     f"{language_slug}::{stage}", language_id, stage, title, summary, order,
                 )
             for order, (slug, title, summary, body, example, exercise) in enumerate(modules_by_language[language_slug]):
+                unit = academy.UNITS.get(slug)
+                if unit:
+                    body = academy.searchable_body(unit)
+                    example = unit["code_examples"][0]["code"]
+                    exercise = unit["challenge"]
                 db.execute(
                     "INSERT INTO language_modules (id,language_id,slug,title,summary,body,example,exercise,"
-                    "stage,order_index,practice_slug) VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
+                    "stage,order_index,practice_slug,lesson_data) VALUES (?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
                     "body=excluded.body, stage=excluded.stage, order_index=excluded.order_index, "
-                    "practice_slug=excluded.practice_slug",
+                    "practice_slug=excluded.practice_slug, lesson_data=excluded.lesson_data, "
+                    "example=excluded.example, exercise=excluded.exercise",
                     slug, language_id, slug, title, summary, body, example, exercise,
-                    stage_of[language_slug][slug], order, BOOK_PRACTICE.get(slug),
+                    stage_of[language_slug][slug], order, BOOK_PRACTICE.get(slug), jdump(unit) if unit else None,
                 )
     return ids
 
