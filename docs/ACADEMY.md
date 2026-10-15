@@ -183,9 +183,10 @@ catalogue ids and may overwrite CMS edits; it is broader than this update.
 5. Smoke-test a legacy and structured reader, old course fragments, stage quizzes
    and sign-in policy. Keep public code execution disabled unless independently
    provisioned and reviewed. No new environment setting is required.
-6. For GitHub Pages, the existing workflow makes a new no-demo seed and exports
-   all 225 reader routes, rewritten asset URLs and sitemap links. It remains a
-   public static reading copy with no account or judge backend.
+6. Without `ENGINEVERSE_APP_URL`, the Pages workflow makes a no-demo seed and
+   exports all 225 reader routes, asset URLs and sitemap links as a static
+   reading copy (no accounts/judge). Once a verified full app is hosted, Pages
+   becomes a gateway instead; those routes are served by the hosted app.
 
 Rollback: deploy the preceding application version; it ignores the nullable new
 column. Restore only the four content fields from the pre-update snapshot and

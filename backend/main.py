@@ -229,6 +229,7 @@ PUBLIC_EXACT = frozenset({
     "/terms",
     "/privacy",
     "/offline",
+    "/install",
     "/health",
     "/favicon.ico",
     "/manifest.webmanifest",

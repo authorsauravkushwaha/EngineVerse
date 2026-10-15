@@ -1,23 +1,37 @@
 {% extends "base.html" %}
 {% block title %}Install the app — {{ brand.site_name }}{% endblock %}
 {% block content %}
-<h1>Install {{ brand.site_name }} on your phone</h1>
-<p class="muted">It is a progressive web app: no app store, no download size to speak of, works offline, and it
-  lives on your home screen like any other app.</p>
+<h1>Use {{ brand.site_name }} on your phone</h1>
+<p class="lead">You can use the full website without downloading anything. On Android or iPhone, add this
+  same HTTPS site to your home screen. Sign in to your account to keep progress across devices;
+  installing an app is not required.</p>
 <div class="grid g2">
-  <div class="panel"><h2>Android (Chrome)</h2>
+  <div class="panel"><h2>Android: install the web app</h2>
     <ol><li>Open this site in Chrome.</li>
       <li>Tap the ⋮ menu, then <strong>Add to Home screen</strong> or <strong>Install app</strong>.</li>
-      <li>Confirm. The icon appears on your home screen.</li></ol></div>
+      <li>Confirm. The icon appears on your home screen.</li></ol>
+    <button class="btn btn-primary hide" id="install-btn" type="button">Install web app</button>
+    <p class="small muted">The web app uses this site's account and data. Offline access is limited to
+      previously cached public pages; submissions and sign-in need a connection.</p></div>
+  <div class="panel"><h2>Android: signed APK</h2>
+    {% if apk_url %}
+      <p>An alternative Android wrapper for this same HTTPS website is available as a signed GitHub Release.</p>
+      <p><a class="btn btn-primary" href="{{ apk_url }}" rel="noopener noreferrer">Download EngineVerse.apk</a></p>
+      <p class="small muted">Check the release, its SHA-256 checksum and signing certificate before installing.
+        Android may ask you to allow installs from this source. Only install the APK from the official release;
+        never from a forwarded copy. Updates require a new signed release.</p>
+    {% else %}
+      <p>No signed APK has been published and configured for this site yet. Do not install an APK
+        from an unofficial source. Use the web app above in the meantime.</p>
+    {% endif %}
+    <p class="small muted">The APK is a Trusted Web Activity, not an offline copy of the backend.
+      Accounts, saved progress and live code execution still require this website to be online;
+      execution also requires an operator-configured judge.</p></div>
   <div class="panel"><h2>iPhone (Safari)</h2>
-    <ol><li>Open this site in Safari — Chrome on iOS cannot install web apps.</li>
-      <li>Tap the Share button.</li><li>Choose <strong>Add to Home Screen</strong>.</li></ol></div>
+    <ol><li>Open this site in Safari.</li><li>Tap Share.</li>
+      <li>Choose <strong>Add to Home Screen</strong>.</li></ol></div>
   <div class="panel"><h2>Desktop</h2>
-    <ol><li>Look for the install icon in the address bar, or</li>
-      <li>Use your browser menu → <strong>Install {{ brand.site_name }}</strong>.</li></ol></div>
-  <div class="panel"><h2>What you get</h2>
-    <ul><li>Full-screen app, no browser chrome</li><li>Cached pages work offline</li>
-      <li>Push-free notifications you control</li><li>Updates arrive automatically</li></ul>
-    <button class="btn btn-primary hide" id="install-btn">Install now</button></div>
+    <p>Use your browser menu or the install icon in the address bar. Installing does not
+      change where your account data is stored: the operator's private database.</p></div>
 </div>
 {% endblock %}

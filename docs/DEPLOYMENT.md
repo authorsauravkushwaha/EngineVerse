@@ -109,7 +109,7 @@ refused when it finds users that are not the demo accounts, unless you pass
 cp deploy/.env.example deploy/.env
 # edit deploy/.env. Generate values with:
 #   python -c "import secrets; print(secrets.token_hex(32))"
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
 
 Compose v2 is required. The `release` service must finish successfully before
@@ -120,7 +120,7 @@ overwrite CMS edits. Refreshing seeded rows is explicit, and it does overwrite
 those rows:
 
 ```bash
-docker compose -f deploy/docker-compose.yml run --rm release python scripts/seed.py
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml run --rm release python scripts/seed.py
 ```
 
 Run that only when overwriting seeded content is what you want.
@@ -132,13 +132,39 @@ the data volume is empty. `scripts/release.py` repeats the grants, which is
 what repairs a volume created before the role existed. Do not expect the init
 script to re-run on its own.
 
-Postgres is not published to the host. The web port is bound to `127.0.0.1:8000`.
-Put a TLS reverse proxy on the public interface and proxy to that port. Set
-`ENGINEVERSE_SITE_URL` to the public `https://` origin. The session cookie is
-`Secure` when that origin is HTTPS.
+Postgres is not published to the host. By default the web port is bound only to
+`127.0.0.1:8000`. Set `ENGINEVERSE_SITE_URL` to the public `https://` origin;
+the session cookie is `Secure` for HTTPS. Do **not** publish the web or Postgres
+container directly on `0.0.0.0`.
 
-To listen on another interface, change the port mapping yourself and accept
-that the app is then reachable without TLS unless the proxy is the only path.
+### Public HTTPS edge (one operator installation, not one per learner)
+
+`deploy/public.yml` adds a Caddy TLS reverse proxy on 80/443. It is an *opt-in*
+Compose overlay: this checkout cannot create your VPS, domain, DNS record or
+certificates. On a server with Docker Compose v2, point your DNS A/AAAA record
+to it, open 80/443 and fill in the ignored `deploy/.env` first. In particular,
+set `ENGINEVERSE_SITE_URL=https://learn.example.org` to your real origin, with
+unique strong secret and DB passwords. Then run:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml -f deploy/public.yml up -d --build
+curl --fail https://learn.example.org/health
+python scripts/verify_hosted_app.py --url https://learn.example.org
+```
+
+Caddy overwrites incoming `X-Forwarded-For` with its TCP peer before the web
+process (which now trusts only a private proxy) computes rate limits. The base
+Compose file keeps loopback access for *on-host* health checks; only Caddy has
+public ports. Never trust an unvetted upstream proxy's forwarded IP as a learner
+address. Store the persistent Caddy TLS volumes alongside the Postgres volume;
+re-deploys should not erase either.
+
+`ENGINEVERSE_SIGNIN=optional` lets anyone browse the hosted catalogue without
+an account. An account is still needed for saved learning progress, submissions,
+community features and cross-device access. Opening a public website does not
+magically provide an isolated judge: leave `ENGINEVERSE_JUDGE=disabled` until you
+operate a separate, properly isolated Judge0 instance and test its controls.
+Neither Caddy nor an Android wrapper runs learner code.
 
 Create the first administrator after release, with the bootstrap URL, not the
 app URL. The password is an environment variable or a prompt, never an argument:
@@ -175,6 +201,10 @@ account's authenticator seal. The password and the seal are not printed.
 
 ## What is not done
 
+- A public HTTPS deployment, DNS change, Android release, or GitHub backup
+  destination. The new overlays and workflows are instructions/automation for
+  an operator who provides a real host, secrets and signing key; they have not
+  run against a live production database in this checkout.
 - A production Postgres dump. `scripts/backup_sqlite.py` has copied the local
   development database; that file is gitignored and is not a production dump.
   Compose defines a `backup` service. Docker is not available here, so that
@@ -190,47 +220,59 @@ account's authenticator seal. The password and the seal are not printed.
   syllabus. Newly generated starter content, including Cyber Security, is marked
   `needs_review` in editorial metadata. See `docs/CURRICULUM_COVERAGE.md`.
 
-## GitHub Pages sign-in gateway
+## GitHub Pages and the full app
 
-GitHub Pages serves files only: it cannot run accounts, a database, live lab
-operators or the code judge. The current `.github/workflows/pages.yml` explicitly
-publishes the **public catalogue** with `--reading-copy`, including the four
-[advanced capability pages](ADVANCED_CAPABILITIES.md). The export renders a fresh
-no-demo seed as a signed-out visitor, checks all local links and heading outlines,
-refuses leaked demo passwords, and disables backend-only lab controls in HTML.
-This is separate from the real app's compulsory sign-in policy.
+GitHub Pages serves files only. It cannot host the Python process, accounts, a
+shared database, community writes, or a code judge. **Never store actual learner
+records in this public repository or in a Pages artifact.** A browser streak on
+the reading copy stays in that browser; it is not synchronized or migrated into
+the full app's account.
+
+Until `ENGINEVERSE_APP_URL` is set, `.github/workflows/pages.yml` publishes the
+public catalogue as a **reading copy**, including the four advanced capability
+pages. The export renders a fresh no-demo seed as a signed-out visitor, checks
+local links and heading outlines, refuses leaked demo passwords and disables
+backend-only lab controls. SQL queries, workflow runs, swarm simulations and
+new submissions require the live backend; the copy only shows labelled examples.
 
 ```bash
 python scripts/export_pages.py --out site --reading-copy
 ```
 
-Directory/schema filters, snippet copies and n8n JSON downloads work in the
-reading copy. SQL queries, workflow runs and new swarm simulations do not; the
-pages show labelled seeded examples and explain that execution needs a
-self-hosted backend. Accounts, cross-device progress and the judge are likewise
-not deployed to Pages.
-
-The workflow uploads and deploys the files, then verifies the live HTTPS origin:
-`deployment.json` must match the exact `main` commit, and the home page, all four
-new capability pages, navigation/headings and shared CSS/JS assets must resolve.
-The verifier retries briefly for CDN propagation. A green Pages workflow thus
-includes a post-deployment check, not just an artifact upload.
-
-### Optional gateway instead of a reading copy
-
-An operator who wants no catalogue published can export a **sign-in gateway**:
-one landing page whose buttons go to a self-hosted app's `/login` and `/register`,
-with old deep links preserved as `next`. No catalogue or answers are published in
-this mode. The workflow's explicit `--reading-copy` must be changed to `--gateway`
-if choosing it, and its reading-copy-specific verification step must be adjusted.
+After you have deployed the full app over HTTPS and checked registration, set the
+**repository Actions variable** `ENGINEVERSE_APP_URL` in GitHub Settings →
+Secrets and variables → Actions → Variables. Use exactly the origin, e.g.
+`https://learn.example.org`, not `/login`, not the Pages URL, and no trailing
+path. On the next `main` workflow run (usually after merging), the build calls
+`scripts/verify_hosted_app.py` and **refuses to replace** the reading copy if the
+app is down, is in development mode, lacks a working login/registration/install
+page, or lacks its root PWA manifest. When verified, Pages changes to a small
+gateway. It opens the *same* full website for everyone, and its 404 page forwards
+old bookmarked paths and query strings to that origin. The app's normal auth
+policy decides if they need to sign in. Cookies and records are never copied
+between Pages and the app. You can test an export locally with:
 
 ```bash
 python scripts/export_pages.py --out site --gateway --app-url https://learn.example.org
 ```
 
-The exporter also accepts `ENGINEVERSE_APP_URL` as the gateway destination.
-Without an app URL the gateway says the app is not hosted yet. Setting that
-variable alone does not override the current workflow's `--reading-copy` flag.
+Set `ENGINEVERSE_SIGNIN=optional` **on the hosted app** to allow signed-out
+visitors to browse notes there. The hosted app, not Pages or its code repository,
+provides account-backed progress. The workflow publishes `deployment.json` with
+the exact `main` commit and mode. `scripts/verify_pages.py` checks the actual
+Pages HTTPS origin, links and assets after deployment; a green upload alone is
+not enough. Once Pages is a gateway, availability of the full site depends on
+your host, TLS and database; monitor and back it up.
 
-The Pages address is not the Python application. It is not a production backend
-deployment, a Play submission or an accredited certificate.
+A direct APK link appears only if an operator has published a signed Android
+GitHub Release *and* sets `ENGINEVERSE_APK_URL` to its versioned asset in both
+`deploy/.env` and the repository Actions variable. The Pages build verifies the
+release has a nonempty, nondraft APK before showing the button. With no APK,
+the full site still works in a phone browser/PWA. See [Android](ANDROID_TWA.md).
+The public Pages URL is never the APK's TWA origin.
+
+If you don't have a public HTTPS server yet, leave `ENGINEVERSE_APP_URL` and
+`ENGINEVERSE_APK_URL` unset: Pages remains the useful public reading copy rather
+than offering a fake sign-in or broken download. A code push or PR cannot by
+itself deploy the backend, buy a host, provision a signing key, or turn GitHub
+into a safe learner database.

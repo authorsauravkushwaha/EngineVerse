@@ -211,6 +211,7 @@ def base_context(request: Request, **extra: Any) -> dict[str, Any]:
         "sms_configured": get_settings().sms_configured,
         "login_otp_required": get_settings().login_otp_required,
         "signin_required": get_settings().signin_required,
+        "apk_url": get_settings().approved_apk_url,
         # A signed-out visitor on an instance where sign-in is compulsory can
         # only reach the account pages, so the layout drops the navigation,
         # search and footer links that would each bounce back to /login.

@@ -1,8 +1,8 @@
 name: GitHub Pages
 
-# Publishes the public EngineVerse site (static catalogue). GitHub Pages
-# cannot run the Python process, a database, or the code judge. The live URL is
-# https://<user>.github.io/<repository>/ once this workflow succeeds.
+# Until the full app has a verified HTTPS origin, publish the reading copy.
+# Once ENGINEVERSE_APP_URL is configured, publish a doorway to that app instead.
+# Pages itself never runs accounts, the database, or the code judge.
 
 on:
   push:
@@ -13,6 +13,10 @@ permissions:
   contents: read
   pages: write
   id-token: write
+
+env:
+  ENGINEVERSE_APP_URL: ${{ vars.ENGINEVERSE_APP_URL }}
+  ENGINEVERSE_APK_URL: ${{ vars.ENGINEVERSE_APK_URL }}
 
 concurrency:
   group: pages
@@ -37,12 +41,29 @@ jobs:
 
       - name: Check navigation, labs and the exporter
         run: |
-          pytest backend/tests/test_navigation.py backend/tests/test_links.py backend/tests/test_capabilities.py
+          pytest backend/tests/test_navigation.py backend/tests/test_links.py \
+            backend/tests/test_capabilities.py backend/tests/test_public_delivery.py
           python scripts/export_pages.py --self-check
           python scripts/verify_pages.py --self-check
 
-      - name: Export the reading copy
-        run: python scripts/export_pages.py --out site --reading-copy
+      - name: Check the public backend before switching the site
+        if: env.ENGINEVERSE_APP_URL != ''
+        run: python scripts/verify_hosted_app.py --url "$ENGINEVERSE_APP_URL"
+
+      - name: Check the Android asset before showing a download button
+        if: env.ENGINEVERSE_APK_URL != ''
+        run: python scripts/verify_apk_release.py --url "$ENGINEVERSE_APK_URL"
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Export the right mode (never claim a backend is deployed when it is not)
+        shell: bash
+        run: |
+          if [ -n "$ENGINEVERSE_APP_URL" ]; then
+            python scripts/export_pages.py --out site --gateway
+          else
+            python scripts/export_pages.py --out site --reading-copy
+          fi
 
       - name: Refuse leaked demo passwords
         run: |
@@ -72,7 +93,15 @@ jobs:
       - id: deployment
         uses: actions/deploy-pages@v4
 
-      - name: Verify the published reading copy
-        run: python scripts/verify_pages.py --url "$PAGES_URL" --sha "$GITHUB_SHA"
+      - name: Verify the published mode and exact commit
+        shell: bash
+        run: |
+          if [ -n "$ENGINEVERSE_APP_URL" ]; then
+            python scripts/verify_pages.py --url "$PAGES_URL" --sha "$GITHUB_SHA" \
+              --mode gateway --app-url "$ENGINEVERSE_APP_URL"
+          else
+            python scripts/verify_pages.py --url "$PAGES_URL" --sha "$GITHUB_SHA" \
+              --mode reading-copy
+          fi
         env:
           PAGES_URL: ${{ steps.deployment.outputs.page_url }}

@@ -1,0 +1,45 @@
+# Optional HTTPS edge for a real public installation. Compose files are merged:
+# docker compose --env-file deploy/.env -f deploy/docker-compose.yml -f deploy/public.yml up -d --build
+# DNS for ENGINEVERSE_SITE_URL must already point to this host. Pages alone is
+# not the application, and this file does not create a VPS or a domain.
+services:
+  web:
+    # Only Caddy has public ports. The base file retains a loopback-only port
+    # for on-host health checks; never map web directly to 0.0.0.0.
+    networks: [internal, edge]
+    environment:
+      # Caddy overwrites X-Forwarded-For with the actual TCP peer. The app
+      # accepts this header only from a private/loopback peer.
+      ENGINEVERSE_TRUST_PROXY: "1"
+
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      ENGINEVERSE_SITE_URL: ${ENGINEVERSE_SITE_URL:?set the full public HTTPS origin in deploy/.env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    read_only: true
+    tmpfs:
+      - /tmp:size=64M
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    networks: [edge]
+
+networks:
+  edge: {}
+
+volumes:
+  caddy-data: {}
+  caddy-config: {}

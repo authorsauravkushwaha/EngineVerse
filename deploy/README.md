@@ -1,19 +1,40 @@
 # Deployment
 
-Four services: a one-shot release step, the web app, PostgreSQL, and a backup client.
-The longer procedure, including Git Bash, is [docs/DEPLOYMENT.md](../docs/DEPLOYMENT.md).
-This file is the topology. It is not a record of a deployment that has happened.
+The base Compose file has four services: a one-shot release step, the web app,
+PostgreSQL and a local backup client. Two opt-in overlays add a public HTTPS edge
+and **encrypted** off-site backup snapshots. The longer procedure is in
+[Deployment](../docs/DEPLOYMENT.md) and [Backups](../docs/BACKUPS.md).
+This file is a topology, not proof that a deployment or backup has happened.
 
 ```bash
 cp deploy/.env.example deploy/.env      # then set real values
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 ```
+
+Always pass `--env-file deploy/.env` from the repository root. Otherwise
+Compose may read an unrelated root development `.env` (or none at all), even
+though the deployment secrets were stored in `deploy/.env`.
 
 `release` migrates with the bootstrap role and seeds the catalogue only when
 it is empty. The web process does not migrate or seed, and it connects as
 `engineverse_app`, which cannot `CREATE TABLE`. Init scripts in
 `docker-entrypoint-initdb.d` run only on an empty data volume. `release`
 repeats the grants so an existing volume still gets the runtime role.
+
+For an actual public HTTPS website, configure DNS and a real domain in
+`deploy/.env`, then add the Caddy overlay:
+
+```bash
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml -f deploy/public.yml up -d --build
+```
+
+Caddy exposes 80/443 and overwrites forwarded IP headers. The web process stays
+on the internal network plus its edge connection and a loopback-only host port;
+the Postgres port is never published. For an opt-in encrypted private GitHub
+backup worker, add `-f deploy/github-backups.yml` after generating an offline
+age key and a scoped token for a **different private** repository. See
+[Backups](../docs/BACKUPS.md) before enabling it. The base local backup service
+is still there. Neither overlay uses GitHub Pages as a database.
 
 Production refuses `ENGINEVERSE_JUDGE=auto`, `python` and `java`. The default
 is `disabled`. Demo accounts are not created.

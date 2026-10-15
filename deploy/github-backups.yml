@@ -1,0 +1,37 @@
+# Optional off-site encrypted backups; NEVER point this at the public source
+# repository. Add this only after creating a separate private GitHub repo and
+# an offline age recovery key. See docs/BACKUPS.md.
+# docker compose --env-file deploy/.env -f deploy/docker-compose.yml -f deploy/github-backups.yml up -d --build
+services:
+  github-backup:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.github-backup
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      release:
+        condition: service_completed_successfully
+    environment:
+      PGHOST: db
+      PGPORT: "5432"
+      PGUSER: engineverse_app
+      PGDATABASE: engineverse
+      PGPASSWORD: ${APP_DB_PASSWORD:?set APP_DB_PASSWORD in deploy/.env}
+      GH_TOKEN: ${ENGINEVERSE_BACKUP_GH_TOKEN:?set a scoped token in deploy/.env}
+      ENGINEVERSE_BACKUP_REPO: ${ENGINEVERSE_BACKUP_REPO:?set a separate private GitHub repo}
+      ENGINEVERSE_BACKUP_AGE_RECIPIENT: ${ENGINEVERSE_BACKUP_AGE_RECIPIENT:?set the age public recipient}
+      BACKUP_INTERVAL_SECONDS: "86400"
+    # No persistent volume: the pipe goes straight from pg_dump into age. The
+    # only temporary archive is ciphertext and disappears after gh uploads it.
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,noexec,size=1G,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    networks: [internal, backup-egress]
+
+networks:
+  backup-egress: {}

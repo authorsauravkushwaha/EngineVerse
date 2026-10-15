@@ -1,0 +1,12 @@
+# Public TLS termination for deploy/public.yml. Caddy obtains/renews a
+# certificate for ENGINEVERSE_SITE_URL after DNS and ports 80/443 work.
+{$ENGINEVERSE_SITE_URL} {
+    encode zstd gzip
+    reverse_proxy web:8000 {
+        # Never allow a visitor-supplied forwarded address to bypass the
+        # backend's per-IP rate limits. Only the edge container can reach web.
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto https
+        header_up X-Forwarded-Host {host}
+    }
+}
