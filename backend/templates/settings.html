@@ -203,13 +203,15 @@
       {% endfor %}</div></section>
 
     <section class="panel"><h2>Install as an app</h2>
-      <p class="muted">{{ brand.site_name }} is an installable progressive web app — it works offline and lives on
-        your home screen.</p>
+      <p class="muted">{{ brand.site_name }} can live on your home screen. Previously cached public pages may
+        work offline; sign-in, synced progress and submissions need a connection.</p>
       <button class="btn btn-soft hide" id="install-btn">Install</button>
       <a class="btn btn-ghost" href="/install">Instructions</a></section>
 
     <section class="panel"><h2 style="color:var(--bad)">Delete account</h2>
-      <p class="muted">This permanently removes your account, progress, notes and submissions. It cannot be undone.</p>
+      <p class="muted">This removes your live account, progress, notes and submissions. It cannot be undone
+        here. Older encrypted backups may still contain your data until the operator's retention period ends;
+        see <a href="/privacy">Privacy</a>.</p>
       <form method="post" action="/settings/account/delete">
         <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
         <div class="field"><label for="cf">Type DELETE to confirm</label>

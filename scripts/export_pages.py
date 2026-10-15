@@ -1,29 +1,20 @@
 #!/usr/bin/env python3
-"""Write the GitHub Pages site.
+"""Write the public GitHub Pages site.
 
-GitHub Pages can only serve files, so it cannot run this application, its
-accounts or its database. Sign-in is compulsory on EngineVerse, so by default
-this writes a **sign-in gateway**, not the catalogue: a landing page whose
-buttons go to the hosted app's /login and /register, and a 404 page that sends
-an old deep link (for example a bookmarked /topics/ohms-law/) to that app's
-sign-in with the page kept as ``next``. No notes, questions or answers are
-published. The hosted app's address comes from ``--app-url`` or
-``ENGINEVERSE_APP_URL`` (in CI, the ``ENGINEVERSE_APP_URL`` repository
-variable); without one the page says the app is not hosted yet.
+Pages cannot run accounts, a database or the code judge. Without a configured
+host, export the public reading copy with a browser-only streak. Once the full
+HTTPS FastAPI app has actually been deployed, export a gateway to that app:
+visitors use it without cloning this repository, and old deep links are
+preserved. The CI workflow verifies the hosted app before switching modes.
 
-``--reading-copy`` writes the older public catalogue export instead. It is only
-appropriate for an operator who runs the app with ``ENGINEVERSE_SIGNIN=optional``,
-because it publishes every public page to anyone. This script never creates
-demo accounts and refuses to finish if a known demo password appears in the
-output.
-
-The brand name is whatever the seeded site configuration says. Nothing here
-renames the product.
+No learner database, credentials or demo accounts are ever exported. A signed
+Android APK is only linked after its versioned release URL is configured.
 """
 from __future__ import annotations
 
 import argparse
 import html
+import ipaddress
 import json
 import os
 import re
@@ -32,9 +23,14 @@ import subprocess
 import sys
 from datetime import date as date_cls
 from pathlib import Path
+from urllib.parse import urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
 BACKEND = ROOT / "backend"
+if str(BACKEND) not in sys.path:
+    sys.path.insert(0, str(BACKEND))
+from engineverse.distribution import normalise_apk_url  # noqa: E402
+
 FORBIDDEN = (
     "LearnBuild#2026!",
     "TeachLearn#2026!",
@@ -296,22 +292,73 @@ def banner(base: str) -> str:
     return ""
 
 
-def hosting_main() -> str:
-    return """
-<h1>This is EngineVerse</h1>
-<p class="lead">You are on the public site. Notes, language paths, problems and labs are here. An account, live code execution and cross-device progress need the install you run yourself — they are not a second website.</p>
+def hosting_main(app_url: str = "", apk_url: str = "") -> str:
+    hosted = (
+        '<p>The full website is available online. You do not need to clone or install the source code. '
+        'Sign in to sync your account across devices; live code execution depends on the host\'s judge.</p>'
+        f'<p><a class="btn btn-primary" href="{html.escape(app_url, quote=True)}/">Open full website</a> '
+        f'<a class="btn btn-ghost" href="{html.escape(app_url, quote=True)}/install">Use on your phone</a></p>'
+        if app_url else
+        '<p>No full website has been configured from this address yet. GitHub Pages cannot accept '
+        'sign-ins, store shared progress or execute code. The site operator needs an HTTPS host and private database. '
+        'Publishing source code to GitHub is not a database deployment.</p>'
+        f'<p><a class="btn btn-ghost" href="{REPO}#hosting-the-full-website">Hosting instructions</a></p>'
+    )
+    if app_url and apk_url:
+        hosted += (
+            f'<p><a class="btn btn-soft" href="{html.escape(apk_url, quote=True)}" '
+            'rel="noopener noreferrer">Download signed EngineVerse.apk</a></p>'
+        )
+    return f"""
+<h1>Read EngineVerse here</h1>
+<p class="lead">This GitHub Pages address is a public reading copy, not the account server.
+  You can explore the catalogue here without downloading this repository.</p>
 <div class="grid g2">
   <article class="panel">
-    <h2>What you can do here</h2>
-    <p>Read the notes at every depth that was written, use the tutor against those notes, and keep a streak in this browser. The practice date follows your calendar, including a visit weeks later. Search works in the browser. Nothing on this copy is a university degree, and nothing here is a certificate.</p>
+    <h2>What works on this copy</h2>
+    <p>Notes, language paths, seeded labs and browser search work here. The tutor quotes published notes;
+      your streak is saved only in this browser. Backend-only labs show examples, not live execution.
+      This copy does not issue certificates or sync progress.</p>
     <p><a class="btn btn-primary" href="../explore/">Open the catalogue</a></p>
   </article>
   <article class="panel">
-    <h2>What needs the real app</h2>
-    <p>An account, progress that follows you to another device, the mistake notebook, community posts and code execution all need a self-hosted install. The streak on this copy stays in this browser. This page does not deploy that install and does not claim one is public.</p>
-    <p>The install steps are in the repository README. Core learning stays free. A certificate from the app, when you run it yourself, is a platform record, not accreditation.</p>
-    <p><a class="btn btn-ghost" href="https://github.com/authorsauravkushwaha/EngineVerse">Repository</a></p>
+    <h2>For accounts and live features</h2>
+    {hosted}
+    <p class="small muted">Never put learner records in this public source repository. The full app
+      stores account data in a private database. A signed APK, when available, opens the same hosted site;
+      it is not a second server.</p>
   </article>
+</div>
+""".strip()
+
+
+def reading_copy_install_main(app_url: str = "", apk_url: str = "") -> str:
+    """The static export has no service worker or account server: do not sell it as an app."""
+    if app_url:
+        links = (
+            f'<a class="btn btn-primary" href="{html.escape(app_url, quote=True)}/install">'
+            'Install from the full website</a>'
+        )
+        if apk_url:
+            links += (
+                f' <a class="btn btn-soft" href="{html.escape(apk_url, quote=True)}" '
+                'rel="noopener noreferrer">Download signed EngineVerse.apk</a>'
+            )
+    else:
+        links = (
+            f'<a class="btn btn-primary" href="{REPO}#hosting-the-full-website">'
+            'How to host the full website</a>'
+        )
+    return f"""
+<h1>EngineVerse on your phone</h1>
+<div class="panel">
+  <p class="lead">You can read this public copy in your phone browser without installing the
+    repository. A browser-only streak stays on this device; it will not become an account on another device.</p>
+  <p>This GitHub Pages export does not run the full web app or its service worker. For an account,
+    cross-device progress or an Android APK, use the full HTTPS website when it is deployed.</p>
+  <p>{links}</p>
+  <p class="small muted">An APK is only safe to install from the official signed GitHub Release.
+    Without a configured release, there is no APK download here.</p>
 </div>
 """.strip()
 
@@ -730,7 +777,7 @@ def fill_shell(home_html: str, title: str, main: str) -> str:
     return text
 
 
-def export(site: Path, base: str) -> int:
+def export(site: Path, base: str, app_url: str = "", apk_url: str = "") -> int:
     if site.exists():
         shutil.rmtree(site)
     site.mkdir(parents=True)
@@ -763,6 +810,16 @@ def export(site: Path, base: str) -> int:
             failed.append(f"{path} -> {response.status_code}")
             continue
         body = inject(response.text, base, search=(path == "/search"), dpp_dates=dpp_dates)
+        if path == "/install":
+            body = fill_shell(body, "Install EngineVerse", reading_copy_install_main(app_url, apk_url))
+        if path == "/streaks":
+            body = re.sub(r'<p class="small muted" data-hosted-streak-notice>.*?</p>',
+                          "", body, count=1, flags=re.S)
+        if path == "/":
+            body = body.replace(
+                "When you sign in on this site, your real streak follows your account across devices.",
+                "The streak on this reading copy stays in this browser, not an account.",
+            )
         # First-year page should not keep a query-string link to itself as the only year view.
         if path == "/explore/first-year":
             body = body.replace("<title>", "<title>First year - ", 1)
@@ -776,7 +833,7 @@ def export(site: Path, base: str) -> int:
     if not home_html:
         raise SystemExit("Home page did not render. Nothing was published.")
 
-    hosting = fill_shell(home_html, "Reading copy", hosting_main())
+    hosting = fill_shell(home_html, "Read EngineVerse", hosting_main(app_url, apk_url))
     hosting_path = output_path(site, "/hosting")
     hosting_path.parent.mkdir(parents=True, exist_ok=True)
     hosting_path.write_text(hosting, encoding="utf-8")
@@ -818,81 +875,111 @@ def export(site: Path, base: str) -> int:
 
 
 # ---------------------------------------------------------------------------
-# Sign-in gateway (the default Pages output)
+# Full-app gateway (only after an HTTPS app origin has been configured)
 # ---------------------------------------------------------------------------
 
-_APP_URL_RE = re.compile(r"^https://[A-Za-z0-9.-]+(?::\d{1,5})?(?:/[A-Za-z0-9._~/-]*)?$")
-_LOCAL_APP_URL_RE = re.compile(r"^http://(?:localhost|127\.0\.0\.1)(?::\d{1,5})?(?:/[A-Za-z0-9._~/-]*)?$")
+_DNS_LABEL = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z")
 
 
 def normalise_app_url(value: str | None) -> str:
-    """The hosted app's origin (and optional path), or "" when none is usable.
+    """Only a public HTTPS origin (or localhost HTTP for local testing).
 
-    Only https:// is accepted (plus http://localhost for trying the gateway on
-    a laptop). The value is written into HTML and a script, so anything with
-    quotes, spaces or a query string is refused rather than escaped into a
-    working-looking but wrong link.
+    The backend is mounted at /, not at an arbitrary path. Fail closed before
+    a bad repository variable can redirect all of Pages to an unrelated host.
+    Never echo rejected input: it might contain accidental credentials.
     """
     text = (value or "").strip().rstrip("/")
     if not text:
         return ""
-    if _APP_URL_RE.fullmatch(text) or _LOCAL_APP_URL_RE.fullmatch(text):
+    error = SystemExit("ENGINEVERSE_APP_URL must be a public HTTPS origin (localhost HTTP only for development).")
+    if not re.fullmatch(r"https?://[A-Za-z0-9.:-]+", text):
+        raise error
+    try:
+        parts = urlsplit(text)
+        host = parts.hostname or ""
+        port = parts.port
+    except ValueError:
+        raise error from None
+    if parts.path or parts.query or parts.fragment or parts.username or parts.password:
+        raise error
+    if parts.scheme == "http" and host in {"localhost", "127.0.0.1"}:
+        if port == 0 or parts.netloc != host + (f":{port}" if port is not None else ""):
+            raise error
         return text
-    raise SystemExit(
-        f"Refusing to publish: ENGINEVERSE_APP_URL must be an https:// address, got {text!r}."
-    )
+    if parts.scheme != "https" or port is not None or parts.netloc != host:
+        raise error
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        pass  # A real DNS name is required for a public HTTPS origin.
+    else:
+        raise error
+    if (len(host) > 253 or "." not in host or host.endswith((".local", ".internal", ".localhost"))
+            or not all(_DNS_LABEL.fullmatch(label) for label in host.split("."))):
+        raise error
+    return text
 
 
-def gateway_page(base: str, app_url: str, site_name: str, *, not_found: bool = False) -> str:
-    """One self-contained page: the sign-in gateway, or its 404 twin."""
+def gateway_page(base: str, app_url: str, site_name: str, *, not_found: bool = False,
+                 apk_url: str = "") -> str:
+    """A small public doorway to the full app, with a deep-link-preserving 404."""
     css = html.escape(join_base(base, "/static/css/app.css"), quote=True)
     icon = html.escape(join_base(base, "/static/icons/favicon.svg"), quote=True)
     name = html.escape(site_name)
     repo = html.escape(REPO, quote=True)
     if app_url:
+        home = html.escape(app_url + "/", quote=True)
         login = html.escape(app_url + "/login", quote=True)
         register = html.escape(app_url + "/register", quote=True)
+        install = html.escape(app_url + "/install", quote=True)
         actions = (
-            f'<p class="row" style="justify-content:center;gap:12px">'
-            f'<a class="btn btn-primary" href="{login}" id="gateway-signin">Sign in</a>'
-            f'<a class="btn btn-ghost" href="{register}">Create a free account</a></p>'
-            f'<p class="small muted">You will continue at <span class="mono">{html.escape(app_url)}</span>.</p>'
+            '<p class="row" style="justify-content:center;gap:12px">'
+            f'<a class="btn btn-primary" href="{home}" id="gateway-open">Open full website</a>'
+            f'<a class="btn btn-ghost" href="{login}" id="gateway-signin">Sign in</a>'
+            f'<a class="btn btn-ghost" href="{register}">Create account</a></p>'
+            f'<p><a href="{install}">Use EngineVerse on your phone</a></p>'
+            '<p class="small muted">Accounts and progress live on the hosted app, not on GitHub Pages. '
+            'Code execution is available only if that host has a judge configured.</p>'
         )
-        # Old links into the reading copy (a bookmarked topic, a shared
-        # practice set) land on 404.html now. Send them to the app's sign-in
-        # with the same page as ``next``, so the learner arrives where the link
-        # pointed once signed in. The base prefix is stripped first.
+        if apk_url:
+            actions += (
+                f'<p><a class="btn btn-soft" href="{html.escape(apk_url, quote=True)}" '
+                'rel="noopener noreferrer">Download signed EngineVerse.apk</a></p>'
+            )
+        # GitHub Pages serves its 404.html for old bookmarked catalogue paths.
+        # Route those to the same path on the app (not blindly to /login). The
+        # app itself decides whether a particular page needs authentication.
         script = (
             "<script>(function(){var app=" + json.dumps(app_url) + ";"
             "var base=" + json.dumps(base.rstrip("/")) + ";"
             "var path=location.pathname;"
-            "if(base&&path.indexOf(base)===0)path=path.slice(base.length)||'/';"
+            "if(base&&path!==base&&path.indexOf(base+'/')!==0)return;"
+            "if(base)path=path.slice(base.length)||'/';"
             "path=path.replace(/\\/index\\.html$/,'/');"
-            "if(path.length>1&&path.charAt(path.length-1)==='/')path=path.slice(0,-1);"
-            "var target=app+'/login';"
-            "if(path&&path!=='/'&&/^\\/[A-Za-z0-9._~\\/-]*$/.test(path))"
-            "target+='?next='+encodeURIComponent(path);"
-            "location.replace(target);})();</script>"
+            "if(!/^\\/[A-Za-z0-9._~%\\/-]*$/.test(path)||path.indexOf('//')===0"
+            "||path.indexOf('..')!==-1)path='/';"
+            "location.replace(app+path+location.search+location.hash);})();</script>"
+            if not_found else
+            "<script>location.replace(" + json.dumps(app_url + "/") + ");</script>"
         )
         lead = (
-            "That page is inside the app. Taking you to sign in..." if not_found
-            else "Notes, practice, coding and your progress all live behind your account. Taking you to sign in..."
+            "That link has moved to the full website. Taking you to the same page there..."
+            if not_found else
+            "The full website is online. No source download is needed. Opening it now..."
         )
-        refresh = f'<meta http-equiv="refresh" content="3;url={login}">'
+        refresh = f'<meta http-equiv="refresh" content="3;url={home}">'
     else:
         actions = (
             '<div class="callout warning" style="text-align:left"><span class="label">Not hosted yet</span>'
-            "The app has not been given a public address, so there is nowhere to sign in from here. "
-            "GitHub Pages can only serve files; it cannot run accounts or a database.</div>"
-            f'<p><a class="btn btn-ghost" href="{repo}#run-locally">How to run or host it</a></p>'
+            'GitHub Pages cannot store accounts or run a judge. The operator has not configured '
+            'a public HTTPS app origin.</div>'
+            f'<p><a class="btn btn-ghost" href="{repo}#hosting-the-full-website">'
+            'How to host the full website</a></p>'
         )
         script = ""
         refresh = ""
-        lead = (
-            "That page is inside the app, and the app needs an account." if not_found
-            else "Notes, practice, coding and your progress all live behind your account."
-        )
-    title = "Page moved" if not_found else "Sign in"
+        lead = "The public reading copy is available until the full app is deployed."
+    title = "Page moved" if not_found else "Open the full site"
     return f"""<!doctype html>
 <html lang="en" data-theme="light">
 <head>
@@ -908,11 +995,10 @@ def gateway_page(base: str, app_url: str, site_name: str, *, not_found: bool = F
 <main id="main" class="wrap" style="min-height:80vh;display:grid;place-items:center">
   <div class="form-panel panel" style="text-align:center;max-width:560px">
     <h1>{name}</h1>
-    <p class="lead">Sign-in is required to use {name}.</p>
     <p class="muted">{html.escape(lead)}</p>
     {actions}
-    <p class="tiny muted mt">This GitHub Pages address is only a doorway. It publishes no notes, questions or answers.
-      <a href="{repo}">Source</a></p>
+    <p class="tiny muted mt">This Pages address has no account database.
+      <a href="{repo}">Source</a> · <a href="{html.escape(app_url + '/privacy' if app_url else repo, quote=True)}">Privacy</a></p>
   </div>
 </main>
 {script}
@@ -921,7 +1007,8 @@ def gateway_page(base: str, app_url: str, site_name: str, *, not_found: bool = F
 """
 
 
-def export_gateway(site: Path, base: str, app_url: str, site_name: str = "EngineVerse") -> int:
+def export_gateway(site: Path, base: str, app_url: str, site_name: str = "EngineVerse",
+                   apk_url: str = "") -> int:
     if site.exists():
         shutil.rmtree(site)
     site.mkdir(parents=True)
@@ -931,13 +1018,19 @@ def export_gateway(site: Path, base: str, app_url: str, site_name: str = "Engine
     (static / "icons").mkdir(parents=True)
     shutil.copy2(BACKEND / "static" / "css" / "app.css", static / "css" / "app.css")
     shutil.copy2(BACKEND / "static" / "icons" / "favicon.svg", static / "icons" / "favicon.svg")
-    (site / "index.html").write_text(gateway_page(base, app_url, site_name), encoding="utf-8")
-    (site / "404.html").write_text(gateway_page(base, app_url, site_name, not_found=True), encoding="utf-8")
+    (site / "index.html").write_text(gateway_page(base, app_url, site_name, apk_url=apk_url), encoding="utf-8")
+    (site / "404.html").write_text(gateway_page(base, app_url, site_name, not_found=True,
+                                                apk_url=apk_url), encoding="utf-8")
     (site / "robots.txt").write_text("User-agent: *\nDisallow: /\n", encoding="utf-8")
+    revision = os.environ.get("GITHUB_SHA", "") or subprocess.check_output(
+        ["git", "rev-parse", "HEAD"], cwd=ROOT, text=True
+    ).strip()
+    (site / "deployment.json").write_text(json.dumps({
+        "revision": revision, "mode": "gateway", "base": base, "app_url": app_url,
+    }, indent=2) + "\n", encoding="utf-8")
     assert_clean(site)
     assert_links(site, base)
-    where = app_url or "no app URL (shows 'not hosted yet')"
-    print(f"Wrote the sign-in gateway to {site}, pointing at {where}")
+    print(f"Wrote the full-app gateway to {site}")
     return 2
 
 
@@ -953,8 +1046,11 @@ def self_check() -> None:
     assert "LearnBuild#2026!" not in rewritten
     assert "data-theme" not in mirror_script()
     assert normalise_app_url("https://learn.example.org/") == "https://learn.example.org"
+    assert normalise_app_url("http://localhost:8000/") == "http://localhost:8000"
     assert normalise_app_url("") == ""
-    for bad in ('https://x.org/"><script>', "javascript:alert(1)", "http://example.org", "https://x.org/?a=b"):
+    for bad in ('https://x.org/"><script>', "javascript:alert(1)", "http://example.org",
+                "https://x.org/?a=b", "https://127.0.0.1", "https://x.org/private",
+                "https://x.org:8443", "https://x.org:", "https://x.internal", "https://a..b.org"):
         try:
             normalise_app_url(bad)
         except SystemExit:
@@ -963,7 +1059,13 @@ def self_check() -> None:
             raise AssertionError(f"accepted {bad!r}")
     gate = gateway_page("/EngineVerse/", "https://learn.example.org", "EngineVerse")
     assert 'href="https://learn.example.org/login"' in gate and "/EngineVerse/static/css/app.css" in gate
+    assert 'id="gateway-open"' in gate and "location.replace" in gate
     assert "Not hosted yet" in gateway_page("/EngineVerse/", "", "EngineVerse")
+    assert "Download signed" not in gate
+    assert "Download signed" in gateway_page(
+        "/EngineVerse/", "https://learn.example.org", "EngineVerse",
+        apk_url="https://github.com/authorsauravkushwaha/EngineVerse/releases/download/android-v1.0.0/EngineVerse.apk"
+    )
     # /apis is a page, not part of /api/. This boundary once silently dropped
     # the directory while exporting navigation links to it on every page.
     assert "/api/" in SKIP_PREFIXES and "/api" not in SKIP_PREFIXES
@@ -980,15 +1082,17 @@ def self_check() -> None:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Write the GitHub Pages site: the public reading copy, or a sign-in gateway.")
+    parser = argparse.ArgumentParser(description="Write the public reading copy or a gateway to the hosted app.")
     parser.add_argument("--out", default="site", help="output directory, relative to the repo root")
     parser.add_argument("--base", default=None, help="URL prefix, for example /EngineVerse/ or /")
     parser.add_argument("--self-check", action="store_true", help="check URL rewriting and exit")
     parser.add_argument("--skip-seed", action="store_true", help="reuse ENGINEVERSE_DB_PATH")
     parser.add_argument("--app-url", default=None,
-                        help="hosted app address for the sign-in buttons (default: $ENGINEVERSE_APP_URL)")
+                        help="full app HTTPS origin (default: $ENGINEVERSE_APP_URL)")
+    parser.add_argument("--apk-url", default=None,
+                        help="versioned signed GitHub Release APK URL (default: $ENGINEVERSE_APK_URL)")
     parser.add_argument("--gateway", action="store_true",
-                        help="publish the sign-in gateway instead of the public reading copy")
+                        help="publish a gateway to the hosted app instead of the reading copy")
     parser.add_argument("--reading-copy", action="store_true",
                         help="publish the public reading copy (the default unless --gateway or an app URL is set)")
     args = parser.parse_args()
@@ -999,15 +1103,23 @@ def main() -> int:
     app_url = normalise_app_url(
         args.app_url if args.app_url is not None else os.environ.get("ENGINEVERSE_APP_URL", "")
     )
+    try:
+        apk_url = normalise_apk_url(
+            args.apk_url if args.apk_url is not None else os.environ.get("ENGINEVERSE_APK_URL", "")
+        )
+    except ValueError as exc:
+        raise SystemExit(str(exc)) from None
+    if apk_url and not app_url:
+        raise SystemExit("Refusing to advertise an APK without a hosted full app origin.")
     if (args.gateway or app_url) and not args.reading_copy:
-        export_gateway(ROOT / args.out, base, app_url)
+        export_gateway(ROOT / args.out, base, app_url, apk_url=apk_url)
         return 0
     db_path = ROOT / "data" / "pages-export.sqlite"
     env = prepare_env(db_path)
     os.environ.update(env)
     if not args.skip_seed:
         seed(env, db_path)
-    export(ROOT / args.out, base)
+    export(ROOT / args.out, base, app_url=app_url, apk_url=apk_url)
     return 0
 
 

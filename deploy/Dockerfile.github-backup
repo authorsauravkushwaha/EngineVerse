@@ -1,0 +1,14 @@
+# Opt-in encrypted backup worker. It is not the web process. The private repo
+# token and DB credentials are runtime environment variables, NEVER image layers.
+FROM postgres:16-bookworm
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends age gh ca-certificates \
+ && rm -rf /var/lib/apt/lists/* \
+ && groupadd --system --gid 10002 engineverse_backup \
+ && useradd --system --uid 10002 --gid engineverse_backup --no-create-home \
+      --shell /usr/sbin/nologin engineverse_backup
+COPY scripts/backup_github.sh scripts/backup_github_loop.sh /usr/local/bin/
+RUN chmod 755 /usr/local/bin/backup_github.sh /usr/local/bin/backup_github_loop.sh
+USER engineverse_backup
+ENV HOME=/tmp
+ENTRYPOINT ["/usr/local/bin/backup_github_loop.sh"]

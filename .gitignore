@@ -31,6 +31,13 @@ backups/
 *.keystore
 *.jks
 *.p12
+*.age
+*.apk
+*.aab
+
+# Android build output and npm toolchain (neither is source)
+node_modules/
+android/.generated/
 
 # Toolchains fetched locally (never committed)
 .toolchain/

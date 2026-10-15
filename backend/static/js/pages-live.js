@@ -7,9 +7,13 @@
   var STORE = "ev-reading-progress-v1";
   var cfg = {};
   var configNode = document.getElementById("ev-live");
-  if (configNode) {
-    try { cfg = JSON.parse(configNode.textContent || "{}"); } catch (error) { cfg = {}; }
-  }
+  // Only the exported reading copy injects #ev-live. Never create a second,
+  // browser-only streak on the hosted app: signed-in progress belongs in the
+  // private database and must agree across phone and desktop.
+  if (!configNode) return;
+  try { cfg = JSON.parse(configNode.textContent || "{}"); } catch (error) { cfg = {}; }
+  var localStreak = document.getElementById("local-streak");
+  if (localStreak) localStreak.hidden = false;
   var pool = Array.isArray(cfg.dpp) ? cfg.dpp.slice() : [];
   var readingCopy = Boolean(cfg.tutor || pool.length);
 

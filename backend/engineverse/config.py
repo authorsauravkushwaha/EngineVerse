@@ -145,6 +145,19 @@ class Settings:
     signin: str = field(default_factory=lambda: os.environ.get(
         "ENGINEVERSE_SIGNIN", "required").strip().lower())
 
+    # Advertise a signed Android release only after the operator has published
+    # it and configured its exact URL. A missing APK never masquerades as one.
+    apk_url: str = field(default_factory=lambda: os.environ.get("ENGINEVERSE_APK_URL", ""))
+
+    @property
+    def approved_apk_url(self) -> str:
+        from engineverse.distribution import normalise_apk_url
+
+        try:
+            return normalise_apk_url(self.apk_url)
+        except ValueError:
+            return ""
+
     @property
     def signin_required(self) -> bool:
         # Anything other than an explicit "optional" keeps the gate closed, so
@@ -238,6 +251,12 @@ class Settings:
             problems.append("ENGINEVERSE_REVEAL_RESET_TOKEN must not be set in production")
         if self.signin not in {"required", "optional"}:
             problems.append("ENGINEVERSE_SIGNIN must be either 'required' or 'optional'")
+        from engineverse.distribution import normalise_apk_url
+
+        try:
+            normalise_apk_url(self.apk_url)
+        except ValueError as exc:
+            problems.append(str(exc))
         if self.login_otp not in {"required", "disabled"}:
             problems.append(
                 "ENGINEVERSE_LOGIN_OTP must be either 'required' or 'disabled'"

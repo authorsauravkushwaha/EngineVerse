@@ -11,6 +11,47 @@ learner can read them, not that an expert has signed them off. EngineVerse is no
 an accredited institution and its certificates are not academic or professional
 qualifications.
 
+## Hosting the full website
+
+**Visitors never need to download a ZIP or clone this repository.** The public
+GitHub Pages URL currently serves a static reading copy; its browser streak
+cannot follow a learner to another device. GitHub Pages cannot run the Python
+backend, accounts, PostgreSQL or a code judge, and this public source repository
+must **never** contain learner data, password hashes or database dumps.
+
+To offer the full website, the **operator** needs one public HTTPS domain and a
+server with persistent storage (or an equivalent managed FastAPI + PostgreSQL
+host). A ready-to-configure Docker Compose deployment with automatic TLS is
+included:
+
+1. Point your domain's DNS to the server and allow inbound TCP 80/443. Copy
+   `deploy/.env.example` to the ignored `deploy/.env`; set
+   `ENGINEVERSE_SITE_URL=https://your-domain`, unique database passwords and
+   `ENGINEVERSE_SECRET`. Keep those values on the server, not in GitHub or chat.
+   Set `ENGINEVERSE_SIGNIN=optional` to let visitors browse without an account;
+   they register/sign in to sync personal progress and use account features.
+2. On that server, run
+   `docker compose --env-file deploy/.env -f deploy/docker-compose.yml -f deploy/public.yml up -d --build`.
+   Check `https://your-domain/health`, `/register` and `/install`, then run
+   `python scripts/verify_hosted_app.py --url https://your-domain`.
+3. **Only after the HTTPS app is live**, set the repository Actions variable
+   `ENGINEVERSE_APP_URL` to that origin (no path or trailing slash). On the next
+   `main` Pages run, a preflight checks the live backend and switches Pages to a
+   gateway that takes visitors and old deep links to the full site. Until then
+   Pages remains the reading copy. A code push or pull request alone does not
+   provision a server or switch the public URL.
+
+On the full site, learner accounts and progress live in its **private
+PostgreSQL database**; the same account works in a phone browser or PWA. Code
+execution is *disabled* in production until the operator deploys and configures
+an appropriately isolated Judge0 instance. The optional Android APK wraps this
+same hosted origin, not a second server; it is offered only after a signed
+release exists. For steps and limitations see [deployment](docs/DEPLOYMENT.md),
+[Android releases](docs/ANDROID_TWA.md) and [encrypted off-site backups](docs/BACKUPS.md).
+A separate **private** GitHub repository may hold *age-encrypted backup snapshots*,
+not live records. GitHub is not a safe database and a public repository is not a
+safe place for any user data.
+
 ## Run locally
 
 Requirements: Python 3.11 or newer. The default development database is SQLite;
@@ -43,16 +84,15 @@ create an account through **Register**. Do not use development demo credentials
 on a public instance. The login page may show demo-account details only when the
 application is configured for development or tests.
 
-**Sign-in is compulsory.** With the default `ENGINEVERSE_SIGNIN=required`, a
-signed-out visitor can reach only the sign-in, registration, password-recovery
-and legal pages (plus certificate verification and static assets); every other
-page redirects to `/login` and returns to the requested page after sign-in, and
-the JSON API answers `401`. Set `ENGINEVERSE_SIGNIN=optional` to allow anonymous
-browsing of the public catalogue instead. The current GitHub Pages workflow
-publishes the public catalogue (notes, language paths, problems). It is not the
-Python backend: accounts, live judging and cross-device progress need a
-self-hosted install. An optional sign-in gateway export is also available; see
-[Deployment](docs/DEPLOYMENT.md#github-pages-sign-in-gateway).
+**Sign-in is compulsory by default.** With `ENGINEVERSE_SIGNIN=required`, a
+signed-out visitor can reach the sign-in, registration, password-recovery,
+install and legal pages (plus certificate verification and static assets);
+other pages redirect to `/login` and return to the requested page after sign-in,
+and the JSON API answers `401`. Set `ENGINEVERSE_SIGNIN=optional` for public
+anonymous catalogue browsing. The Pages workflow publishes the reading copy
+until an operator configures a verified full app origin; it then publishes a
+gateway to that app, not an account server of its own. See
+[Deployment](docs/DEPLOYMENT.md#github-pages-and-the-full-app).
 
 Sign-in is password-only by default (`ENGINEVERSE_LOGIN_OTP=disabled`): no mail
 or SMS transport is needed, and a second factor is per account - enrol an
@@ -302,6 +342,9 @@ python -m pytest backend/tests -q
 python -m pytest backend/tests -q -m "not slow"
 node scripts/check_engine3d.js
 python scripts/dump_scenes.py | node scripts/check_scenes.js
+python scripts/export_pages.py --self-check
+python scripts/verify_pages.py --self-check
+node android/build-twa.cjs --self-check
 ```
 
 The Python suite covers API and page behavior, authorization, request validation,

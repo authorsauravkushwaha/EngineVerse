@@ -163,10 +163,10 @@ requests without relevant catalogue coverage receive no fabricated answer.
 Partial keyword matches are identified as partial coverage, not verification of
 an entire request. The deterministic output is reproducible for the same data.
 
-## GitHub Pages is a reading copy, not the Python backend
+## GitHub Pages is not the Python backend
 
-The current `pages.yml` workflow explicitly exports with `--reading-copy`.
-All four pages are published at the project Pages base path. Directory and
+While no hosted app is configured, `pages.yml` exports the public reading copy.
+All four pages are then published at the project Pages base path. Directory and
 schema filtering, copy buttons and n8n JSON downloads work locally in the browser.
 SQL, workflow and swarm examples are precomputed from the seeded public data.
 
@@ -174,13 +174,15 @@ Backend-only forms are disabled in the exported HTML, their fallback actions
 point at the hosting explanation with GET, and a visible notice says that new
 execution requires a self-hosted app. This remains honest with JavaScript off.
 There are no accounts, live SQL, live workflows, live simulations or judge on
-GitHub Pages. The optional `--gateway` export mode remains available separately.
+GitHub Pages. Once `ENGINEVERSE_APP_URL` points to a verified HTTPS FastAPI app,
+the workflow switches Pages to a small gateway to that app instead; these four
+pages then live on the hosted app, not in the Pages artifact.
 
 Export validates local links, heading outlines and forbidden demo-password
-leaks. A `deployment.json` records the published commit. After deployment,
-`scripts/verify_pages.py` runs in GitHub Actions and verifies that exact commit,
-the home page, all four capability pages, their navigation/headings and shared
-CSS/JS assets over HTTPS, retrying briefly for CDN propagation.
+leaks. A `deployment.json` records the published commit and mode. After
+deployment, `scripts/verify_pages.py` verifies that exact commit and either the
+four reading-copy pages with their shared assets or the gateway's app links and
+404 deep-link handoff over HTTPS, retrying briefly for CDN propagation.
 
 ## Regression checks
 

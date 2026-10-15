@@ -299,6 +299,27 @@ those generic pages in that browser's local offline cache. The worker refuses
 The decision comes from the response rather than a path denylist, so a new
 personalised route cannot silently expose a user's dashboard offline.
 
+### Public hosting, Android and off-site learner data
+
+Pages is a static reading copy until a full HTTPS application origin is
+configured. It cannot be the authority for accounts or progress; never put
+learner rows, database dumps, `.env` files or signing keys in this public
+repository or Pages artifact. On a live instance, PostgreSQL holds account data
+and cookies stay on that instance's origin. The Android PWA and optional signed
+TWA APK open that *same* origin; neither embeds a database, an API secret or a
+judge. The APK download link is restricted to an explicitly configured,
+versioned release asset and its certificate must match Digital Asset Links.
+
+An operator may opt in to `deploy/github-backups.yml`: it streams a Postgres
+dump through `age` before writing a temporary **ciphertext** archive and
+uploads it only to a *separate private* GitHub repository after checking
+visibility. The token has access to that repo alone; the private recovery key
+is kept offline. This does not make GitHub the live database or make hosting
+safe by itself. Keep backups under a retention policy and rehearse restoring;
+previous backups can still contain rows after a live account deletion. Review
+[Backups](BACKUPS.md) before enabling this service. A leaked age identity,
+GitHub token or Postgres credential requires incident response.
+
 ## Rate limiting and lockout
 
 - `RateLimitMiddleware` keys abuse limits by the resolved client IP: 10 login

@@ -10,17 +10,25 @@
   <h2>What we never do</h2>
   <ul><li>We do not use third-party authentication providers. Sign-in happens entirely on this server.</li>
     <li>We do not load any third-party script, font, analytics pixel or advertising tag.</li>
-    <li>We do not sell or share your data.</li>
+    <li>We do not sell your data or publish plaintext learner records. An operator may store encrypted
+      backups with a third party as described below.</li>
     <li>We do not store your password in any recoverable form — only a salted scrypt hash.</li>
     <li>Session cookies store only a SHA-256 digest of the token, so a database leak cannot be replayed as a
       login.</li></ul>
   <h2>Code you submit</h2>
-  <p>Code you run through the judge is stored against your account so you can review past submissions. It is
-    executed in an isolated process with no network access and strict resource limits, never inside the web
-    server.</p>
+  <p>Submitted code is stored against your account. A production instance runs it only when its operator
+    configures an external judge; that provider's isolation and data handling are the operator's responsibility.
+    With no judge configured, code execution is unavailable.</p>
+  <h2>Where data lives</h2>
+  <p>On a live instance your account and progress are stored in the operator's private database, not in the
+    public source-code repository or in GitHub Pages. An operator may also retain encrypted off-site database
+    backups, including in a separate private GitHub repository. Ask the operator about backup retention and
+    deletion before registering. A static reading copy, if offered separately, keeps its browser streak only
+    on that device and does not sync it into an account.</p>
   <h2>Your control</h2>
   <p>You can change your password, sign out any session, adjust what your public portfolio shows, and delete your
-    account permanently from <a href="/settings">Settings</a>. Deletion removes your rows from every table.</p>
+    account from <a href="/settings">Settings</a>. Deletion removes your live account rows; older backups can
+    still contain them until the operator expires or removes those backups.</p>
 {% else %}
   <h1>Terms</h1>
   <h2>Using the platform</h2>
