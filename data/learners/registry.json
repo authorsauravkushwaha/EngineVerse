@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "repository": "authorsauravkushwaha/EngineVerse",
+  "updated_at": "2026-10-15T00:00:00Z",
+  "learners": {
+    "saurav": {
+      "username": "saurav",
+      "display_username": "saurav",
+      "full_name": "Saurav Kushwaha",
+      "display_name": "Saurav Kushwaha",
+      "email_sha256": "",
+      "password_digest": "",
+      "password_sha256": "",
+      "branch_id": "cse",
+      "branch": "cse",
+      "semester_id": "3",
+      "headline": "EngineVerse Maintainer",
+      "bio": "Core engineering & programming on EngineVerse.",
+      "country": "IN",
+      "xp": 480,
+      "level": 2,
+      "streak": 5,
+      "streak_days": 5,
+      "longest_streak": 12,
+      "checks": 10,
+      "quiz_attempts": 10,
+      "correct_checks": 9,
+      "quiz_correct": 9,
+      "minutes": 180,
+      "completed_topics": [
+        "boolean-algebra-and-logic-gates",
+        "ohms-law-and-kirchhoff",
+        "time-complexity-and-asymptotics"
+      ],
+      "solved_problems": [
+        "binary-search",
+        "two-sum",
+        "valid-parentheses"
+      ],
+      "mistakes": [],
+      "bookmarks": [],
+      "reviewed_cards": [],
+      "days": {
+        "2026-10-15": 1
+      },
+      "activity_days": [
+        "2026-10-15"
+      ],
+      "updated_at": "2026-10-15T00:00:00Z"
+    }
+  }
+}

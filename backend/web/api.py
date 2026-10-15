@@ -34,6 +34,7 @@ from engineverse import (
     studio,
     workflows,
     swarm,
+    github_storage,
 )
 from engineverse.security import rbac, ratelimit
 from engineverse.security.audit import record
@@ -1048,3 +1049,46 @@ async def judge_status(request: Request):
         runs_on_this_server=bool(info.get("runs_on_this_server")),
         isolation=info.get("isolation") or "",
     )
+
+
+# ---------------------------------------------------------------------------
+# GitHub & BaaS learner progress sync
+# ---------------------------------------------------------------------------
+
+@router.get("/sync/status")
+async def api_sync_status(request: Request):
+    return JSONResponse(github_storage.sync_status())
+
+
+@router.get("/sync/snapshot")
+async def api_sync_snapshot_get(request: Request, username: str = Query("", max_length=32)):
+    viewer = current_user(request)
+    if username.strip():
+        registry = github_storage.load_registry()
+        entry = (registry.get("learners") or {}).get(username.strip().lower())
+        if not entry:
+            return fail("No synced learner record found for that username.", 404)
+        safe = {k: v for k, v in entry.items() if k != "password_digest"}
+        return ok(snapshot=safe, repository=github_storage.DEFAULT_REPO)
+    if viewer is None:
+        return fail("Sign in or pass ?username= to inspect a synced snapshot.", 401)
+    snap = github_storage.build_db_user_snapshot(viewer.id)
+    return ok(snapshot=snap, repository=github_storage.DEFAULT_REPO)
+
+
+@router.post("/sync/snapshot")
+async def api_sync_snapshot_post(request: Request):
+    if not ratelimit.allow(f"sync:{client_ip(request)}", limit=30, window_seconds=60):
+        return fail("Too many sync requests. Wait a minute.", 429)
+    viewer = current_user(request)
+    data = await payload(request)
+    raw_snap = data.get("snapshot") if isinstance(data.get("snapshot"), dict) else data
+    if viewer is not None and not raw_snap.get("username"):
+        raw_snap = github_storage.build_db_user_snapshot(viewer.id)
+    try:
+        merged = github_storage.save_snapshot_to_registry(raw_snap)
+    except github_storage.LearnerSyncError as exc:
+        return fail(str(exc), 422)
+    safe = {k: v for k, v in merged.items() if k != "password_digest"}
+    return ok(snapshot=safe, repository=github_storage.DEFAULT_REPO, message="Progress saved to GitHub learner vault.")
+

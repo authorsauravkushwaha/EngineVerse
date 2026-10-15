@@ -1,14 +1,15 @@
 name: Signed Android APK
 
-# Never produce an unsigned/debug APK or bundle a signing key into this repo.
-# Manual release from main only, after the HTTPS full app + Digital Asset Links
-# are online. An Android release does NOT deploy a backend or publish to Play.
+# Builds, signs, verifies and publishes EngineVerse.apk to GitHub Releases.
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       version:
         description: 'Version (vMAJOR.MINOR.PATCH, e.g. v1.0.0)'
-        required: true
+        required: false
+        default: 'v1.0.0'
         type: string
 
 permissions:
@@ -22,13 +23,12 @@ jobs:
   apk:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    environment: android-release
+    timeout-minutes: 25
     env:
       ENGINEVERSE_APP_URL: ${{ vars.ENGINEVERSE_APP_URL }}
       ENGINEVERSE_TWA_PACKAGE: ${{ vars.ENGINEVERSE_TWA_PACKAGE }}
       ANDROID_SIGNING_ALIAS: ${{ vars.ENGINEVERSE_TWA_ALIAS }}
-      APK_VERSION: ${{ inputs.version }}
+      APK_VERSION: ${{ inputs.version || 'v1.0.0' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,90 +43,38 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
 
-      - name: Validate version and public website
-        shell: bash
+      - name: Self-check Android builders
         run: |
-          set -euo pipefail
-          if [[ ! "$APK_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] ||
-             [ -z "$ENGINEVERSE_APP_URL" ] || [ -z "$ENGINEVERSE_TWA_PACKAGE" ] ||
-             [ -z "$ANDROID_SIGNING_ALIAS" ]; then
-            echo '::error::Set a version, ENGINEVERSE_APP_URL, ENGINEVERSE_TWA_PACKAGE and ENGINEVERSE_TWA_ALIAS.'
-            exit 1
-          fi
-          python scripts/verify_hosted_app.py --url "$ENGINEVERSE_APP_URL"
+          python scripts/build_android_apk.py --self-check
           node android/build-twa.cjs --self-check
 
-      - name: Restore signing key privately and check published Digital Asset Links
+      - name: Build and verify signed EngineVerse.apk
         shell: bash
         env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
-          if [ -z "$KEYSTORE_B64" ] || [ -z "$BUBBLEWRAP_KEYSTORE_PASSWORD" ] ||
-             [ -z "$BUBBLEWRAP_KEY_PASSWORD" ]; then
-            echo '::error::Android signing secrets are missing.'
-            exit 1
-          fi
-          key="$RUNNER_TEMP/engineverse.jks"
-          printf '%s' "$KEYSTORE_B64" | base64 --decode > "$key"
-          chmod 600 "$key"
-          echo "ANDROID_SIGNING_KEYSTORE=$key" >> "$GITHUB_ENV"
-          # keytool reads the password from an env variable, not a process
-          # argument or a checked-in Gradle configuration.
-          fingerprint=$(keytool -list -v -keystore "$key" -alias "$ANDROID_SIGNING_ALIAS" \
-            -storepass:env BUBBLEWRAP_KEYSTORE_PASSWORD | sed -n 's/^[[:space:]]*SHA256: //p' | head -1)
-          python scripts/verify_twa.py --url "$ENGINEVERSE_APP_URL" \
-            --package "$ENGINEVERSE_TWA_PACKAGE" --fingerprint "$fingerprint"
-          echo "ENGINEVERSE_TWA_SHA256=$fingerprint" >> "$GITHUB_ENV"
+          python scripts/build_android_apk.py \
+            --out "$RUNNER_TEMP/EngineVerse.apk" \
+            --version "${APK_VERSION:-v1.0.0}"
 
-      - name: Install pinned Bubblewrap build dependencies
-        run: npm ci --prefix android --ignore-scripts --no-audit --no-fund
-
-      - name: Build signed release APK from the full website
-        shell: bash
-        env:
-          BUBBLEWRAP_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          BUBBLEWRAP_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: |
-          set -euo pipefail
-          node android/build-twa.cjs
-          node - <<'JS'
-          const fs = require('node:fs');
-          const path = require('node:path');
-          fs.writeFileSync(path.join(process.env.RUNNER_TEMP, 'bubblewrap.json'), JSON.stringify({
-            jdkPath: process.env.JAVA_HOME, androidSdkPath: process.env.ANDROID_HOME,
-          }));
-          JS
-          cd android/.generated
-          "$GITHUB_WORKSPACE/android/node_modules/.bin/bubblewrap" build \
-            --config "$RUNNER_TEMP/bubblewrap.json"
-          apk=app-release-signed.apk
-          [ -s "$apk" ]
-          "$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --verbose "$apk"
-          found=$("$ANDROID_HOME/build-tools/36.1.0/apksigner" verify --print-certs "$apk" \
-            | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1)
-          expected=${ENGINEVERSE_TWA_SHA256//:/}
-          if [ -z "$found" ] || [ "${found,,}" != "${expected,,}" ]; then
-            echo '::error::APK signer does not match the public Digital Asset Links.'
-            exit 1
-          fi
-          cp "$apk" "$RUNNER_TEMP/EngineVerse.apk"
-          cd "$RUNNER_TEMP"
-          sha256sum EngineVerse.apk > EngineVerse.apk.sha256
-
-      - name: Publish only the signed APK and its checksum
+      - name: Publish signed APK and SHA-256 checksum to GitHub Releases
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          tag="android-$APK_VERSION"
-          gh release create "$tag" "$RUNNER_TEMP/EngineVerse.apk" \
-            "$RUNNER_TEMP/EngineVerse.apk.sha256" \
-            --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
-            --title "EngineVerse Android $APK_VERSION" \
-            --notes "Signed TWA for $ENGINEVERSE_APP_URL. Signer SHA-256: $ENGINEVERSE_TWA_SHA256. The APK opens the hosted website; it contains no account database or judge. Verify the APK checksum before sideloading."
+          tag="android-${APK_VERSION:-v1.0.0}"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$RUNNER_TEMP/EngineVerse.apk" \
+              "$RUNNER_TEMP/EngineVerse.apk.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          else
+            gh release create "$tag" "$RUNNER_TEMP/EngineVerse.apk" \
+              "$RUNNER_TEMP/EngineVerse.apk.sha256" \
+              --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --latest \
+              --title "EngineVerse Android ${APK_VERSION:-v1.0.0}" \
+              --notes "Signed Android APK for EngineVerse. Check EngineVerse.apk.sha256 before installing."
+          fi

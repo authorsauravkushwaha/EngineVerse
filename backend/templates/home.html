@@ -13,12 +13,14 @@
       {% if user %}
         <a class="btn btn-primary" href="/stream">Open my stream</a>
         <a class="btn btn-ghost" href="/explore">Explore engineering</a>
+        <a class="btn btn-soft" href="/install">Android APK</a>
       {% else %}
         <a class="btn btn-primary" href="/register">Start learning free</a>
         <a class="btn btn-ghost" href="/streams">Find my stream</a>
+        <a class="btn btn-soft" href="/install">Install Android App</a>
       {% endif %}
     </div>
-    <p class="tiny muted hero-note">Core notes, practice and projects stay free. No third-party scripts. No trackers.</p>
+    <p class="tiny muted hero-note">Full browser access — accounts, live code runner, labs, Android APK and GitHub progress sync work directly here without downloading a repository ZIP.</p>
     <div class="statgrid">
       <div class="stat"><div class="n">{{ site.branches }}</div><div class="l">Branches</div></div>
       <div class="stat"><div class="n">{{ site.subjects }}</div><div class="l">Subjects</div></div>
@@ -90,6 +92,21 @@
       <a class="chip accent" href="/explore?year=1">First year</a>
     </div>
   {% endif %}
+</section>
+
+<section class="section">
+  <div class="panel between" style="gap:16px;align-items:center;flex-wrap:wrap">
+    <div>
+      <div class="eyebrow">Zero-Install Web · Android APK · GitHub Learner Vault</div>
+      <h2 style="margin:0 0 6px">Use everything online or on your Android phone — saved on GitHub</h2>
+      <p class="muted" style="margin:0">Run code, solve DPPs, query SQL Studio, run n8n workflows and MiroFish swarm reviews directly in your browser. Sign in to sync your progress to <code>authorsauravkushwaha/EngineVerse</code> on GitHub or install the signed Android APK.</p>
+    </div>
+    <div class="row">
+      <a class="btn btn-primary" href="/register">Create account</a>
+      <a class="btn btn-soft" href="/install">Download Android APK</a>
+      <a class="btn btn-ghost" href="/settings">GitHub Sync</a>
+    </div>
+  </div>
 </section>
 
 {% if cyber_security_subject %}

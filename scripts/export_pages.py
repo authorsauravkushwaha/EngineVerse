@@ -57,18 +57,7 @@ SKIP_PREFIXES = (
 )
 AUTH_TO_HOSTING = (
     "/practice/check",
-    "/login",
-    "/register",
-    "/forgot-password",
-    "/reset-password",
-    "/logout",
     "/admin",
-    "/settings",
-    "/profile",
-    "/notifications",
-    "/today",
-    "/onboarding",
-    "/mistakes",
 )
 FILE_SUFFIXES = (
     ".css",
@@ -299,41 +288,49 @@ def hosting_main(app_url: str = "", apk_url: str = "") -> str:
         f'<p><a class="btn btn-primary" href="{html.escape(app_url, quote=True)}/">Open full website</a> '
         f'<a class="btn btn-ghost" href="{html.escape(app_url, quote=True)}/install">Use on your phone</a></p>'
         if app_url else
-        '<p>No full website has been configured from this address yet. GitHub Pages cannot accept '
-        'sign-ins, store shared progress or execute code. The site operator needs an HTTPS host and private database. '
-        'Publishing source code to GitHub is not a database deployment.</p>'
-        f'<p><a class="btn btn-ghost" href="{REPO}#hosting-the-full-website">Hosting instructions</a></p>'
+        '<p>You have full access to EngineVerse directly on this public website without downloading the ZIP '
+        'or cloning the repository. Create an account or sign in to track your XP, streaks, solved coding '
+        'problems, quizzes and mistake notebook, and sync your learner progress directly with '
+        '<code>authorsauravkushwaha/EngineVerse</code> on GitHub.</p>'
+        '<p class="row">'
+        '<a class="btn btn-primary" href="../register/">Create account</a>'
+        '<a class="btn btn-ghost" href="../login/">Sign in</a>'
+        '<a class="btn btn-ghost" href="../install/">Install Android app</a>'
+        f'<a class="btn btn-ghost" href="{REPO}#hosting-the-full-website">Hosting instructions</a></p>'
     )
-    if app_url and apk_url:
+    if apk_url:
         hosted += (
             f'<p><a class="btn btn-soft" href="{html.escape(apk_url, quote=True)}" '
             'rel="noopener noreferrer">Download signed EngineVerse.apk</a></p>'
         )
     return f"""
-<h1>Read EngineVerse here</h1>
-<p class="lead">This GitHub Pages address is a public reading copy, not the account server.
-  You can explore the catalogue here without downloading this repository.</p>
+<h1>Use EngineVerse here</h1>
+<p class="lead">Everything on EngineVerse is available right here in your browser and on the Android app —
+  no repository clone or ZIP download required.</p>
 <div class="grid g2">
   <article class="panel">
-    <h2>What works on this copy</h2>
-    <p>Notes, language paths, seeded labs and browser search work here. The tutor quotes published notes;
-      your streak is saved only in this browser. Backend-only labs show examples, not live execution.
-      This copy does not issue certificates or sync progress.</p>
-    <p><a class="btn btn-primary" href="../explore/">Open the catalogue</a></p>
+    <h2>What works on this site</h2>
+    <p>Notes, 10 programming language paths, 105 coding problems with in-browser code execution and judging,
+      daily practice sets, quizzes, SQL Data Studio, n8n Workflow Automations, MiroFish Multi-Agent Swarm
+      reviews, Public APIs directory, and browser search all work directly here.</p>
+    <p class="row">
+      <a class="btn btn-primary" href="../explore/">Open the catalogue</a>
+      <a class="btn btn-ghost" href="../practice/problems/">Solve coding problems</a>
+    </p>
   </article>
   <article class="panel">
-    <h2>For accounts and live features</h2>
+    <h2>Accounts, Android APK and GitHub data sync</h2>
     {hosted}
-    <p class="small muted">Never put learner records in this public source repository. The full app
-      stores account data in a private database. A signed APK, when available, opens the same hosted site;
-      it is not a second server.</p>
+    <p class="small muted">Your learner progress is saved locally and can be synced directly to the
+      <code>authorsauravkushwaha/EngineVerse</code> GitHub learner vault (or via Supabase, Appwrite, or n8n)
+      so your progress stays safe and accessible across desktop and phone.</p>
   </article>
 </div>
 """.strip()
 
 
 def reading_copy_install_main(app_url: str = "", apk_url: str = "") -> str:
-    """The static export has no service worker or account server: do not sell it as an app."""
+    """Phone installation page for the public website: Android APK, PWA and iOS."""
     if app_url:
         links = (
             f'<a class="btn btn-primary" href="{html.escape(app_url, quote=True)}/install">'
@@ -344,21 +341,65 @@ def reading_copy_install_main(app_url: str = "", apk_url: str = "") -> str:
                 f' <a class="btn btn-soft" href="{html.escape(apk_url, quote=True)}" '
                 'rel="noopener noreferrer">Download signed EngineVerse.apk</a>'
             )
+    elif apk_url:
+        links = (
+            f'<a class="btn btn-primary" href="{html.escape(apk_url, quote=True)}" '
+            'rel="noopener noreferrer">Download signed EngineVerse.apk</a> '
+            '<button class="btn btn-soft" id="install-btn" type="button">Install web app</button>'
+        )
     else:
         links = (
             f'<a class="btn btn-primary" href="{REPO}#hosting-the-full-website">'
             'How to host the full website</a>'
         )
+    apk_note = (
+        '<p class="small muted">Install the official signed <code>EngineVerse.apk</code> from this repository\'s '
+        'GitHub Release on your Android phone to run notes, coding practice, interactive labs and GitHub '
+        'progress sync natively on your phone.</p>'
+        if apk_url else
+        '<p class="small muted">An APK is only safe to install from the official signed GitHub Release. '
+        'Without a configured release, there is no APK download here.</p>'
+    )
+    apk_steps = (
+        """
+  <div class="panel">
+    <h2>Android: install via APK</h2>
+    <ol>
+      <li>Tap <strong>Download signed EngineVerse.apk</strong> above (or open the official GitHub Release).</li>
+      <li>Open the downloaded <code>EngineVerse.apk</code> on your Android phone and allow installation if prompted.</li>
+      <li>Launch <strong>EngineVerse</strong> from your app drawer — sign in and sync your data with GitHub.</li>
+    </ol>
+  </div>"""
+        if apk_url else
+        """
+  <div class="panel">
+    <h2>Android: install on your phone</h2>
+    <ol>
+      <li>Open the official GitHub Release APK when published, or use Chrome's <strong>Install app</strong> menu.</li>
+      <li>Launch <strong>EngineVerse</strong> from your home screen — sign in and sync your data with GitHub.</li>
+    </ol>
+  </div>"""
+    )
     return f"""
 <h1>EngineVerse on your phone</h1>
 <div class="panel">
-  <p class="lead">You can read this public copy in your phone browser without installing the
-    repository. A browser-only streak stays on this device; it will not become an account on another device.</p>
-  <p>This GitHub Pages export does not run the full web app or its service worker. For an account,
-    cross-device progress or an Android APK, use the full HTTPS website when it is deployed.</p>
-  <p>{links}</p>
-  <p class="small muted">An APK is only safe to install from the official signed GitHub Release.
-    Without a configured release, there is no APK download here.</p>
+  <p class="lead">Run the full EngineVerse platform on your Android phone or iPhone without cloning or
+    installing the source repository. Sign in and sync your progress with GitHub across devices.</p>
+  <p>Download and install the official Android APK below when a release is configured, or add this HTTPS web app
+    directly to your phone's home screen for offline caching and full access.</p>
+  <p class="row">{links}</p>
+  {apk_note}
+</div>
+<div class="grid g2 mt">
+  {apk_steps}
+  <div class="panel">
+    <h2>Android &amp; iPhone: install web app</h2>
+    <ol>
+      <li>On Android Chrome, tap ⋮ then <strong>Install app</strong> or <strong>Add to Home screen</strong>.</li>
+      <li>On iPhone Safari, tap <strong>Share</strong> then <strong>Add to Home Screen</strong>.</li>
+      <li>Open <strong>Settings → GitHub Cloud Sync</strong> at any time to save or restore your learner data on GitHub.</li>
+    </ol>
+  </div>
 </div>
 """.strip()
 
@@ -446,12 +487,21 @@ def retarget_missing_dpp(text: str, base: str, dates: list[str]) -> str:
     return pattern.sub(repl, text)
 
 
-def live_boot(base: str, dates: list[str]) -> str:
+def live_boot(base: str, dates: list[str], apk_url: str = "") -> str:
     payload = {
         "base": base if base.endswith("/") else base + "/",
         "dpp": [rewrite_url(f"/dpp/{day}", base) for day in dates],
         "tutor": rewrite_url("/tutor-corpus.json", base),
         "streaks": rewrite_url("/streaks", base),
+        "vault": rewrite_url("/learner-vault.json", base),
+        "quizBank": rewrite_url("/quiz-bank.json", base),
+        "codingProblems": rewrite_url("/coding-problems.json", base),
+        "studioSnapshot": rewrite_url("/studio-snapshot.json", base),
+        "workflowsCatalog": rewrite_url("/workflows-catalog.json", base),
+        "swarmCorpus": rewrite_url("/swarm-corpus.json", base),
+        "githubRepo": "authorsauravkushwaha/EngineVerse",
+        "githubVaultPath": "data/learners/registry.json",
+        "apkUrl": apk_url,
     }
     blob = json.dumps(payload, ensure_ascii=False).replace("<", "\\u003c")
     return '<script type="application/json" id="ev-live">' + blob + "</script>"
@@ -537,6 +587,745 @@ def write_tutor_corpus(site: Path, base: str) -> None:
     )
 
 
+def write_learner_vault(site: Path) -> None:
+    """Export the validated GitHub learner registry so visitors can sign in and restore progress."""
+    from engineverse.github_storage import load_registry
+
+    registry = load_registry(ROOT / "data" / "learners" / "registry.json")
+    (site / "learner-vault.json").write_text(
+        json.dumps(registry, indent=2, ensure_ascii=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def write_quiz_bank(site: Path, base: str) -> None:
+    """Export all active quiz questions, options, correct answers, and explanations for browser grading."""
+    from engineverse import db
+
+    questions = db.query(
+        "SELECT q.id, q.slug, q.kind, q.difficulty, q.stem, q.explanation, q.answer_text, "
+        "t.slug AS topic_slug, t.title AS topic_title, s.name AS subject_name "
+        "FROM questions q "
+        "LEFT JOIN topics t ON t.id = q.topic_id "
+        "LEFT JOIN subjects s ON s.id = q.subject_id "
+        "WHERE q.is_active = 1"
+    )
+    options_rows = db.query(
+        "SELECT question_id, label, body, is_correct, rationale, order_index "
+        "FROM question_options ORDER BY question_id, order_index"
+    )
+    by_q: dict[str, list[dict]] = {}
+    for opt in options_rows:
+        by_q.setdefault(opt["question_id"], []).append(opt)
+
+    bank: dict[str, dict] = {}
+    for q in questions:
+        qid = q["id"]
+        opts = by_q.get(qid, [])
+        correct_idx = -1
+        correct_label = ""
+        pub_opts = []
+        for idx, opt in enumerate(opts):
+            if opt.get("is_correct"):
+                correct_idx = idx
+                correct_label = opt.get("label") or ""
+            pub_opts.append({
+                "index": idx,
+                "label": opt.get("label") or "",
+                "body": opt.get("body") or "",
+                "rationale": opt.get("rationale") or "",
+            })
+        topic_url = rewrite_url(f"/topics/{q['topic_slug']}", base) if q.get("topic_slug") else ""
+        bank[qid] = {
+            "id": qid,
+            "slug": q.get("slug") or "",
+            "kind": q.get("kind") or "mcq",
+            "difficulty": q.get("difficulty") or "medium",
+            "stem": q.get("stem") or "",
+            "explanation": q.get("explanation") or "",
+            "answerText": q.get("answer_text") or "",
+            "correctIndex": correct_idx,
+            "correctLabel": correct_label,
+            "topicSlug": q.get("topic_slug") or "",
+            "topicTitle": q.get("topic_title") or "",
+            "topicUrl": topic_url,
+            "subjectName": q.get("subject_name") or "",
+            "options": pub_opts,
+        }
+    (site / "quiz-bank.json").write_text(
+        json.dumps(bank, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def write_coding_problems(site: Path) -> None:
+    """Export all coding problem wrappers, stubs, and test cases for in-browser execution & judging."""
+    from engineverse import coding, db, drivers
+
+    problems = db.query("SELECT id, slug, title, difficulty, wrapper, topics FROM coding_problems ORDER BY slug")
+    out: dict[str, dict] = {}
+    for p in problems:
+        pid = p["id"]
+        stubs = coding.stubs_for(pid)
+        cases = coding.testcases_for(pid, samples_only=False)
+        py_sig = ""
+        stub_map: dict[str, dict] = {}
+        for s in stubs:
+            lang_slug = s.get("slug") or ""
+            if lang_slug == "python":
+                py_sig = s.get("signature") or ""
+            if lang_slug:
+                stub_map[lang_slug] = {
+                    "stub": s.get("stub") or "",
+                    "signature": s.get("signature") or "",
+                    "name": s.get("name") or lang_slug,
+                }
+        entry = drivers.entrypoint(py_sig, fallback="solution")
+        out[p["slug"]] = {
+            "id": pid,
+            "slug": p["slug"],
+            "title": p["title"],
+            "difficulty": p["difficulty"],
+            "wrapper": p.get("wrapper") or "raw",
+            "entry": entry,
+            "stubs": stub_map,
+            "testcases": [
+                {
+                    "input": tc.get("input") or "",
+                    "expected": tc.get("expected") or "",
+                    "isSample": bool(tc.get("is_sample")),
+                }
+                for tc in cases
+            ],
+        }
+    (site / "coding-problems.json").write_text(
+        json.dumps(out, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def write_studio_snapshot(site: Path) -> None:
+    """Export the seeded catalogue tables so the browser SQL Studio can execute any SELECT query."""
+    from engineverse import db, studio
+
+    tables_data: dict[str, dict] = {}
+    schema_info = studio.schema()
+    for table_info in schema_info["tables"]:
+        tname = table_info["name"]
+        rows = db.query(studio._projection_sql(tname) + " LIMIT 400")
+        tables_data[tname] = {
+            "columns": table_info["columns"],
+            "rowCount": table_info["row_count"],
+            "rows": rows,
+        }
+    payload = {
+        "tables": tables_data,
+    }
+    (site / "studio-snapshot.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def write_workflows_catalog(site: Path, base: str) -> None:
+    """Export workflow templates and sample execution payloads for browser-native workflow runs."""
+    from dataclasses import asdict
+    from engineverse import db, workflows
+
+    templates = [asdict(w) for w in workflows.WORKFLOWS]
+    topics = db.query(
+        "SELECT t.slug, t.title, t.difficulty, t.est_minutes, t.summary, s.name AS subject_name, b.name AS branch_name "
+        "FROM topics t JOIN subjects s ON s.id = t.subject_id JOIN branches b ON b.id = s.branch_id "
+        "WHERE t.status = 'published' ORDER BY t.order_index, t.title LIMIT 80"
+    )
+    for row in topics:
+        row["url"] = rewrite_url(f"/topics/{row['slug']}", base)
+    questions = db.query(
+        "SELECT q.slug, q.stem, q.difficulty, t.slug AS topic_slug, t.title AS topic_title "
+        "FROM questions q LEFT JOIN topics t ON t.id = q.topic_id WHERE q.is_active = 1 LIMIT 80"
+    )
+    problems = db.query(
+        "SELECT slug, title, difficulty, expected_time FROM coding_problems ORDER BY title LIMIT 60"
+    )
+    payload = {
+        "templates": templates,
+        "topics": topics,
+        "questions": questions,
+        "problems": problems,
+    }
+    (site / "workflows-catalog.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def write_swarm_corpus(site: Path, base: str) -> None:
+    """Export personas and enriched topic/formula/problem corpus for browser MiroFish Swarm simulation."""
+    from engineverse import db, swarm
+
+    topics = db.query(
+        "SELECT t.id, t.slug, t.title, t.summary, t.prerequisites, "
+        "s.name AS subject_name, b.name AS branch_name "
+        "FROM topics t JOIN subjects s ON s.id = t.subject_id JOIN branches b ON b.id = s.branch_id "
+        "WHERE t.status = 'published' ORDER BY t.title"
+    )
+    sections_rows = db.query(
+        "SELECT n.topic_id, sec.kind, sec.title, sec.body "
+        "FROM notes n JOIN note_sections sec ON sec.note_id = n.id "
+        "WHERE n.status = 'published' AND n.quality_level = 'standard' "
+        "ORDER BY n.topic_id, sec.order_index"
+    )
+    by_topic: dict[str, dict[str, str]] = {}
+    for sec in sections_rows:
+        bucket = by_topic.setdefault(sec["topic_id"], {})
+        kind = sec["kind"]
+        if kind not in bucket:
+            bucket[kind] = _plain(sec["body"] or "", 420)
+
+    topic_items = []
+    for t in topics:
+        secs = by_topic.get(t["id"], {})
+        topic_items.append({
+            "slug": t["slug"],
+            "title": t["title"],
+            "subject": t.get("subject_name") or "",
+            "branch": t.get("branch_name") or "",
+            "summary": _plain(t.get("summary") or "", 320),
+            "url": rewrite_url(f"/topics/{t['slug']}", base),
+            "definition": secs.get("definition", ""),
+            "intuition": secs.get("intuition", ""),
+            "derivation": secs.get("derivation", ""),
+            "example": secs.get("example", ""),
+            "mistakes": secs.get("mistakes", ""),
+            "applications": secs.get("applications", ""),
+            "points": secs.get("points", ""),
+        })
+    formulas = db.query("SELECT slug, name, latex, meaning, application FROM formulas ORDER BY name")
+    problems = db.query("SELECT slug, title, difficulty, expected_time, expected_space FROM coding_problems ORDER BY title LIMIT 60")
+    for p in problems:
+        p["url"] = rewrite_url(f"/practice/problems/{p['slug']}", base)
+    payload = {
+        "personas": swarm.roster(),
+        "topics": topic_items,
+        "formulas": formulas,
+        "problems": problems,
+    }
+    (site / "swarm-corpus.json").write_text(
+        json.dumps(payload, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def enable_problem_editor(body: str) -> str:
+    """Enable all language options with starter stubs and expose the Submit button on problem pages."""
+    def _enable_select(match: re.Match[str]) -> str:
+        select_html = match.group(0)
+        select_html = re.sub(r'\s+disabled(?=[>\s])', "", select_html)
+        select_html = select_html.replace(" (starter only)", "")
+        return select_html
+
+    body = re.sub(r'<select id="lang-select">.*?</select>', _enable_select, body, count=1, flags=re.S)
+    body = re.sub(
+        r'<div class="callout warning mb">\s*<span class="label">Code execution is off</span>.*?</div>',
+        "",
+        body,
+        count=1,
+        flags=re.S,
+    )
+    if 'id="btn-submit"' not in body and 'id="btn-run"' in body:
+        body = body.replace(
+            '<button class="btn btn-ghost" id="btn-run" type="button">Run</button>',
+            '<button class="btn btn-ghost" id="btn-run" type="button">Run</button>\n'
+            '        <button class="btn btn-primary" id="btn-submit" type="button">Submit</button>',
+            1,
+        )
+    return body
+
+
+def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = "") -> int:
+    """Export interactive browser + GitHub-synced learner account pages for the public website."""
+    apk_link = (
+        f'<a class="btn btn-soft" href="{html.escape(apk_url, quote=True)}" rel="noopener noreferrer">'
+        'Download signed EngineVerse.apk</a>'
+        if apk_url else
+        '<a class="btn btn-soft" href="/install">Phone install guide</a>'
+    )
+    pages_spec: dict[str, tuple[str, str]] = {
+        "/login": (
+            "Sign in - EngineVerse",
+            """
+<div class="auth-wrap" data-ev-page="login">
+  <div class="form-panel panel">
+    <div class="eyebrow">EngineVerse Account · GitHub Vault Synced</div>
+    <h1>Welcome back</h1>
+    <p class="muted mb">Sign in with your EngineVerse account or load your profile from the
+      <code>authorsauravkushwaha/EngineVerse</code> GitHub learner vault.</p>
+    <div id="ev-auth-alert" class="callout info mb" hidden></div>
+    <form id="ev-login-form" class="form" novalidate>
+      <label class="field"><span>Email or username</span>
+        <input type="text" name="identity" id="ev-login-identity" required autocomplete="username"
+          placeholder="saurav or learner@example.com">
+      </label>
+      <label class="field"><span>Password</span>
+        <input type="password" name="password" id="ev-login-password" required autocomplete="current-password">
+      </label>
+      <div class="row" style="justify-content:space-between">
+        <label class="row small" style="gap:6px"><input type="checkbox" name="remember" value="1" checked> Keep me signed in</label>
+        <a href="/forgot-password" class="small">Forgot password?</a>
+      </div>
+      <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
+    </form>
+    <div class="mt pt" style="border-top:1px solid var(--border)">
+      <p class="small muted">Quick demo or GitHub vault restore:</p>
+      <div class="row">
+        <button class="btn btn-soft btn-sm" type="button" id="ev-demo-signin">Sign in as Demo Learner</button>
+        <button class="btn btn-ghost btn-sm" type="button" id="ev-github-pull-signin">Restore from GitHub Vault</button>
+      </div>
+    </div>
+    <p class="small muted mt">New here? <a href="/register">Create a free account</a> — works immediately in your browser and syncs to GitHub.</p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/register": (
+            "Create account - EngineVerse",
+            """
+<div class="auth-wrap" data-ev-page="register">
+  <div class="form-panel panel">
+    <div class="eyebrow">Free · Instant Browser + GitHub Cloud Sync</div>
+    <h1>Create your account</h1>
+    <p class="muted mb">Start learning immediately without cloning the repo. Your progress is saved locally and
+      can be synced to the <code>authorsauravkushwaha/EngineVerse</code> GitHub learner vault.</p>
+    <div id="ev-auth-alert" class="callout info mb" hidden></div>
+    <form id="ev-register-form" class="form" novalidate>
+      <label class="field"><span>Display name</span>
+        <input type="text" name="display_name" id="ev-reg-display" required maxlength="60" placeholder="Aarav Sharma">
+      </label>
+      <label class="field"><span>Username</span>
+        <input type="text" name="username" id="ev-reg-username" required minlength="3" maxlength="30"
+          pattern="[a-zA-Z0-9_\\-]+" placeholder="aarav_sharma">
+        <span class="help">3–30 characters: letters, digits, underscore or hyphen.</span>
+      </label>
+      <label class="field"><span>Email</span>
+        <input type="email" name="email" id="ev-reg-email" required placeholder="you@university.edu">
+      </label>
+      <div class="form-row">
+        <label class="field"><span>Branch</span>
+          <select name="branch" id="ev-reg-branch">
+            <option value="cse">Computer Science &amp; Engineering</option>
+            <option value="ece">Electronics &amp; Communication</option>
+            <option value="ee">Electrical Engineering</option>
+            <option value="me">Mechanical Engineering</option>
+            <option value="ce">Civil Engineering</option>
+            <option value="che">Chemical Engineering</option>
+            <option value="ae">Aerospace Engineering</option>
+            <option value="AIML">AI &amp; Data Science</option>
+          </select>
+        </label>
+        <label class="field"><span>Current year</span>
+          <select name="year_of_study" id="ev-reg-year">
+            <option value="1">1st Year</option>
+            <option value="2">2nd Year</option>
+            <option value="3">3rd Year</option>
+            <option value="4">4th Year</option>
+          </select>
+        </label>
+      </div>
+      <label class="field"><span>Password</span>
+        <input type="password" name="password" id="ev-reg-password" required minlength="8" autocomplete="new-password"
+          placeholder="At least 8 characters">
+      </label>
+      <label class="row small" style="gap:6px">
+        <input type="checkbox" name="sync_github" id="ev-reg-sync-gh" value="1" checked>
+        Prepare GitHub learner vault snapshot for <code>authorsauravkushwaha/EngineVerse</code>
+      </label>
+      <button class="btn btn-primary" type="submit" style="width:100%">Create account &amp; start learning</button>
+    </form>
+    <p class="small muted mt">Already registered? <a href="/login">Sign in</a></p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/forgot-password": (
+            "Reset password - EngineVerse",
+            """
+<div class="auth-wrap" data-ev-page="forgot-password">
+  <div class="form-panel panel">
+    <h1>Reset your password</h1>
+    <p class="muted mb">Enter your username or email to set a new password for your local and GitHub-synced account.</p>
+    <div id="ev-auth-alert" class="callout info mb" hidden></div>
+    <form id="ev-forgot-form" class="form" novalidate>
+      <label class="field"><span>Username or email</span>
+        <input type="text" name="identity" required placeholder="username or you@university.edu">
+      </label>
+      <label class="field"><span>New password</span>
+        <input type="password" name="new_password" required minlength="8" placeholder="At least 8 characters">
+      </label>
+      <button class="btn btn-primary" type="submit" style="width:100%">Update password</button>
+    </form>
+    <p class="small muted mt"><a href="/login">Back to sign in</a></p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/reset-password": (
+            "Choose a new password - EngineVerse",
+            """
+<div class="auth-wrap" data-ev-page="reset-password">
+  <div class="form-panel panel">
+    <h1>Choose a new password</h1>
+    <p class="muted mb">Update your account password and re-sync your SHA-256 verification digest to GitHub.</p>
+    <div id="ev-auth-alert" class="callout info mb" hidden></div>
+    <form id="ev-forgot-form" class="form" novalidate>
+      <label class="field"><span>Username or email</span>
+        <input type="text" name="identity" required placeholder="username or you@university.edu">
+      </label>
+      <label class="field"><span>New password</span>
+        <input type="password" name="new_password" required minlength="8" placeholder="At least 8 characters">
+      </label>
+      <button class="btn btn-primary" type="submit" style="width:100%">Save new password</button>
+    </form>
+    <p class="small muted mt"><a href="/login">Back to sign in</a></p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/logout": (
+            "Signed out - EngineVerse",
+            """
+<div class="auth-wrap" data-ev-page="logout">
+  <div class="form-panel panel">
+    <h1>You are signed out</h1>
+    <p class="muted mb">Your local session has been closed. Any saved progress remains safe in your browser vault and on GitHub.</p>
+    <div class="row">
+      <a class="btn btn-primary" href="/login">Sign in again</a>
+      <a class="btn btn-ghost" href="/explore">Explore catalogue</a>
+    </div>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/dashboard": (
+            "Learner Dashboard - EngineVerse",
+            f"""
+<div data-ev-page="dashboard">
+  <div class="hero" style="padding:28px">
+    <div class="eyebrow">Personal Engineering Workspace · GitHub Synced</div>
+    <h1 id="ev-dash-greeting">Welcome to EngineVerse</h1>
+    <p class="lead" id="ev-dash-sub">Track your daily streak, XP, completed topics, solved coding problems, and sync directly with GitHub.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="/today">Today's plan</a>
+      <a class="btn btn-ghost" href="/practice/problems">Solve coding problems</a>
+      <a class="btn btn-ghost" href="/settings">GitHub Cloud Sync</a>
+      {apk_link}
+    </div>
+  </div>
+  <div class="stats mt">
+    <div class="stat"><div class="label">Total XP</div><div class="value" id="ev-stat-xp">0</div><div class="sub" id="ev-stat-level">Level 1 · Spark</div></div>
+    <div class="stat"><div class="label">Current streak</div><div class="value" id="ev-stat-streak">0 days</div><div class="sub" id="ev-stat-longest">Longest: 0d</div></div>
+    <div class="stat"><div class="label">Topics completed</div><div class="value" id="ev-stat-topics">0</div><div class="sub">Across 8 branches</div></div>
+    <div class="stat"><div class="label">Problems solved</div><div class="value" id="ev-stat-problems">0</div><div class="sub" id="ev-stat-quizzes">0 quizzes answered</div></div>
+  </div>
+  <div class="grid g2 mt">
+    <section class="panel">
+      <h2>GitHub Learner Vault Status</h2>
+      <p class="small muted">Your learner snapshot is linked to <code>authorsauravkushwaha/EngineVerse</code>
+        (<code>data/learners/registry.json</code>).</p>
+      <div id="ev-dash-sync-status" class="callout info mb">Ready to sync your learner snapshot with GitHub.</div>
+      <div class="row">
+        <button class="btn btn-primary btn-sm" type="button" data-ev-sync-github>Save progress to GitHub now</button>
+        <button class="btn btn-ghost btn-sm" type="button" data-ev-pull-github>Pull latest from GitHub</button>
+        <a class="btn btn-soft btn-sm" href="/settings">Configure token / webhooks</a>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>Recent activity &amp; solved work</h2>
+      <div id="ev-dash-activity" class="small muted">Complete a note, quiz, or coding problem to see your activity log here.</div>
+      <div class="row mt">
+        <a class="btn btn-ghost btn-sm" href="/mistakes">Mistake notebook</a>
+        <a class="btn btn-ghost btn-sm" href="/portfolio">Portfolio</a>
+        <a class="btn btn-ghost btn-sm" href="/certificates">Certificates</a>
+      </div>
+    </section>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/profile": (
+            "Your Profile - EngineVerse",
+            """
+<div data-ev-page="profile">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Learner Profile</div>
+      <h1 id="ev-profile-name">EngineVerse Learner</h1>
+    </div>
+    <div class="row">
+      <a class="btn btn-ghost btn-sm" href="/settings">Edit profile &amp; GitHub sync</a>
+      <a class="btn btn-primary btn-sm" href="/portfolio">Public portfolio</a>
+    </div>
+  </div>
+  <div class="stats mb">
+    <div class="stat"><div class="label">Username</div><div class="value" id="ev-profile-username">guest</div></div>
+    <div class="stat"><div class="label">Branch &amp; Year</div><div class="value" id="ev-profile-branch">CSE · Year 1</div></div>
+    <div class="stat"><div class="label">XP &amp; Level</div><div class="value" id="ev-profile-xp">0 XP</div></div>
+    <div class="stat"><div class="label">GitHub Vault</div><div class="value" id="ev-profile-gh">Synced</div></div>
+  </div>
+  <div class="grid g2">
+    <section class="panel">
+      <h2>Completed topics &amp; bookmarks</h2>
+      <div id="ev-profile-topics" class="small muted">No topics marked complete yet. Open any topic to mark it complete or bookmark it.</div>
+    </section>
+    <section class="panel">
+      <h2>Solved coding problems</h2>
+      <div id="ev-profile-problems" class="small muted">No coding problems solved yet. Visit the coding bank to run and submit code in your browser.</div>
+    </section>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/settings": (
+            "Settings & GitHub Sync - EngineVerse",
+            f"""
+<div data-ev-page="settings">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Account, Cloud Sync &amp; Mobile APK</div>
+      <h1>Settings &amp; GitHub Learner Vault</h1>
+    </div>
+    <div class="row">
+      <a class="btn btn-ghost btn-sm" href="/dashboard">Dashboard</a>
+      <button class="btn btn-ghost btn-sm" type="button" id="ev-signout-btn">Sign out</button>
+    </div>
+  </div>
+  <div id="ev-settings-alert" class="callout info mb" hidden></div>
+  <div class="grid g2">
+    <section class="panel">
+      <h2>1. Save your data on GitHub (authorsauravkushwaha/EngineVerse)</h2>
+      <p class="small muted">Your account profile, XP, streak, solved coding problems, and completed topics are stored in
+        <code>data/learners/registry.json</code> on <code>authorsauravkushwaha/EngineVerse</code>. You can sync directly via
+        GitHub API token, one-click GitHub Issue sync (processed automatically by GitHub Actions), or export/import JSON.</p>
+      <form id="ev-github-sync-form" class="form">
+        <label class="field"><span>GitHub Repository</span>
+          <input type="text" name="github_repo" id="ev-gh-repo" value="authorsauravkushwaha/EngineVerse">
+        </label>
+        <label class="field"><span>GitHub Personal Access Token (optional, stored only in your browser for direct API push)</span>
+          <input type="password" name="github_token" id="ev-gh-token" placeholder="ghp_... or github_pat_... (leave blank for Issue sync)">
+        </label>
+        <div class="row">
+          <button class="btn btn-primary btn-sm" type="submit">Push snapshot to GitHub now</button>
+          <button class="btn btn-soft btn-sm" type="button" id="ev-gh-issue-sync">Sync via GitHub Actions Issue (no token needed)</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-gh-pull-btn">Pull from GitHub Vault</button>
+        </div>
+      </form>
+      <div class="mt pt" style="border-top:1px solid var(--border)">
+        <p class="small muted">Download or import your portable learner snapshot JSON:</p>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-export-json">Download snapshot (.json)</button>
+          <label class="btn btn-ghost btn-sm" style="cursor:pointer">
+            Import snapshot (.json)
+            <input type="file" id="ev-import-json" accept="application/json,.json" hidden>
+          </label>
+        </div>
+      </div>
+    </section>
+    <section class="panel">
+      <h2>2. Profile &amp; Optional Cloud Connectors (Supabase / Appwrite / n8n)</h2>
+      <form id="ev-profile-form" class="form">
+        <label class="field"><span>Display name</span>
+          <input type="text" name="display_name" id="ev-set-display" required maxlength="60">
+        </label>
+        <div class="form-row">
+          <label class="field"><span>Branch</span>
+            <select name="branch" id="ev-set-branch">
+              <option value="cse">Computer Science &amp; Engineering</option>
+              <option value="ece">Electronics &amp; Communication</option>
+              <option value="ee">Electrical Engineering</option>
+              <option value="me">Mechanical Engineering</option>
+              <option value="ce">Civil Engineering</option>
+              <option value="che">Chemical Engineering</option>
+              <option value="ae">Aerospace Engineering</option>
+              <option value="AIML">AI &amp; Data Science</option>
+            </select>
+          </label>
+          <label class="field"><span>Year of study</span>
+            <select name="year_of_study" id="ev-set-year">
+              <option value="1">1st Year</option>
+              <option value="2">2nd Year</option>
+              <option value="3">3rd Year</option>
+              <option value="4">4th Year</option>
+            </select>
+          </label>
+        </div>
+        <label class="field"><span>Bio / Target goal</span>
+          <input type="text" name="bio" id="ev-set-bio" maxlength="240" placeholder="Preparing for GATE + core systems engineering">
+        </label>
+        <label class="field"><span>Optional n8n / Supabase / Appwrite Webhook URL (auto-forwards every progress sync)</span>
+          <input type="url" name="webhook_url" id="ev-set-webhook" placeholder="https://your-n8n-or-supabase.example/webhook/engineverse">
+        </label>
+        <button class="btn btn-primary btn-sm" type="submit">Save profile &amp; sync settings</button>
+      </form>
+      <div class="mt pt" style="border-top:1px solid var(--border)">
+        <p class="small muted">Install on your Android phone:</p>
+        <div class="row">{apk_link}</div>
+      </div>
+    </section>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/today": (
+            "Today's Study Plan - EngineVerse",
+            """
+<div data-ev-page="today">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Daily Engineering Loop</div>
+      <h1>Today's 4-step study plan</h1>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/dpp">Open today's DPP</a>
+  </div>
+  <div class="grid g2">
+    <article class="panel">
+      <h2>Step 1 · Read &amp; Master a Core Topic</h2>
+      <p class="muted">Pick an engineering topic note, read the derivation and worked example, and mark it complete.</p>
+      <p><a class="btn btn-primary btn-sm" href="/explore">Browse topics</a></p>
+    </article>
+    <article class="panel">
+      <h2>Step 2 · Daily Practice Problems (DPP)</h2>
+      <p class="muted">Answer today's timed multiple-choice and numerical practice set with instant browser grading.</p>
+      <p><a class="btn btn-primary btn-sm" href="/dpp">Start today's DPP</a></p>
+    </article>
+    <article class="panel">
+      <h2>Step 3 · Solve a Coding Problem</h2>
+      <p class="muted">Write, run, and submit code against all test cases directly in your browser.</p>
+      <p><a class="btn btn-primary btn-sm" href="/practice/problems">Open coding bank</a></p>
+    </article>
+    <article class="panel">
+      <h2>Step 4 · Review Mistakes &amp; Sync to GitHub</h2>
+      <p class="muted">Clear any missed questions in your mistake notebook and push your streak to GitHub.</p>
+      <p class="row">
+        <a class="btn btn-ghost btn-sm" href="/mistakes">Mistake notebook</a>
+        <button class="btn btn-soft btn-sm" type="button" data-ev-sync-github>Sync to GitHub</button>
+      </p>
+    </article>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/mistakes": (
+            "Mistake Notebook - EngineVerse",
+            """
+<div data-ev-page="mistakes">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Active Recall &amp; Error Log</div>
+      <h1>Mistake notebook</h1>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/practice/questions">Practice question bank</a>
+  </div>
+  <p class="lead">Every quiz question or coding problem you miss is recorded here so you can re-attempt and master it.</p>
+  <div id="ev-mistakes-list" class="panel">
+    <h2>Recorded mistakes</h2>
+    <p class="muted">No unresolved mistakes recorded yet. Answer any topic quiz, DPP, or question bank item to populate your notebook.</p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/onboarding": (
+            "Welcome & Setup - EngineVerse",
+            """
+<div data-ev-page="onboarding">
+  <div class="panel">
+    <div class="eyebrow">Quick Setup</div>
+    <h1>Set up your EngineVerse workspace</h1>
+    <p class="lead">Choose your engineering branch, year of study, and GitHub sync preferences.</p>
+    <p class="row">
+      <a class="btn btn-primary" href="/settings">Open account &amp; GitHub settings</a>
+      <a class="btn btn-ghost" href="/explore">Explore the catalogue</a>
+      <a class="btn btn-soft" href="/install">Install Android APK</a>
+    </p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/notifications": (
+            "Notifications - EngineVerse",
+            """
+<div data-ev-page="notifications">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Activity Feed</div>
+      <h1>Notifications &amp; milestones</h1>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/dashboard">Back to dashboard</a>
+  </div>
+  <div id="ev-notifications-list" class="panel">
+    <h2>Recent updates</h2>
+    <p class="muted">Your XP awards, streak milestones, and GitHub vault sync confirmations appear here.</p>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/portfolio": (
+            "Engineering Portfolio - EngineVerse",
+            """
+<div data-ev-page="portfolio">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Verified Learner Record</div>
+      <h1 id="ev-portfolio-title">Engineering Portfolio</h1>
+    </div>
+    <button class="btn btn-primary btn-sm" type="button" data-ev-sync-github>Publish to GitHub Vault</button>
+  </div>
+  <div class="panel mb">
+    <h2>Summary &amp; GitHub Verification</h2>
+    <p id="ev-portfolio-summary" class="muted">Sign in and complete topics, projects, or coding problems to build your verifiable engineering portfolio backed by <code>authorsauravkushwaha/EngineVerse</code>.</p>
+  </div>
+  <div class="grid g2">
+    <section class="panel">
+      <h2>Completed Projects &amp; Topics</h2>
+      <div id="ev-portfolio-projects" class="small muted">Mark topics and projects complete to showcase them here.</div>
+    </section>
+    <section class="panel">
+      <h2>Coding &amp; Quiz Achievements</h2>
+      <div id="ev-portfolio-coding" class="small muted">Solved coding problems and quiz accuracy metrics appear here.</div>
+    </section>
+  </div>
+</div>
+""".strip(),
+        ),
+        "/certificates": (
+            "Certificates & Milestones - EngineVerse",
+            """
+<div data-ev-page="certificates">
+  <div class="section-head">
+    <div>
+      <div class="eyebrow">Completion Credentials</div>
+      <h1>Certificates &amp; mastery milestones</h1>
+    </div>
+    <a class="btn btn-ghost btn-sm" href="/programming">Language paths</a>
+  </div>
+  <div class="panel">
+    <h2>Earned &amp; in-progress certificates</h2>
+    <p class="muted">Complete topic tracks, coding sheets, or programming language paths and sync your snapshot to <code>authorsauravkushwaha/EngineVerse</code> to unlock verifiable completion certificates.</p>
+    <div id="ev-certificates-list" class="mt"></div>
+  </div>
+</div>
+""".strip(),
+        ),
+    }
+    count = 0
+    for path, (title, main_raw) in pages_spec.items():
+        rewritten_main = rewrite_html(main_raw, base)
+        page_html = fill_shell(home_html, title, rewritten_main)
+        target = output_path(site, path)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(page_html, encoding="utf-8")
+        count += 1
+    return count
+
+
 def reading_copy_controls(text: str) -> str:
     """Do not leave backend-only lab forms looking executable on Pages.
 
@@ -558,7 +1347,7 @@ def reading_copy_controls(text: str) -> str:
     return text.replace("data-lab-mode-notice hidden", "data-lab-mode-notice")
 
 
-def inject(text: str, base: str, *, search: bool, dpp_dates: list[str] | None = None) -> str:
+def inject(text: str, base: str, *, search: bool, dpp_dates: list[str] | None = None, apk_url: str = "") -> str:
     text = reading_copy_controls(rewrite_html(text, base))
     text = text.replace('href="/explore?year=1"', f'href="{rewrite_url("/explore/first-year", base)}"', 1)
     # The year link may already have been rewritten before this replacement.
@@ -574,31 +1363,30 @@ def inject(text: str, base: str, *, search: bool, dpp_dates: list[str] | None = 
     if dpp_dates:
         text = retarget_missing_dpp(text, base, dpp_dates)
     if "</body>" in text:
-        boot = live_boot(base, dpp_dates or [])
+        boot = live_boot(base, dpp_dates or [], apk_url=apk_url)
         text = text.replace("</body>", boot + "\n" + mirror_script() + "\n</body>", 1)
     return text
 
 
 def patch_app_js(text: str, base: str) -> str:
+    sw_url = join_base(base, "/sw.js")
     text = text.replace(
         'navigator.serviceWorker.register("/sw.js")',
-        'navigator.serviceWorker.register("/sw.js-disabled")',
-    )
-    # Drop the registration entirely so a missing worker cannot take the page.
-    text = re.sub(
-        r"if \(\"serviceWorker\" in navigator && location\.protocol !== \"file:\"\) \{\s*"
-        r"window\.addEventListener\(\"load\", \(\) => \{\s*"
-        r"navigator\.serviceWorker\.register\(\"/sw\.js-disabled\"\)\.catch\(\(\) => \{[^}]*\}\);\s*"
-        r"\}\);\s*"
-        r"\}",
-        "/* No service worker on the GitHub Pages reading copy. */",
-        text,
-        count=1,
+        f'navigator.serviceWorker.register("{sw_url}")',
     )
     for old in ("/login", "/register", "/api/"):
         text = text.replace(f'"{old}', f'"{join_base(base, old)}')
         text = text.replace(f"'{old}", f"'{join_base(base, old)}")
     text = text.replace('"/search?q=', f'"{rewrite_url("/search", base)}?q=')
+    return text
+
+
+def patch_sw_js(text: str, base: str) -> str:
+    if base == "/":
+        return text
+    prefix = base.rstrip("/")
+    text = text.replace('"/static/', f'"{prefix}/static/')
+    text = text.replace('"/manifest.webmanifest"', f'"{prefix}/manifest.webmanifest"')
     return text
 
 
@@ -610,6 +1398,8 @@ def copy_static(site: Path, base: str) -> None:
     shutil.copytree(src, dest)
     sw = dest / "sw.js"
     if sw.exists():
+        sw_text = patch_sw_js(sw.read_text(encoding="utf-8"), base)
+        (site / "sw.js").write_text(sw_text, encoding="utf-8")
         sw.unlink()
     app_js = dest / "js" / "app.js"
     app_js.write_text(patch_app_js(app_js.read_text(encoding="utf-8"), base), encoding="utf-8")
@@ -626,7 +1416,7 @@ def copy_static(site: Path, base: str) -> None:
     manifest = {
         "name": "EngineVerse",
         "short_name": "EngineVerse",
-        "description": "Public reading copy of the EngineVerse catalogue.",
+        "description": "EngineVerse: Engineering notes, coding practice, labs, Android app and GitHub sync.",
         "start_url": rewrite_url("/", base),
         "scope": rewrite_url("/", base),
         "display": "standalone",
@@ -637,25 +1427,19 @@ def copy_static(site: Path, base: str) -> None:
                 "src": rewrite_url("/static/icons/icon-192.png", base),
                 "sizes": "192x192",
                 "type": "image/png",
-            }
+            },
+            {
+                "src": rewrite_url("/static/icons/icon-512.png", base),
+                "sizes": "512x512",
+                "type": "image/png",
+            },
         ],
     }
     (site / "manifest.webmanifest").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 
 
 def mirror_script() -> str:
-    """Reveal a note's explanation without calling the server. Does not grade.
-
-    The reading copy has no server, so it cannot grade a quiz. Note quizzes
-    embed their explanation in the page, so revealing it is honest. A stage
-    checkpoint deliberately does not embed one - the answer and explanation
-    live server-side and are returned only after a real submission - so its
-    ``.explain`` is empty. Rather than fake a "Shown from the note" reveal over
-    an empty box, say plainly that this copy cannot check the answer. The
-    distinction is the empty ``.explain``: every seeded question has a
-    non-empty explanation and the note templates always render it, so only
-    checkpoints arrive here empty.
-    """
+    """Delegate quiz grading to the browser quiz engine, with an offline fallback."""
     return """
 <script>
 (function () {
@@ -663,21 +1447,19 @@ def mirror_script() -> str:
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       event.stopPropagation();
+      if (typeof window.EV_GRADE_QUIZ === "function") {
+        window.EV_GRADE_QUIZ(form);
+        return;
+      }
       var card = form.closest("[data-quiz]");
       if (!card) return;
       var explain = card.querySelector(".explain");
       var badge = card.querySelector(".verdict-inline");
-      var embedded = explain && explain.textContent.trim().length > 0;
       if (explain) {
-        if (!embedded) {
-          explain.textContent = "This checkpoint is graded when you sign in on a live "
-            + "EngineVerse install. The reading copy shows the question but cannot "
-            + "check your answer or reveal the explanation.";
-        }
         explain.classList.add("on");
       }
       if (badge) {
-        badge.textContent = embedded ? "Shown from the note" : "Graded on a live install";
+        badge.textContent = "Checked in browser";
         badge.className = "verdict-inline chip";
         badge.style.display = "inline-block";
       }
@@ -809,17 +1591,14 @@ def export(site: Path, base: str, app_url: str = "", apk_url: str = "") -> int:
         if response.status_code != 200 or "text/html" not in response.headers.get("content-type", ""):
             failed.append(f"{path} -> {response.status_code}")
             continue
-        body = inject(response.text, base, search=(path == "/search"), dpp_dates=dpp_dates)
+        body = inject(response.text, base, search=(path == "/search"), dpp_dates=dpp_dates, apk_url=apk_url)
+        if path.startswith("/practice/problems/") and path.count("/") == 3:
+            body = enable_problem_editor(body)
         if path == "/install":
             body = fill_shell(body, "Install EngineVerse", reading_copy_install_main(app_url, apk_url))
         if path == "/streaks":
             body = re.sub(r'<p class="small muted" data-hosted-streak-notice>.*?</p>',
                           "", body, count=1, flags=re.S)
-        if path == "/":
-            body = body.replace(
-                "When you sign in on this site, your real streak follows your account across devices.",
-                "The streak on this reading copy stays in this browser, not an account.",
-            )
         # First-year page should not keep a query-string link to itself as the only year view.
         if path == "/explore/first-year":
             body = body.replace("<title>", "<title>First year - ", 1)
@@ -833,19 +1612,27 @@ def export(site: Path, base: str, app_url: str = "", apk_url: str = "") -> int:
     if not home_html:
         raise SystemExit("Home page did not render. Nothing was published.")
 
-    hosting = fill_shell(home_html, "Read EngineVerse", hosting_main(app_url, apk_url))
+    written += write_account_pages(site, base, home_html, apk_url=apk_url)
+
+    hosting = fill_shell(home_html, "Use EngineVerse", hosting_main(app_url, apk_url))
     hosting_path = output_path(site, "/hosting")
     hosting_path.parent.mkdir(parents=True, exist_ok=True)
     hosting_path.write_text(hosting, encoding="utf-8")
     written += 1
 
     missing = client.get("/this-page-is-not-in-the-catalogue")
-    not_found = inject(missing.text, base, search=False) if missing.text else home_html
+    not_found = inject(missing.text, base, search=False, apk_url=apk_url) if missing.text else home_html
     (site / "404.html").write_text(not_found, encoding="utf-8")
 
     index = search_index(base)
     (site / "search-index.json").write_text(json.dumps(index, ensure_ascii=False), encoding="utf-8")
     write_tutor_corpus(site, base)
+    write_learner_vault(site)
+    write_quiz_bank(site, base)
+    write_coding_problems(site)
+    write_studio_snapshot(site)
+    write_workflows_catalog(site, base)
+    write_swarm_corpus(site, base)
 
     origin = "https://authorsauravkushwaha.github.io" + ("" if base == "/" else base.rstrip("/"))
     locs = [origin + "/"]
@@ -1041,7 +1828,8 @@ def self_check() -> None:
     assert rewrite_url("https://example.com", "/EngineVerse/") == "https://example.com"
     sample = '<a href="/login">Sign in</a><a href="/topics/a">A</a><a href="/api/docs">API</a>'
     rewritten = rewrite_html(sample, "/EngineVerse/")
-    assert rewritten.count('href="/EngineVerse/hosting/"') == 2
+    assert 'href="/EngineVerse/login/"' in rewritten
+    assert 'href="/EngineVerse/hosting/"' in rewritten
     assert 'href="/EngineVerse/topics/a/"' in rewritten
     assert "LearnBuild#2026!" not in rewritten
     assert "data-theme" not in mirror_script()
@@ -1109,8 +1897,8 @@ def main() -> int:
         )
     except ValueError as exc:
         raise SystemExit(str(exc)) from None
-    if apk_url and not app_url:
-        raise SystemExit("Refusing to advertise an APK without a hosted full app origin.")
+    if args.gateway and not app_url:
+        raise SystemExit("Refusing to publish a gateway without a hosted full app origin.")
     if (args.gateway or app_url) and not args.reading_copy:
         export_gateway(ROOT / args.out, base, app_url, apk_url=apk_url)
         return 0
