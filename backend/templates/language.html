@@ -35,6 +35,10 @@
         <div class="prose">{{ module.body | md | safe }}</div>
         <h4>Example</h4><pre class="console">{{ module.example }}</pre>
         <div class="callout exam"><span class="label">Exercise</span>{{ module.exercise }}</div>
+        {% if module.practice %}
+        <p class="mt"><a class="btn btn-primary" href="/practice/problems/{{ module.practice.slug }}">Code what you learned: {{ module.practice.title }} →</a>
+          <span class="chip diff-{{ module.practice.difficulty }}">{{ module.practice.difficulty }}</span></p>
+        {% endif %}
       </section>
       {% endfor %}
     </div>

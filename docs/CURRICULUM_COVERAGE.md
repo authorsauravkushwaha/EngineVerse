@@ -20,21 +20,21 @@ production content unless you just generated it from that database.
 - Diagrams: 406
 - 3D models: 406
 - Formulas: 365
-- Active questions: 525
-- Published DPP sets: 105
-- Published DPP question slots: 525
+- Active questions: 534
+- Published DPP sets: 107
+- Published DPP question slots: 535
 - Subjects represented in published DPPs: 93
-- Language tracks represented in published DPPs: 9
-- Coding problems: 95
-- Curated coding sheets: 12 (125 problem slots; 0 problems in no sheet)
-- Programming languages: 9
-- Language modules: 68 (68 assigned to a stage)
-- Language stages: 27
-- Stage checkpoint links: 81 (81 pointing at active questions)
-- Published project briefs: 16
-- Project steps: 92
-- Project resources: 27
-- Language-linked capstone briefs: 9
+- Language tracks represented in published DPPs: 10
+- Coding problems: 105
+- Curated coding sheets: 14 (135 problem slots; 0 problems in no sheet)
+- Programming languages: 10
+- Language modules: 225 (225 assigned to a stage)
+- Language stages: 30
+- Stage checkpoint links: 90 (90 pointing at active questions)
+- Published project briefs: 17
+- Project steps: 98
+- Project resources: 30
+- Language-linked capstone briefs: 10
 
 ## Coding sheets by stream
 
@@ -45,12 +45,12 @@ counted once.
 
 | Stream | Sheets | Problems reachable |
 |---|---:|---:|
-| Computer Science & IT | 10 | 77 |
-| Electronics & Electrical | 10 | 80 |
-| Mechanical & Manufacturing | 9 | 74 |
-| Civil & Infrastructure | 8 | 65 |
-| Chemical & Materials | 10 | 80 |
-| Bio & Other Engineering | 9 | 73 |
+| Computer Science & IT | 12 | 87 |
+| Electronics & Electrical | 12 | 90 |
+| Mechanical & Manufacturing | 11 | 84 |
+| Civil & Infrastructure | 10 | 75 |
+| Chemical & Materials | 12 | 90 |
+| Bio & Other Engineering | 11 | 83 |
 
 A stream with no sheet of its own still gets the sheets written for every
 branch - the pattern sheets and the interview set - so a learner is never left
@@ -62,15 +62,16 @@ Each path progresses through Foundations, Working Practice and Advanced Engineer
 
 | Language | Modules | Foundations | Working Practice | Advanced Engineering | Checkpoints | Capstone |
 |---|---:|---:|---:|---:|---:|---|
-| Python | 13 | 5 | 4 | 4 | 9 | [python-field-notes-api](/projects/python-field-notes-api) |
-| Java | 11 | 3 | 3 | 5 | 9 | [java-room-booking-service](/projects/java-room-booking-service) |
-| JavaScript | 8 | 2 | 3 | 3 | 9 | [js-revision-dashboard](/projects/js-revision-dashboard) |
-| TypeScript | 6 | 1 | 2 | 3 | 9 | [ts-task-api-client](/projects/ts-task-api-client) |
-| C++ | 7 | 2 | 3 | 2 | 9 | [cpp-text-index-cli](/projects/cpp-text-index-cli) |
-| Go | 6 | 1 | 3 | 2 | 9 | [go-healthcheck-service](/projects/go-healthcheck-service) |
-| Rust | 6 | 1 | 2 | 3 | 9 | [rust-logscan-cli](/projects/rust-logscan-cli) |
-| C | 5 | 2 | 2 | 1 | 9 | [c-sensor-ringlog](/projects/c-sensor-ringlog) |
-| SQL | 6 | 2 | 3 | 1 | 9 | [sql-ops-reporting-db](/projects/sql-ops-reporting-db) |
+| Python | 35 | 13 | 6 | 16 | 9 | [python-field-notes-api](/projects/python-field-notes-api) |
+| Java | 31 | 10 | 4 | 17 | 9 | [java-room-booking-service](/projects/java-room-booking-service) |
+| JavaScript | 23 | 9 | 5 | 9 | 9 | [js-revision-dashboard](/projects/js-revision-dashboard) |
+| TypeScript | 16 | 5 | 2 | 9 | 9 | [ts-task-api-client](/projects/ts-task-api-client) |
+| C++ | 27 | 8 | 4 | 15 | 9 | [cpp-text-index-cli](/projects/cpp-text-index-cli) |
+| Go | 17 | 6 | 3 | 8 | 9 | [go-healthcheck-service](/projects/go-healthcheck-service) |
+| Rust | 17 | 6 | 2 | 9 | 9 | [rust-logscan-cli](/projects/rust-logscan-cli) |
+| C | 26 | 10 | 3 | 13 | 9 | [c-sensor-ringlog](/projects/c-sensor-ringlog) |
+| C# | 18 | 8 | 5 | 5 | 9 | [csharp-tasks-api](/projects/csharp-tasks-api) |
+| SQL | 15 | 5 | 3 | 7 | 9 | [sql-ops-reporting-db](/projects/sql-ops-reporting-db) |
 
 ## By branch
 

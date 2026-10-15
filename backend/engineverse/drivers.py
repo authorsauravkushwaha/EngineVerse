@@ -48,6 +48,7 @@ WRAPPERS = (
     "grid",
     "list-pair",
     "two-lines",
+    "word-ladder",
 )
 
 # How each wrapper feeds the entry point, shown on the problem page.
@@ -77,6 +78,7 @@ WRAPPER_DOCS = {
     "grid": "Line 1: rows and columns. Then one line of characters per row.",
     "list-pair": "Two lines of space-separated integers.",
     "two-lines": "Two lines of text.",
+    "word-ladder": "Line 1: the begin word. Line 2: the end word. Remaining lines: the word list.",
 }
 
 _ENTRY_RE = re.compile(r"^\s*(?:def|class)\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -360,6 +362,16 @@ _d = _sys.stdin.read().split("\\n")
 _a = _d[0].strip() if _d else ""
 _b = _d[1].strip() if len(_d) > 1 else ""
 print({entry}(_a, _b))
+"""
+
+    if wrapper == "word-ladder":
+        return f"""
+import sys as _sys
+_d = _sys.stdin.read().split("\\n")
+_begin = _d[0].strip() if _d else ""
+_end = _d[1].strip() if len(_d) > 1 else ""
+_words = " ".join(_d[2:]).split()
+print({entry}(_begin, _end, _words))
 """
 
     if wrapper == "lru":

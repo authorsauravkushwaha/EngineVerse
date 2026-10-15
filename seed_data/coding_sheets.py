@@ -21,21 +21,37 @@ that suit it; see ``engineverse.hub`` for the per-branch ordering on top of it.
 """
 from __future__ import annotations
 
-from . import coding_core, coding_streams, practice_data
+from . import coding_book, coding_core, coding_streams, practice_data
 
 #: Every problem a sheet may name: the original 13 in ``practice_data`` plus the
-#: bank in the two modules beside this one. Used by ``validate()`` below.
+#: bank in the three modules beside this one. Used by ``validate()`` below.
 KNOWN_SLUGS: frozenset[str] = frozenset(
     [entry["slug"] for entry in practice_data.CODING_PROBLEMS]
     + [entry["slug"] for entry in coding_core.PROBLEMS]
     + [entry["slug"] for entry in coding_streams.PROBLEMS]
+    + [entry["slug"] for entry in coding_book.PROBLEMS]
 )
 
 SHEETS: list[dict] = [
     {
+        "slug": "first-drills",
+        "title": "First Drills: Loops, Conditions, Strings",
+        "blurb": "Before the pattern sheets: six raw basics every programmer writes in their sleep. One loop, "
+                 "one rule, one counter - the shapes every harder problem is built from.",
+        "level": "core",
+        "audience": "all",
+        "est_hours": 3,
+        "topic_focus": ["loop", "conditionals", "string", "validation"],
+        "order_index": 0,
+        "problems": [
+            "drill-times-table", "drill-min-max-scan", "drill-grade-bands", "drill-sum-until-zero",
+            "drill-count-vowels", "drill-valid-identifier",
+        ],
+    },
+    {
         "slug": "arrays-hashing",
         "title": "Arrays & Hashing",
-        "blurb": "The first sheet to finish. A hash map turns a nested loop into a single pass, and these ten "
+        "blurb": "The first pattern sheet to finish. A hash map turns a nested loop into a single pass, and these ten "
                  "problems are where that idea clicks.",
         "level": "core",
         "audience": "all",
@@ -124,6 +140,20 @@ SHEETS: list[dict] = [
             "climb-stairs", "coin-change", "house-robber", "maximum-subarray",
             "longest-increasing-subsequence", "unique-paths", "partition-equal-subset",
             "max-product-subarray", "longest-palindromic-substring", "edit-distance", "word-break",
+        ],
+    },
+    {
+        "slug": "advanced-patterns",
+        "title": "Advanced Patterns: Sweeps, Water, Ladders, Codecs",
+        "blurb": "Four hard patterns that recur in senior interviews: the sort-and-sweep over intervals, the "
+                 "two-pointer extreme, BFS over word graphs, and the tree codec. Do these after the core sheets.",
+        "level": "interview",
+        "audience": "all",
+        "est_hours": 8,
+        "topic_focus": ["intervals", "two-pointers", "breadth-first-search", "tree"],
+        "order_index": 7,
+        "problems": [
+            "merge-intervals", "trapping-rain-water", "word-ladder", "serialize-tree",
         ],
     },
     {

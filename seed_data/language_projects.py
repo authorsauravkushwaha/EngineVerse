@@ -1219,6 +1219,156 @@ CAPSTONES: list[dict] = [
              "How to read SQLite's plan output - the evidence each index in NOTES.md is justified with."),
         ],
     },
+    # ------------------------------------------------------------------ C#
+    {
+        "slug": "csharp-tasks-api",
+        "title": "Tested Minimal-API Task Service with a Bounded Reminder Tool",
+        "language": "csharp",
+        "branch": "computer-science",
+        "subject": None,
+        "difficulty": "advanced",
+        "category": "software",
+        "est_hours": 34,
+        "summary": "Build a small, fully tested C# service that records tasks, stores them safely in SQLite, "
+                   "exposes a validated minimal API with per-user ownership, and offers one strictly bounded "
+                   "reminder tool - the capstone for the C# path.",
+        "problem_statement": "A study group coordinates in a chat thread: task lists scroll away, nobody knows "
+                             "who owns what, and the weekly 'what is overdue' message is whoever remembers to "
+                             "write one. A shared spreadsheet was tried and failed the same week two people "
+                             "edited it at once - one person's rows were silently overwritten, and the file "
+                             "has no history of who changed what.\\n\\nThe group needs a tool they trust: tasks "
+                             "recorded with an owner and a due date, stored locally with a real schema, served "
+                             "over HTTP so every member's client sees the same state, and an overdue digest "
+                             "that is generated from their own data by code they can read - with each member "
+                             "able to touch only their own tasks.",
+        "objective": "Ship a .NET solution (API project plus xUnit test project) where a user can create, "
+                     "list, complete and delete tasks; data persists in SQLite through parameterized "
+                     "queries only; every input crossing the HTTP boundary is validated server-side; "
+                     "requests carry a simple API key that the service maps to an owner, and every "
+                     "read and write is scoped to that owner in the query itself; and a single "
+                     "allowlisted reminder tool composes the overdue digest deterministically (no model "
+                     "call required). Outcomes the build proves: you can structure a C# solution into "
+                     "projects with xUnit tests, you treat every boundary as untrusted, and you can "
+                     "bound an automation so its worst case is acceptable.",
+        "prerequisites": [
+            "C# path: Foundations and Working Practice stages complete (methods, collections, LINQ, errors, testing)",
+            "C# path: Advanced Engineering modules on async and minimal APIs",
+            "Comfortable running dotnet test and reading a failing xUnit assertion",
+        ],
+        "hardware": "Any laptop that runs the .NET 8 SDK. No server, GPU or paid API account is required.",
+        "software": ".NET 8 SDK, Microsoft.Data.Sqlite, xUnit, SQLite (bundled via the NuGet package), Git.",
+        "architecture": "Three layers with one direction of dependency. A storage layer owns SQLite and "
+                        "exposes typed async functions (AddTaskAsync, ListOverdueAsync) built only from "
+                        "parameterized commands. A service layer holds the rules - required fields, due-date "
+                        "handling, owner scoping, the reminder digest - and knows nothing about HTTP. A "
+                        "minimal-API layer validates request DTOs (records with required members), resolves "
+                        "the API key to an owner id, and returns typed results (Results.Ok / Results.BadRequest "
+                        "/ Results.NotFound / Results.Forbid). Nullable reference types are enabled and the "
+                        "build treats warnings as errors, so a missing null check fails the build instead of "
+                        "the demo. The reminder tool is a pure function over the service layer's data: it "
+                        "reads, formats and returns text - it cannot write, call the network or touch the "
+                        "file system, which is stated in its signature (no I/O types in, no Task out).",
+        "source_code": "Suggested layout:\\n\\n```\\nTasks.Api/Program.cs            # endpoints, validation, key->owner mapping\\nTasks.Api/Storage.cs            # parameterized SQLite access, async\\nTasks.Api/TasksService.cs        # rules + the reminder digest (pure)\\nTasks.Api/Models.cs              # request/response records\\nTasks.Tests/StorageTests.cs      # temp-file SQLite per test\\nTasks.Tests/ServiceTests.cs      # rules incl. ownership scoping\\nTasks.Tests/ApiTests.cs          # WebApplicationFactory: status codes + bodies\\n```\\n\\nKeep Program.cs thin: parse, validate, authorize, delegate. The service layer must be "
+                       "testable without HTTP (plain method calls in ServiceTests) and the storage layer "
+                       "without the service (temp databases in StorageTests). ApiTests prove the wiring: "
+                       "401 without a key, 403 across owners, 400 on invalid DTOs, 404 on missing tasks.",
+        "database_design": "`owners(api_key TEXT PRIMARY KEY, name TEXT NOT NULL)`; `tasks(id INTEGER PRIMARY "
+                           "KEY, owner_key TEXT NOT NULL REFERENCES owners(api_key) ON DELETE CASCADE, title "
+                           "TEXT NOT NULL CHECK (length(title) BETWEEN 1 AND 200), due_at TEXT NOT NULL, "
+                           "done INTEGER NOT NULL DEFAULT 0 CHECK (done IN (0,1)), created_at TEXT NOT NULL "
+                           "DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')))`. Every task query carries "
+                           "`WHERE owner_key = @owner` - ownership is enforced in SQL, not by filtering in "
+                           "C# after the fact. Index on (owner_key, due_at) for the overdue listing, justified "
+                           "with an EXPLAIN QUERY PLAN captured in the test output. PRAGMA foreign_keys = ON "
+                           "is set on every connection the storage layer opens.",
+        "testing": "xUnit across three projects-of-concern. StorageTests run against a fresh temp-file SQLite "
+                   "database per test: round-trip a task, prove cross-owner rows are invisible to "
+                   "ListOverdueAsync, prove the CHECK constraints reject empty titles. ServiceTests cover "
+                   "the rules with no I/O: validation refusals (empty title, due date in unparsable form), "
+                   "the overdue digest's exact text for a fixed clock (the clock is injected - the digest "
+                   "takes a DateTimeOffset parameter, never DateTimeOffset.UtcNow), and the empty-digest "
+                   "message. ApiTests spin up the app with WebApplicationFactory: missing key returns 401, "
+                   "a key reading another owner's task returns 404 (not 403 - ids are not enumerable), "
+                   "invalid JSON returns 400 with a useful problem body, and the happy path returns the "
+                   "created task with its owner-scoped id. Security assertions are explicit tests, not "
+                   "comments: cross-owner read, cross-owner delete and SQL-injection-shaped titles "
+                   "(`x'; DROP TABLE tasks;--` stored as a harmless title) each have a named test. "
+                   "`dotnet test` plus `dotnet build -warnaserror` is the one-command gate.",
+        "expected_output": "`dotnet test` reports all suites green (20+ tests, including the named security "
+                           "tests), and `dotnet run --project Tasks.Api` serves the API: creating two tasks "
+                           "under different keys and fetching the overdue digest shows each owner exactly "
+                           "their own overdue items with the deterministic digest text. A short DEMO.md shows "
+                           "the curl commands and the expected status codes. The reminder tool's signature "
+                           "documents its bounds - pure function, no I/O - which is the audit story when "
+                           "someone asks what the automation is allowed to do.",
+        "improvements": [
+            "Replace API keys with signed tokens (Data Protection or JWT) with expiry, keeping the per-request ownership check untouched.",
+            "Add pagination with keyset links (not OFFSET) to the task listing, and pin the ordering with a tiebreaker test.",
+            "Add a second bounded tool - a weekly summary - behind the same pure-function contract, and prove in tests it cannot write.",
+            "Containerize the API with a published port and a health endpoint, and assert the health check in CI.",
+        ],
+        "resume_md": "**Task Service API** | C#, ASP.NET Core minimal APIs, SQLite, xUnit\\n"
+                     "- Owner-scoped task API with validated DTOs, parameterized SQLite access and nullable "
+                     "reference types enforced as build errors.\\n"
+                     "- 20+ xUnit tests including named security tests (cross-owner isolation, injection-shaped "
+                     "input stored harmlessly); deterministic overdue digest behind a pure-function tool contract.",
+        "interview_questions": [
+            "Your delete endpoint returns 404 when the task belongs to another owner instead of 403. Why is that the safer choice?",
+            "The reminder tool cannot write to the database. How does its signature prove that, and what would have to change for it to gain write access?",
+            "A title containing SQL metacharacters is stored harmlessly. Walk me through the exact mechanism - where does the boundary between code and data live?",
+            "The digest takes the clock as a parameter instead of reading the time itself. What test does that enable that a hidden clock would not?",
+        ],
+        "tech": ["C# 12", ".NET 8", "ASP.NET Core minimal APIs", "Microsoft.Data.Sqlite", "xUnit", "Git"],
+        "skills": ["minimal API design", "server-side validation", "owner-scoped authorization", "parameterized data access", "xUnit testing at three layers", "bounding automations by construction"],
+        "steps": [
+            ("1. Slice zero: models, storage, one endpoint", "Prove the database round-trip before any rules",
+             "Create the solution with the API and test projects, enable nullable + warnings-as-errors, and "
+             "write Models.cs (TaskItem and CreateTaskRequest records with required members), the tasks table "
+             "in Storage.cs with PRAGMA foreign_keys = ON, and POST/GET endpoints that round-trip one task. "
+             "Write the first StorageTests against temp-file databases. Done when dotnet test is green and a "
+             "curl POST followed by GET returns the stored task."),
+            ("2. Ownership and validation", "Keys, scoping and refusal tests",
+             "Add the owners table and the key-to-owner mapping middleware (missing key -> 401), scope every "
+             "task query with WHERE owner_key = @owner, and validate request DTOs (title length, parsable "
+             "due date -> 400 with a problem body). Write the cross-owner ApiTests: reading or deleting "
+             "another owner's task returns 404, and ids are not enumerable. Done when the named security "
+             "tests exist and pass."),
+            ("3. Rules and the digest", "Service layer with an injected clock",
+             "Move the rules into TasksService: due-date handling, done transitions, and the overdue digest "
+             "as a pure function of (tasks, now) with now injected. Write ServiceTests with a fixed clock "
+             "pinning the digest's exact text, including the empty-digest message and the boundary task due "
+             "exactly now. Done when the digest text is byte-pinned and the service has no I/O types in its "
+             "signatures."),
+            ("4. The bounded tool", "One automation with a provable worst case",
+             "Expose the digest as the single reminder tool behind an allowlist: the API surface offers "
+             "exactly one tool name, unknown names are refused with a typed error, and the tool's "
+             "implementation calls only the pure digest function. Write tests proving the tool cannot write "
+             "(no storage calls in its path - assert with a spy or by construction review in DEMO.md) and "
+             "that an unknown tool name returns the typed refusal. Done when the tool's bounds are stated "
+             "in DEMO.md and enforced by tests."),
+            ("5. Hardening pass", "Injection, constraints and the query plan",
+             "Add the injection-shaped-title test (stored harmlessly, rendered back exactly), the CHECK-"
+             "constraint negative tests (empty title rejected by the schema), and the (owner_key, due_at) "
+             "index with its EXPLAIN QUERY PLAN captured into the test output. Turn on build warnings as "
+             "errors if not already done and clear every nullable warning honestly (no `!` suppressions "
+             "without a comment stating the proof). Done when dotnet build -warnaserror and dotnet test "
+             "are both clean."),
+            ("6. Ship it", "CI, DEMO.md and handover",
+             "Wire the one-command gate (build with warnings-as-errors plus full test run) into CI. Write "
+             "DEMO.md: the curl sequence for two owners, the expected status codes (401/403/404/400 each "
+             "shown once), the digest output, and the tool-bounds statement. Tag v1.0.0. Done when a "
+             "classmate clones fresh, runs the gate and the curl sequence, and sees the documented "
+             "results - including the 404 (not 403) on a cross-owner read."),
+        ],
+        "resources": [
+            ("documentation", "Microsoft Learn: minimal APIs tutorial", "https://learn.microsoft.com/en-us/aspnet/core/tutorials/min-web-api",
+             "The official walkthrough: routing, parameter binding, typed results and validation - the mechanics behind the endpoints."),
+            ("documentation", "Microsoft Learn: SQLite in .NET", "https://learn.microsoft.com/en-us/dotnet/standard/data/sqlite/",
+             "Microsoft.Data.Sqlite usage including parameterized commands - the code/data boundary the storage layer depends on."),
+            ("documentation", "Microsoft Learn: unit testing with dotnet test", "https://learn.microsoft.com/en-us/dotnet/core/testing/unit-testing-with-dotnet-test",
+             "xUnit project setup and the test/explore/debug loop the three test projects follow."),
+        ],
+    },
 ]
 
 

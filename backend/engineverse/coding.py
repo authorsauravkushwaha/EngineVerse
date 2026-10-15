@@ -82,6 +82,21 @@ def stages_for_language(language_id: str) -> list[dict]:
             "SELECT * FROM language_modules WHERE language_id = ? AND stage = ? ORDER BY order_index",
             language_id, stage["stage"],
         )
+        # The "code what you learned" button: resolve each module's practice
+        # slug to the problem it points at, in one query per stage. A slug
+        # that resolves to nothing renders no button rather than a 404 - the
+        # seeder refuses dangling links, so this is belt and braces.
+        wanted = [module.get("practice_slug") for module in stage["modules"] if module.get("practice_slug")]
+        practice_by_slug: dict[str, dict] = {}
+        if wanted:
+            placeholders = ",".join("?" for _ in wanted)
+            for row in db.query(
+                f"SELECT slug, title, difficulty FROM coding_problems WHERE slug IN ({placeholders})",
+                *wanted,
+            ):
+                practice_by_slug[row["slug"]] = row
+        for module in stage["modules"]:
+            module["practice"] = practice_by_slug.get(module.get("practice_slug") or "")
         rows = db.query(
             "SELECT q.* FROM language_checkpoints lc JOIN questions q ON q.id = lc.question_id "
             "WHERE lc.language_id = ? AND lc.stage = ? AND q.is_active = 1 ORDER BY lc.order_index",

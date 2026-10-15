@@ -58,7 +58,7 @@ STAGE_SUMMARIES = {slug: summary for slug, _title, summary in STAGES}
 #: Iteration order for building checkpoint entries. Mirrors
 #: ``library_data.LANGUAGES``; ``validate()`` asserts the two sets agree, so a
 #: new language cannot be seeded without staging it here.
-LANGUAGE_ORDER = ("python", "java", "javascript", "typescript", "cpp", "go", "rust", "c", "sql")
+LANGUAGE_ORDER = ("python", "java", "javascript", "typescript", "cpp", "go", "rust", "c", "csharp", "sql")
 
 #: Checkpoint questions live in the question bank under this subject, which is
 #: the published first-year programming subject. That keeps them in the normal
@@ -67,8 +67,15 @@ CHECKPOINT_SUBJECT = "programming-fundamentals"
 
 #: language -> stage -> module slugs, in reading order. Together these lists
 #: must be exactly the merged module set (language_foundations, then
-#: library_data.LANGUAGE_MODULES, then language_paths.EXTRA_MODULES) for that
-#: language - ``validate()`` fails the seed otherwise.
+#: library_data.LANGUAGE_MODULES, then language_paths.EXTRA_MODULES, then the
+#: language_book_*.BOOK_MODULES depth modules) for that language -
+#: ``validate()`` fails the seed otherwise.
+#:
+#: Staging rule for the book-depth modules: they are interview-grade DSA and
+#: engineering depth, so they extend the advanced stage of the nine original
+#: languages (whose foundations and working practice already exist). C# has no
+#: legacy modules - its whole path is book modules, staged across all three
+#: stages so the gates still mean something.
 MODULE_STAGES = {
     "python": {
         "foundations": [
@@ -85,6 +92,10 @@ MODULE_STAGES = {
         "advanced_engineering": [
             "python-fastapi-app", "python-sqlite-persistence",
             "python-agent-tools", "python-tested-app-capstone",
+            "python-complexity-big-o", "python-strings-deep", "python-lists-deep",
+            "python-dicts-sets", "python-recursion", "python-sorting-searching",
+            "python-stacks-queues", "python-linked-lists", "python-trees-heaps",
+            "python-graphs", "python-dp", "python-interview-mastery",
         ],
     },
     "java": {
@@ -97,6 +108,10 @@ MODULE_STAGES = {
         "advanced_engineering": [
             "java-http-service", "java-jdbc-data", "java-concurrency",
             "java-agent-tools", "java-application-capstone",
+            "java-complexity-big-o", "java-strings-deep", "java-arrays-arraylist",
+            "java-hashmap-hashset", "java-recursion", "java-sorting-searching",
+            "java-stacks-queues", "java-linked-lists", "java-trees-heaps",
+            "java-graphs", "java-dp", "java-interview-mastery",
         ],
     },
     "javascript": {
@@ -105,7 +120,11 @@ MODULE_STAGES = {
             "js-real-world-1", "js-functions-scratch", "js-basics", "js-objects", "js-dom",
         ],
         "working_practice": ["js-async", "js-errors", "js-modules", "js-node-service", "js-testable-app"],
-        "advanced_engineering": ["js-browser-security", "js-agent-tools", "js-fullstack-capstone"],
+        "advanced_engineering": [
+            "js-browser-security", "js-agent-tools", "js-fullstack-capstone",
+            "js-complexity-big-o", "js-strings-arrays-deep", "js-recursion-sorting",
+            "js-maps-sets", "js-trees-graphs", "js-interview-mastery",
+        ],
     },
     "typescript": {
         "foundations": [
@@ -113,7 +132,11 @@ MODULE_STAGES = {
             "ts-types-functions",
         ],
         "working_practice": ["ts-web-app", "ts-http-validation"],
-        "advanced_engineering": ["ts-node-service", "ts-agent-tools", "ts-test-release-capstone"],
+        "advanced_engineering": [
+            "ts-node-service", "ts-agent-tools", "ts-test-release-capstone",
+            "ts-complexity-big-o", "ts-collections-deep", "ts-recursion-sorting",
+            "ts-generics-dsa", "ts-graphs-dp", "ts-interview-mastery",
+        ],
     },
     "cpp": {
         "foundations": [
@@ -121,7 +144,13 @@ MODULE_STAGES = {
             "cpp-real-world-1", "cpp-functions-scratch", "cpp-basics", "cpp-memory",
         ],
         "working_practice": ["cpp-classes", "cpp-containers", "cpp-raii-memory-safety", "cpp-build-test"],
-        "advanced_engineering": ["cpp-parse-safe-input", "cpp-professional", "cpp-safe-app-project"],
+        "advanced_engineering": [
+            "cpp-parse-safe-input", "cpp-professional", "cpp-safe-app-project",
+            "cpp-complexity-big-o", "cpp-strings-deep", "cpp-vectors-arrays",
+            "cpp-hash-unordered", "cpp-recursion", "cpp-sorting-searching",
+            "cpp-stacks-queues", "cpp-linked-lists", "cpp-trees-heaps",
+            "cpp-graphs", "cpp-dp", "cpp-interview-mastery",
+        ],
     },
     "go": {
         "foundations": [
@@ -129,7 +158,11 @@ MODULE_STAGES = {
             "go-real-world-1", "go-types-errors",
         ],
         "working_practice": ["go-packages-tests", "go-http-api", "go-sql-data"],
-        "advanced_engineering": ["go-concurrency-context", "go-agent-capstone"],
+        "advanced_engineering": [
+            "go-concurrency-context", "go-agent-capstone",
+            "go-complexity-big-o", "go-slices-maps-deep", "go-recursion-sorting",
+            "go-stacks-queues", "go-trees-graphs", "go-interview-mastery",
+        ],
     },
     "rust": {
         "foundations": [
@@ -137,7 +170,11 @@ MODULE_STAGES = {
             "rust-real-world-1", "rust-ownership-errors",
         ],
         "working_practice": ["rust-collections-iterators", "rust-tests-modules"],
-        "advanced_engineering": ["rust-http-service", "rust-agent-tools", "rust-application-capstone"],
+        "advanced_engineering": [
+            "rust-http-service", "rust-agent-tools", "rust-application-capstone",
+            "rust-complexity-big-o", "rust-strings-vec-deep", "rust-recursion-sorting",
+            "rust-hash-collections", "rust-graphs-dp", "rust-interview-mastery",
+        ],
     },
     "c": {
         "foundations": [
@@ -145,12 +182,37 @@ MODULE_STAGES = {
             "c-arrays-scratch", "c-real-world-1", "c-basics", "c-pointers",
         ],
         "working_practice": ["c-structs", "c-functions", "c-headers-modules"],
-        "advanced_engineering": ["c-files"],
+        "advanced_engineering": [
+            "c-files",
+            "c-complexity-big-o", "c-strings-deep", "c-arrays-deep",
+            "c-recursion-stack", "c-sorting-searching", "c-linked-lists",
+            "c-stacks-queues", "c-hash-tables", "c-trees-heaps",
+            "c-graphs", "c-dp-bitwise", "c-interview-mastery",
+        ],
+    },
+    "csharp": {
+        "foundations": [
+            "csharp-why", "csharp-hello", "csharp-variables-operators",
+            "csharp-decisions-loops", "csharp-methods-arrays", "csharp-strings-lists",
+            "csharp-real-world-1", "csharp-complexity-big-o",
+        ],
+        "working_practice": [
+            "csharp-oop", "csharp-collections-linq", "csharp-errors",
+            "csharp-recursion-sorting", "csharp-stacks-queues",
+        ],
+        "advanced_engineering": [
+            "csharp-trees-heaps", "csharp-graphs", "csharp-dp",
+            "csharp-async-services", "csharp-interview-mastery",
+        ],
     },
     "sql": {
         "foundations": ["sql-why", "sql-hello", "sql-select", "sql-filter", "sql-real-world-1"],
         "working_practice": ["sql-joins", "sql-group", "sql-null"],
-        "advanced_engineering": ["sql-professional"],
+        "advanced_engineering": [
+            "sql-professional",
+            "sql-subqueries-cte", "sql-window-functions", "sql-optimization-explain",
+            "sql-recursion-cte", "sql-data-modeling", "sql-interview-mastery",
+        ],
     },
 }
 
@@ -1503,6 +1565,160 @@ CHECKPOINTS = {
                                "even query shape fixed when values are not enough. Least privilege limits what a "
                                "successful injection can do - DROP TABLE fails for an account that cannot run "
                                "DDL. Quote-doubling is a blacklist with a long history of bypasses.",
+                "difficulty": "hard",
+            },
+        ],
+    },
+    "csharp": {
+        "foundations": [
+            {
+                "title": "C-sharp foundations checkpoint: value types copy, references share",
+                "stem": "After `int a = 5; int b = a; b = 9;` and separately `var p = new List<int> { 1 }; var q = p; q.Add(2);`, what is true?",
+                "options": [
+                    "a is still 5 because int is a value type that copies on assignment, while p now holds 2 items because List<T> is a reference type and q points at the same object",
+                    "a is 9 because assignment always aliases, and p still holds 1 item because collections copy on assignment",
+                    "Both a and p are unchanged, because C# assignments never affect the source",
+                    "The code does not compile; var cannot be used with collection initializers",
+                ],
+                "correct": 0,
+                "explanation": "Value types (int, double, bool, struct) carry their data with them: assignment "
+                               "copies the value. Reference types (class, interface, string, arrays, List<T>) "
+                               "carry a pointer: assignment copies the pointer, so both names observe the same "
+                               "object. Knowing which family a type belongs to predicts aliasing bugs.",
+                "difficulty": "easy",
+            },
+            {
+                "title": "C-sharp foundations checkpoint: var is still statically typed",
+                "stem": "What does `var total = 0;` declare in C#?",
+                "options": [
+                    "An int, exactly as if int had been written - the compiler infers the type from the initializer and total cannot later hold a string",
+                    "A dynamically typed variable that can hold any type at runtime",
+                    "An implicitly nullable int that starts as null",
+                    "Nothing; var is only allowed for loop variables",
+                ],
+                "correct": 0,
+                "explanation": "var is shorthand for the compiler, not dynamic typing: the declared type is "
+                               "fixed at compile time from the right-hand side, so `total = \"x\"` fails to "
+                               "build. Use var when the type is obvious from the initializer; write the type "
+                               "explicitly when it carries meaning the reader cannot see.",
+                "difficulty": "easy",
+            },
+            {
+                "title": "C-sharp foundations checkpoint: null-coalescing gives a default",
+                "stem": "With `string? name = null;`, what does `name ?? \"guest\"` evaluate to?",
+                "options": [
+                    "\"guest\" - ?? returns the left side when it is non-null, otherwise the right side, so it supplies a default for a missing value",
+                    "null, because ?? propagates null like every other operator",
+                    "It throws NullReferenceException, because name was dereferenced",
+                    "It does not compile; ?? requires both sides to be non-nullable",
+                ],
+                "correct": 0,
+                "explanation": "The ?? operator is the concise null-default: left ?? right reads as 'left, or "
+                               "right when left is null'. Its relatives are ?. (null-conditional access, which "
+                               "short-circuits to null) and throw expressions for fail-fast guards. Together "
+                               "they replace most explicit null checks.",
+                "difficulty": "medium",
+            },
+        ],
+        "working_practice": [
+            {
+                "title": "C-sharp working practice checkpoint: LINQ queries are lazy",
+                "stem": "A program builds `var adults = users.Where(u => u.Age >= 18);`, adds another user to the list, then enumerates adults twice. What happens?",
+                "options": [
+                    "The query re-executes on every enumeration against the current list contents, so the new user appears and any side effect in the predicate runs twice - call ToList() to freeze one snapshot",
+                    "adults holds a snapshot taken when Where was called, so the new user never appears",
+                    "The second enumeration throws because a query can only be enumerated once",
+                    "The predicate runs once per user at the Where call, and enumeration is free",
+                ],
+                "correct": 0,
+                "explanation": "Most LINQ operators return a lazy recipe, not results: nothing runs until the "
+                               "sequence is enumerated, and each enumeration re-runs the pipeline against the "
+                               "live source. That is efficient for chains but surprising for repeated or "
+                               "timed enumeration - materialize with ToList()/ToArray() when you need one "
+                               "stable pass.",
+                "difficulty": "hard",
+            },
+            {
+                "title": "C-sharp working practice checkpoint: program to the interface",
+                "stem": "Why should a method take `IList<Order>` (or `IReadOnlyList<Order>`) instead of `List<Order>`?",
+                "options": [
+                    "Callers depend on the contract, so the method accepts any implementation - including arrays and test fakes - and IReadOnlyList additionally promises the method will not modify the caller's data",
+                    "Interfaces execute faster than concrete classes in .NET",
+                    "List<T> cannot be passed across method boundaries",
+                    "An interface parameter automatically validates the elements",
+                ],
+                "correct": 0,
+                "explanation": "The interface is the promise (indexed, countable, enumerable); List<T> is one "
+                               "way to keep it. Depending on the contract keeps callers flexible and tests "
+                               "simple, and the read-only variant documents non-mutation in the signature "
+                               "itself. The same rule applies to IDictionary<TKey, TValue> and IEnumerable<T>.",
+                "difficulty": "medium",
+            },
+            {
+                "title": "C-sharp working practice checkpoint: using releases deterministically",
+                "stem": "Why wrap a `StreamReader` in a `using` declaration instead of just letting the garbage collector handle it?",
+                "options": [
+                    "using calls Dispose at the end of the scope, releasing the file handle deterministically - the garbage collector reclaims memory on its own schedule and does not close handles promptly",
+                    "The garbage collector cannot collect StreamReader objects at all",
+                    "using makes file reads measurably faster",
+                    "Without using, the file contents are never flushed to the reader",
+                ],
+                "correct": 0,
+                "explanation": "IDisposable separates scarce unmanaged resources (handles, connections, locks) "
+                               "from memory: Dispose releases them now, while finalization runs later if at "
+                               "all. using generates the try/finally that guarantees disposal on every path, "
+                               "including exceptions - the C# equivalent of RAII.",
+                "difficulty": "medium",
+            },
+        ],
+        "advanced_engineering": [
+            {
+                "title": "C-sharp advanced checkpoint: await frees the thread",
+                "stem": "An ASP.NET endpoint awaits an `HttpClient.GetAsync` call. Why is that better than blocking on `.Result`, and what does await do while waiting?",
+                "options": [
+                    "await returns the thread to the pool while the I/O is in flight so it can serve other requests, then resumes after the await; blocking with .Result holds the thread (and risks deadlock under a synchronization context)",
+                    "await makes the HTTP call itself complete faster",
+                    ".Result and await are identical; await is only shorter to type",
+                    "await moves the request to a new thread that is reserved for it",
+                ],
+                "correct": 0,
+                "explanation": "Async I/O is about thread economics, not speed: thousands of concurrent "
+                               "requests share a small pool because waiting requests hold no thread. Blocking "
+                               "calls defeat that sharing and can deadlock when the continuation needs the "
+                               "blocked context. Async all the way down, with ConfigureAwait(false) in "
+                               "libraries, is the discipline.",
+                "difficulty": "hard",
+            },
+            {
+                "title": "C-sharp advanced checkpoint: the GetHashCode contract",
+                "stem": "A class overrides `Equals` so two instances with the same Id compare equal, but does not override `GetHashCode`. What breaks?",
+                "options": [
+                    "Hash-based collections misbehave: equal objects land in different Dictionary buckets, so lookups miss and a HashSet can hold 'duplicates' - equal objects must return equal hash codes",
+                    "Nothing; Dictionary compares keys with Equals only",
+                    "The program fails to compile, because Equals requires GetHashCode",
+                    "Only sorting breaks; hashing is unaffected",
+                ],
+                "correct": 0,
+                "explanation": "The contract is: equal objects, equal hash codes. Dictionaries and hash sets "
+                               "bucket by the hash first and only then call Equals, so a default "
+                               "identity-based GetHashCode scatters equal keys across buckets. Overriding one "
+                               "without the other is a classic defect - records get both generated for free.",
+                "difficulty": "hard",
+            },
+            {
+                "title": "C-sharp advanced checkpoint: authorize on the server, per request",
+                "stem": "A frontend only shows the delete button to admins. Why must the minimal API behind it still check the caller's role on every delete request?",
+                "options": [
+                    "Any client can craft the HTTP request directly, so the UI is not a security boundary - role and ownership checks belong on the server, per request, regardless of what any page shows",
+                    "Because the frontend's cached role might be stale after a deploy",
+                    "To make delete requests measurably faster by rejecting early",
+                    "Because minimal APIs cannot read authorization headers",
+                ],
+                "correct": 0,
+                "explanation": "Client-side hiding is a courtesy, never a control: attackers do not run your "
+                               "UI. The endpoint must authenticate the caller, authorize the action (role plus "
+                               "ownership of the specific resource), validate the input, and fail closed - "
+                               "with 401 for unauthenticated and 403 for authenticated-but-forbidden.",
                 "difficulty": "hard",
             },
         ],

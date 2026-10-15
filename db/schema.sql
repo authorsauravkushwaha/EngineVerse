@@ -479,6 +479,13 @@ CREATE TABLE IF NOT EXISTS language_modules (
   -- restaged only by editing that file.
   stage       TEXT NOT NULL DEFAULT 'foundations',
   order_index INTEGER NOT NULL DEFAULT 0,
+  -- The judged problem this module ends with ("code what you learned"), by
+  -- coding_problems slug. NULL for legacy modules without a linked problem.
+  -- A plain slug, not a foreign key: languages seed before problems, so the
+  -- reference cannot be enforced at insert time - scripts/seed.py validates
+  -- every link against the authored banks instead, and the coverage tests
+  -- assert each stored slug resolves to a seeded problem.
+  practice_slug TEXT,
   UNIQUE (language_id, slug)
 );
 CREATE INDEX IF NOT EXISTS idx_langmod_stage ON language_modules(language_id, stage, order_index);
