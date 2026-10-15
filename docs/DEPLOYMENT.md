@@ -194,7 +194,7 @@ account's authenticator seal. The password and the seal are not printed.
 
 GitHub Pages serves files only: it cannot run accounts, a database, live lab
 operators or the code judge. The current `.github/workflows/pages.yml` explicitly
-publishes a **public reading copy** with `--reading-copy`, including the four
+publishes the **public catalogue** with `--reading-copy`, including the four
 [advanced capability pages](ADVANCED_CAPABILITIES.md). The export renders a fresh
 no-demo seed as a signed-out visitor, checks all local links and heading outlines,
 refuses leaked demo passwords, and disables backend-only lab controls in HTML.

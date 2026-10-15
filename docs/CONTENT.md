@@ -127,7 +127,7 @@ of being templated from its name. All 350 generated topics are marked
 not imply expert sign-off, and three generated lessons per subject is starter
 depth, not exhaustive coverage.
 
-The nine programming paths are staged — 68 modules assigned across 27
+The nine programming paths are staged — 129 modules assigned across 27
 Foundations / Working Practice / Advanced Engineering stages — and each stage
 ends with three checkpoint questions (81 total). Checkpoints are ordinary bank
 questions linked through `language_checkpoints`, so they run through the normal
