@@ -126,7 +126,7 @@ jobs:
           python-version: "3.11"
 
       - id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
 
       - name: Verify the published mode and exact commit
         shell: bash
