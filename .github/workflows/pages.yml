@@ -116,7 +116,7 @@ jobs:
           npm install --prefix .toolchain/jsdom jsdom@26
           node scripts/check_auth_flow.js site
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v5
         with:
           path: site
 
