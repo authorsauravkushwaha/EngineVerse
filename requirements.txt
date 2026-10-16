@@ -10,7 +10,7 @@
 fastapi==0.142.3
 uvicorn==0.54.0
 starlette==1.7.0
-pydantic==2.13.5
+pydantic==2.14.1
 anyio==4.15.1
 
 # --- templating and forms ----------------------------------------------------
