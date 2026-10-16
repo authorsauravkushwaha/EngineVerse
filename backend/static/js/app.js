@@ -9,6 +9,22 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
+  function isSignedIn() {
+    if (cfg.user || (window.EngineVerse && window.EngineVerse.user)) return true;
+    if (document.documentElement.getAttribute("data-ev-signed-in") === "true") return true;
+    try {
+      const sUser = localStorage.getItem("ev:session:user") || sessionStorage.getItem("ev:session:user");
+      if (sUser) return true;
+      const raw = localStorage.getItem("ev:learner-store:v2") || sessionStorage.getItem("ev:learner-store:v2");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.currentUser) return true;
+      }
+      if (/(?:^|;\s*)ev_live_user=([^;\s]+)/.test(document.cookie || "")) return true;
+    } catch (_) {}
+    return false;
+  }
+
   // ---------------------------------------------------------------- API ----
   async function api(path, options = {}) {
     const opts = Object.assign({ headers: {} }, options);
@@ -85,18 +101,29 @@
       if (!panel.hidden && !panel.contains(e.target) && e.target !== toggle) closeNav();
     });
   }
-  $$("[data-menu]").forEach((menu) => {
-    const btn = $("button", menu);
-    btn.addEventListener("click", (e) => {
+  document.addEventListener("click", (e) => {
+    const menuBtn = e.target.closest("[data-menu] > button");
+    if (menuBtn) {
       e.stopPropagation();
+      const menu = menuBtn.closest("[data-menu]");
       const open = menu.hasAttribute("data-open");
-      $$("[data-menu]").forEach((m) => m.removeAttribute("data-open"));
+      $$("[data-menu]").forEach((m) => {
+        m.removeAttribute("data-open");
+        const b = $("button", m);
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
       if (!open) menu.setAttribute("data-open", "");
-      btn.setAttribute("aria-expanded", String(!open));
-    });
+      menuBtn.setAttribute("aria-expanded", String(!open));
+      return;
+    }
+    if (!e.target.closest("[data-menu]")) {
+      $$("[data-menu]").forEach((m) => {
+        m.removeAttribute("data-open");
+        const b = $("button", m);
+        if (b) b.setAttribute("aria-expanded", "false");
+      });
+    }
   });
-  document.addEventListener("click", () =>
-    $$("[data-menu]").forEach((m) => m.removeAttribute("data-open")));
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
     $$("[data-menu]").forEach((m) => m.removeAttribute("data-open"));
@@ -149,7 +176,8 @@
   // -------------------------------------------------------------- bookmarks
   $$("[data-bookmark]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = signInUrl(); return; }
+      if (document.getElementById("ev-live")) return;
+      if (!isSignedIn()) { location.href = signInUrl(); return; }
       const type = btn.dataset.type || btn.dataset.bookmark;
       const id = btn.dataset.id;
       try {
@@ -174,8 +202,9 @@
     const form = $("form", card);
     if (!form) return;
     form.addEventListener("submit", async (e) => {
+      if (document.getElementById("ev-live")) return;
       e.preventDefault();
-      if (!cfg.user) { location.href = signInUrl(); return; }
+      if (!isSignedIn()) { location.href = signInUrl(); return; }
       const picked = form.querySelector("input[name=option]:checked");
       if (!picked) { toast("Pick an answer first", "bad"); return; }
       const index = Number(picked.value);
@@ -331,7 +360,8 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
     });
 
     $("#btn-submit")?.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = signInUrl(); return; }
+      if (document.getElementById("ev-live")) return;
+      if (!isSignedIn()) { location.href = signInUrl(); return; }
       const btn = $("#btn-submit");
       btn.disabled = true;
       btn.innerHTML = '<span class="spin"></span> Judging';
@@ -408,7 +438,8 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
   // ------------------------------------------------------------- voting
   $$("[data-vote]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = signInUrl(); return; }
+      if (document.getElementById("ev-live")) return;
+      if (!isSignedIn()) { location.href = signInUrl(); return; }
       try {
         const res = await api("/api/community/vote", {
           method: "POST",
@@ -425,7 +456,8 @@ actual:   ${escapeHtml(c.actual)}</pre></div>`);
   // ---------------------------------------------------- mark topic complete
   $$("[data-complete-topic]").forEach((btn) => {
     btn.addEventListener("click", async () => {
-      if (!cfg.user) { location.href = signInUrl(); return; }
+      if (document.getElementById("ev-live")) return;
+      if (!isSignedIn()) { location.href = signInUrl(); return; }
       btn.disabled = true;
       try {
         const res = await api("/api/me/progress/topic", {

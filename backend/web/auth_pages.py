@@ -209,6 +209,9 @@ async def register_submit(
     full_name: str = Form(..., max_length=120),
     password: str = Form(..., max_length=256),
     password_confirm: str = Form("", max_length=256),
+    phone: str = Form("", max_length=64),
+    country_code: str = Form("+91", max_length=16),
+    otp_channel: str = Form("", max_length=16),
     next: str = Form("/", max_length=2048),
     branch: str = Form("", max_length=128),
     semester: str = Form("", max_length=3),
@@ -231,6 +234,8 @@ async def register_submit(
     try:
         user = auth.register(
             email=email.strip(), username=username.strip(), password=password, full_name=full_name.strip(),
+            phone=phone.strip() or None,
+            country_code=country_code.strip() or "+91",
             ip=client_ip(request),
             user_agent=request.headers.get("user-agent"),
         )
@@ -267,6 +272,23 @@ async def register_submit(
         auth.update_onboarding(user["id"], {"branchId": branch})
     if semester.isdigit():
         auth.update_onboarding(user["id"], {"semester": int(semester)})
+
+    from engineverse.config import get_settings
+
+    settings = get_settings()
+    if settings.signup_otp_only or otp_channel in {"email", "phone"}:
+        try:
+            chosen = otp_channel if otp_channel in {"email", "phone"} else None
+            challenge = auth._begin_otp_challenge(user, channel=chosen, allow_unverified_phone=True)
+            return render(
+                request, "login.html",
+                next="/onboarding" if not (branch or semester) else target,
+                error=None, mode="login",
+                identifier=user["email"], mfa_token="", remember=True, status_code=401,
+                **_otp_context(challenge),
+            )
+        except auth.AuthError:
+            pass
 
     cookie_value, _session_id = create_session(
         user["id"], ip=client_ip(request),
@@ -325,9 +347,37 @@ async def forgot_page(request: Request):
 
 
 @router.post("/forgot-password")
-async def forgot_submit(request: Request, email: str = Form(..., max_length=254)):
+async def forgot_submit(
+    request: Request,
+    email: str = Form("", max_length=254),
+    phone: str = Form("", max_length=64),
+    country_code: str = Form("+91", max_length=16),
+    otp_channel: str = Form("", max_length=16),
+):
     """Request recovery without exposing account presence or SMTP latency."""
     from engineverse import config, notify
+
+    if otp_channel in {"email", "phone"} or (phone.strip() and not email.strip()):
+        identifier = phone.strip() if (otp_channel == "phone" or (phone.strip() and not email.strip())) else email.strip()
+        channel = "phone" if (otp_channel == "phone" or (phone.strip() and not email.strip())) else "email"
+        try:
+            challenge = auth.request_password_reset_otp(
+                identifier,
+                channel=channel,
+                country_code=country_code.strip() or "+91",
+                ip=client_ip(request),
+            )
+            return render(
+                request, "reset.html",
+                token="",
+                otp_token=challenge.token,
+                otp_masked=challenge.masked,
+                otp_channel=challenge.channel,
+                otp_revealed_code=challenge.revealed_code,
+                error=None,
+            )
+        except auth.AuthError as exc:
+            return render(request, "forgot.html", sent=False, reset_token="", error=exc.message, status_code=exc.status_code)
 
     settings = config.get_settings()
     normalized_email = email.strip().lower()
@@ -378,9 +428,25 @@ async def reset_page(request: Request, token: str = ""):
 @router.post("/reset-password")
 async def reset_submit(
     request: Request,
-    token: str = Form(..., max_length=512),
+    token: str = Form("", max_length=512),
+    otp_token: str = Form("", max_length=2048),
+    otp_code: str = Form("", max_length=64),
     password: str = Form(..., max_length=256),
 ):
+    if otp_token:
+        try:
+            auth.reset_password_with_otp(otp_token, otp_code, password, ip=client_ip(request))
+            return RedirectResponse("/login?error=reset", status_code=303)
+        except (auth.AuthError, validators.ValidationError) as exc:
+            msg = exc.message if hasattr(exc, "message") else str(exc)
+            return render(
+                request, "reset.html",
+                token="",
+                otp_token=otp_token,
+                error=msg,
+                status_code=getattr(exc, "status_code", 400),
+            )
+
     # Validated by exact hash match, expiry and single use. The same wording is
     # returned for an unknown, expired and already-used token so the form is not
     # an oracle for which links are live.
@@ -562,6 +628,7 @@ async def send_email_verification(request: Request):
 async def update_phone_submit(
     request: Request,
     phone: str = Form("", max_length=64),
+    country_code: str = Form("", max_length=16),
     current_password: str = Form(..., max_length=256),
     remove: str = Form("", max_length=8),
 ):
@@ -571,7 +638,10 @@ async def update_phone_submit(
             auth.remove_phone(viewer.id, current_password)
             message = "Phone number removed."
         else:
-            auth.set_phone(viewer.id, phone, current_password)
+            raw_phone = phone.strip()
+            if country_code.strip() and "+" not in raw_phone:
+                raw_phone = validators.normalize_phone_with_country_code(raw_phone, country_code.strip())
+            auth.set_phone(viewer.id, raw_phone, current_password)
             message = "Phone number saved. Verify it before using text sign-in codes."
     except validators.ValidationError as exc:
         response = RedirectResponse("/settings#phone", status_code=303)
@@ -758,10 +828,45 @@ async def mfa_disable(
     return response
 
 
+@router.post("/settings/password/otp")
+async def request_password_change_otp_submit(
+    request: Request,
+    channel: str = Form("email", max_length=16),
+    phone: str = Form("", max_length=64),
+    country_code: str = Form("+91", max_length=16),
+):
+    from web.pages import settings_context
+
+    viewer = require_user(request)
+    try:
+        challenge = auth.request_password_change_otp(
+            viewer.id,
+            channel=channel.strip() or "email",
+            phone=phone.strip() or None,
+            country_code=country_code.strip() or "+91",
+            ip=client_ip(request),
+        )
+    except (auth.AuthError, validators.ValidationError) as exc:
+        msg = exc.message if hasattr(exc, "message") else str(exc)
+        response = RedirectResponse("/settings#error-password", status_code=303)
+        flash(response, msg)
+        return response
+    return render(
+        request, "settings.html",
+        **settings_context(viewer),
+        password_otp_token=challenge.token,
+        password_otp_masked=challenge.masked,
+        password_otp_channel=challenge.channel,
+        password_otp_revealed=challenge.revealed_code,
+    )
+
+
 @router.post("/settings/password")
 async def change_password_submit(
     request: Request,
-    current_password: str = Form(..., max_length=256),
+    current_password: str = Form("", max_length=256),
+    otp_token: str = Form("", max_length=2048),
+    otp_code: str = Form("", max_length=64),
     new_password: str = Form(..., max_length=256),
     confirm_password: str = Form("", max_length=256),
 ):
@@ -778,10 +883,14 @@ async def change_password_submit(
         flash(response, "The two new passwords do not match.")
         return response
     try:
-        auth.change_password(viewer.id, current_password, new_password)
-    except auth.AuthError as exc:
+        if otp_token:
+            auth.change_password_with_otp(viewer.id, otp_token, otp_code, new_password, ip=client_ip(request))
+        else:
+            auth.change_password(viewer.id, current_password, new_password)
+    except (auth.AuthError, validators.ValidationError) as exc:
+        msg = exc.message if hasattr(exc, "message") else str(exc)
         response = RedirectResponse("/settings#error-password", status_code=303)
-        flash(response, exc.message)
+        flash(response, msg)
         return response
     response = RedirectResponse("/settings", status_code=303)
     flash(response, "Password changed. Other sessions were signed out.")

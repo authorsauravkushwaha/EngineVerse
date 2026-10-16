@@ -4,9 +4,26 @@
 <div class="form-panel panel">
   <h1>Choose a new password</h1>
   {% if error %}<div class="callout warning"><span class="label">Not accepted</span>{{ error }}</div>{% endif %}
+  {% if otp_token %}
+    <div class="callout info mb">
+      <span class="label">6-digit OTP verification</span>
+      We sent a 6-digit recovery code to <strong>{{ otp_masked or 'your registered contact' }}</strong>
+      ({{ 'Mobile SMS' if otp_channel == 'phone' else 'Gmail / Email' }}).
+      {% if otp_revealed_code %}
+        <div class="small mt">Development preview code: <code class="mono">{{ otp_revealed_code }}</code></div>
+      {% endif %}
+    </div>
+  {% endif %}
   <form method="post" action="/reset-password">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <input type="hidden" name="token" value="{{ token }}">
+    <input type="hidden" name="token" value="{{ token or '' }}">
+    {% if otp_token %}
+      <input type="hidden" name="otp_token" value="{{ otp_token }}">
+      <div class="field"><label for="otp_code">6-digit OTP code</label>
+        <input id="otp_code" name="otp_code" inputmode="numeric" pattern="[0-9 .\-]{6,12}" maxlength="12"
+          required autocomplete="one-time-code" placeholder="123456" autofocus>
+      </div>
+    {% endif %}
     <div class="field"><label for="password">New password</label>
       <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
       <div class="hint">At least 10 characters. Every other session will be signed out.</div></div>

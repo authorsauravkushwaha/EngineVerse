@@ -16,9 +16,10 @@
   <title>{% block title %}{{ brand.site_name }}{% endblock %}</title>
   <meta name="description" content="{% block description %}{{ brand.tagline }}{% endblock %}">
   <meta name="theme-color" content="{% if brand.theme == 'light' %}#e4e9f1{% else %}#222a3a{% endif %}">
-  <script>
+  <script nonce="{{ request.state.csp_nonce }}">
     // Runs before first paint: a stored preference wins over the site default,
-    // otherwise switching themes flashes the default for one frame.
+    // and an active learner session marks html[data-ev-signed-in="true"] so the
+    // "Sign in / Start free" buttons never flash when switching tabs.
     (function () {
       try {
         var saved = localStorage.getItem("ev-theme");
@@ -30,6 +31,25 @@
         var meta = document.querySelector('meta[name="theme-color"]');
         if (meta) meta.setAttribute("content", theme === "light" ? "#e4e9f1" : "#222a3a");
       } catch (e) { /* storage blocked - fall back to the server default */ }
+      try {
+        var signedIn = {{ 'true' if user else 'false' }};
+        if (!signedIn) {
+          var raw = localStorage.getItem("ev:learner-store:v2") || sessionStorage.getItem("ev:learner-store:v2");
+          if (!raw && typeof window.name === "string" && window.name.indexOf("EV_STORE:") === 0) {
+            raw = window.name.slice(9);
+          }
+          if (raw) {
+            var parsed = JSON.parse(raw);
+            if (parsed && parsed.currentUser) signedIn = true;
+          }
+          if (!signedIn && (localStorage.getItem("ev:session:user") || sessionStorage.getItem("ev:session:user") || /(?:^|;\s*)ev_live_user=([^;\s]+)/.test(document.cookie || ""))) {
+            signedIn = true;
+          }
+        }
+        if (signedIn) {
+          document.documentElement.setAttribute("data-ev-signed-in", "true");
+        }
+      } catch (e) {}
     })();
   </script>
   <meta name="color-scheme" content="dark light">
@@ -95,15 +115,17 @@
         </a>
         {% if is_staff %}<a class="iconbtn" href="/admin" aria-label="Admin console">{{ icon("cog", 18) }}</a>{% endif %}
         <div class="menu" data-menu>
-          <button class="avatar" aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ user.username }}">{{ user.initial }}</button>
+          <button class="avatar" aria-haspopup="true" aria-expanded="false" aria-label="Account menu for {{ user.username }}" title="Account menu for @{{ user.username }}">{{ icon("user", 14) }}<span>{{ user.initial }}</span></button>
           <div class="menu-pop" role="menu">
             <div class="menu-head">
               <strong>{{ user.full_name }}</strong>
               <span>@{{ user.username }}</span>
             </div>
+            <a role="menuitem" href="/dashboard">Dashboard</a>
             <a role="menuitem" href="/profile">My profile</a>
             <a role="menuitem" href="/portfolio/{{ user.username }}">Public portfolio</a>
             <a role="menuitem" href="/today">Today's plan</a>
+            <a role="menuitem" href="/mistakes">Mistake notebook</a>
             <a role="menuitem" href="/leaderboard">Leaderboard</a>
             <a role="menuitem" href="/settings">Settings</a>
             <form method="post" action="/logout">
@@ -124,8 +146,8 @@
           <button class="btn btn-soft btn-sm" type="submit">Sign out</button>
         </form>
       {% else %}
-        <a class="btn btn-ghost{{ ' on' if path == '/login' }}" href="/login">Sign in</a>
-        <a class="btn btn-primary" href="/register">{{ 'Create account' if gated else 'Start free' }}</a>
+        <a class="btn btn-ghost{{ ' on' if path == '/login' }}" href="/login" data-ev-anon-auth>Sign in</a>
+        <a class="btn btn-primary" href="/register" data-ev-anon-auth>{{ 'Create account' if gated else 'Start free' }}</a>
       {% endif %}
       {% if not gated %}
       <button class="iconbtn only-mobile" id="navtoggle" type="button" aria-label="Menu"
@@ -171,7 +193,10 @@
 {% endif %}
 
 <script nonce="{{ request.state.csp_nonce }}">
-  window.EngineVerse = { csrf: "{{ csrf_token }}", user: {{ 'true' if user else 'false' }} };
+  window.EngineVerse = {
+    csrf: "{{ csrf_token }}",
+    user: {{ 'true' if user else 'false' }} || document.documentElement.getAttribute("data-ev-signed-in") === "true"
+  };
 </script>
 <script src="/static/js/engine3d.js" defer></script>
 <script src="/static/js/app.js" defer></script>

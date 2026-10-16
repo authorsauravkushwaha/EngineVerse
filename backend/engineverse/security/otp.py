@@ -24,6 +24,10 @@ PHONE_VERIFY_TTL_SECONDS = PHONE_VERIFY_TTL
 MAX_ATTEMPTS = 5
 LOGIN_PURPOSE = "login_otp"
 PHONE_PURPOSE = "phone_verify"
+SIGNUP_PURPOSE = "signup_verify"
+RESET_PURPOSE = "password_reset"
+PASSWORD_CHANGE_PURPOSE = "password_change"
+OTP_TTL_SECONDS = 600
 _BULLET = "•"
 
 
@@ -87,6 +91,13 @@ def mask_phone(phone: str) -> str:
     visible = digits[-4:]
     prefix = _BULLET * max(4, len(digits) - len(visible))
     return prefix + visible
+
+
+def mask_destination(destination: str, channel: str = "email") -> str:
+    """Mask an email or international phone number based on channel."""
+    if channel == "phone" or (destination and str(destination).strip().startswith("+")):
+        return mask_phone(destination)
+    return mask_email(destination)
 
 
 def _payload(

@@ -220,6 +220,7 @@ def _peek_session(request: Request):
 #: confirm a record; it shows nothing beyond that record.
 PUBLIC_EXACT = frozenset({
     "/login",
+    "/login/otp",
     "/login/otp/resend",
     "/logout",
     "/register",
@@ -236,6 +237,8 @@ PUBLIC_EXACT = frozenset({
     "/sw.js",
     "/robots.txt",
     "/.well-known/assetlinks.json",
+    "/api/sync/status",
+    "/api/sync/snapshot",
 })
 PUBLIC_PREFIXES = ("/static/", "/certificates/")
 

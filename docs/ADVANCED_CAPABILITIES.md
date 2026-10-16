@@ -141,12 +141,17 @@ Each node calls `GET /api/workflows?slug=...&node=...` and recomputes its read-o
 dependencies; the transport is sequential even where the local graph branches.
 No scheduler or notification delivery is included.
 
-## Multi-agent engineering swarm lab
+## Multi-agent engineering swarm lab & security verification
 
-Inspired by [`666ghj/MiroFish`](https://github.com/666ghj/MiroFish), the lab uses
+Inspired by [`666ghj/MiroFish`](https://github.com/666ghj/MiroFish) and [`vxcontrol/pentagi`](https://github.com/vxcontrol/pentagi), the lab uses
 five deterministic review lenses: systems architect, quantitative analyst,
 implementation engineer, safety/reliability reviewer and learning/delivery coach.
-They are not real specialists and do not make an external model call.
+They are not real specialists and do not make an external model call. Alongside
+the lab, PentAGI-style security verification patterns inform EngineVerse's
+scoped 6-digit OTP verification (required only for new-user registration,
+password recovery, and password change via Gmail or mobile number with country
+code) and multi-layer session persistence (`localStorage`, `sessionStorage`,
+`IndexedDB`, cookies, and GitHub/Supabase/Appwrite/n8n sync).
 
 `POST /api/swarm/simulate` accepts a 4–400 character `prompt`, with optional
 published `topic_slug` and `project_slug` grounding. Retrieval is limited to
