@@ -7,7 +7,7 @@
 # Install:  pip install -r requirements.txt
 
 # --- web framework and server -------------------------------------------------
-fastapi==0.142.3
+fastapi==0.143.0
 uvicorn==0.54.0
 starlette==1.7.0
 pydantic==2.13.5
