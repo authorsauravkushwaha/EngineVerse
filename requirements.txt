@@ -31,6 +31,6 @@ itsdangerous==2.2.0
 # --- development and CI -------------------------------------------------------
 pytest==9.1.1
 pytest-asyncio==1.4.0
-sqlglot==30.21.0
+sqlglot==30.22.0
 # deploy/docker-compose.yml is asserted to be coherent by the test suite
 PyYAML==6.0.3
