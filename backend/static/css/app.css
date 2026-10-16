@@ -1134,3 +1134,23 @@ a.tile:active { transform: translateY(1px); box-shadow: var(--neu-in-sm); }
   body { background: #fff; color: #000; padding: 0; }
   .panel, .card, .note-section, .preview, .finale { box-shadow: none; border: 1px solid #ccc; }
 }
+
+/* ------------------------------------------- signed-in state & account icon */
+html[data-ev-signed-in="true"] [data-ev-anon-auth],
+html[data-ev-signed-in="true"] .topbar-right > a[href$="/login"],
+html[data-ev-signed-in="true"] .topbar-right > a[href$="/login/"],
+html[data-ev-signed-in="true"] .topbar-right > a[href$="/register"],
+html[data-ev-signed-in="true"] .topbar-right > a[href$="/register/"],
+html[data-ev-signed-in="true"] .navmenu-lock,
+html[data-ev-signed-in="true"] .indexlist-lock {
+  display: none !important;
+}
+.avatar {
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  cursor: pointer; position: relative;
+}
+.avatar svg { flex: none; opacity: 0.92; }
+.phone-cc-row { display: grid; grid-template-columns: minmax(120px, 165px) 1fr; gap: 10px; align-items: start; }
+@media (max-width: 540px) {
+  .phone-cc-row { grid-template-columns: 1fr; }
+}

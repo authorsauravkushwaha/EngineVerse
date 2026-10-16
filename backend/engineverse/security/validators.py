@@ -16,7 +16,26 @@ EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
 USERNAME_RE = re.compile(r"^[a-z0-9](?:[a-z0-9._-]{1,22}[a-z0-9])?$")
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,94}[a-z0-9])?$")
 PHONE_RE = re.compile(r"^\+[1-9][0-9]{6,14}$")
+COUNTRY_CODE_RE = re.compile(r"^\+[1-9][0-9]{0,3}$")
 _PHONE_ALLOWED = frozenset("0123456789 +-().")
+
+COUNTRY_CODES: tuple[tuple[str, str], ...] = (
+    ("+91", "India (+91)"),
+    ("+1", "United States / Canada (+1)"),
+    ("+44", "United Kingdom (+44)"),
+    ("+61", "Australia (+61)"),
+    ("+49", "Germany (+49)"),
+    ("+33", "France (+33)"),
+    ("+65", "Singapore (+65)"),
+    ("+971", "UAE (+971)"),
+    ("+81", "Japan (+81)"),
+    ("+82", "South Korea (+82)"),
+    ("+86", "China (+86)"),
+    ("+55", "Brazil (+55)"),
+    ("+27", "South Africa (+27)"),
+    ("+234", "Nigeria (+234)"),
+    ("+7", "Russia / Kazakhstan (+7)"),
+)
 
 RESERVED_USERNAMES = {
     "admin", "root", "engineverse", "api", "www", "mail", "support", "login",
@@ -83,6 +102,46 @@ def validate_phone(value: Any, key: str = "phone", errors: Errors | None = None)
             return ""
         raise ValidationError(message, {key: message})
     return normalized
+
+
+def normalize_phone_with_country_code(
+    value: Any,
+    country_code: Any = "+91",
+    key: str = "phone",
+    errors: Errors | None = None,
+) -> str:
+    """Combine a country dialing code (e.g. ``+91``, ``+1``) with a subscriber number.
+
+    If ``value`` already starts with ``+``, validates it directly as E.164.
+    Otherwise strips leading trunk ``0`` and prepends the validated country code.
+    """
+    raw = str(value or "").strip()
+    if not raw:
+        message = "Enter a mobile number with country code, for example +919876543210."
+        if errors is not None:
+            errors.add(key, message)
+            return ""
+        raise ValidationError(message, {key: message})
+    if "+" in raw:
+        return validate_phone(raw, key=key, errors=errors)
+    cc_raw = str(country_code or "+91").strip().replace(" ", "")
+    if cc_raw and not cc_raw.startswith("+"):
+        cc_raw = "+" + cc_raw
+    if not COUNTRY_CODE_RE.fullmatch(cc_raw):
+        message = "Select a valid country code (for example +91, +1, +44)."
+        if errors is not None:
+            errors.add(key, message)
+            return ""
+        raise ValidationError(message, {key: message})
+    if any(char not in _PHONE_ALLOWED for char in raw):
+        message = "Enter a valid mobile number with country code."
+        if errors is not None:
+            errors.add(key, message)
+            return ""
+        raise ValidationError(message, {key: message})
+    digits = "".join(char for char in raw if char.isdigit()).lstrip("0")
+    combined = f"{cc_raw}{digits}"
+    return validate_phone(combined, key=key, errors=errors)
 
 
 def validate_email(value: Any, key: str = "email", errors: Errors | None = None) -> str:

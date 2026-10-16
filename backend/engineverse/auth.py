@@ -118,17 +118,37 @@ def find_by_username(username: str) -> dict | None:
 
 
 def find_by_id(user_id: str) -> dict | None:
-    return db.query_one(f"SELECT {_USER_COLUMNS} FROM users WHERE id = ? AND deleted_at IS NULL", user_id)
-
-
-def find_by_email_or_username(identifier: str) -> dict | None:
-    value = identifier.strip().lower()
     return db.query_one(
+        f"SELECT {_USER_COLUMNS}, phone, phone_verified FROM users WHERE id = ? AND deleted_at IS NULL",
+        user_id,
+    )
+
+
+def find_by_phone(phone: str, country_code: str = "+91") -> dict | None:
+    try:
+        normalized = validators.normalize_phone_with_country_code(phone, country_code)
+    except validators.ValidationError:
+        return None
+    return db.query_one(
+        f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret, phone, phone_verified FROM users "
+        "WHERE phone = ? AND deleted_at IS NULL",
+        normalized,
+    )
+
+
+def find_by_email_or_username(identifier: str, country_code: str = "+91") -> dict | None:
+    value = identifier.strip().lower()
+    row = db.query_one(
         f"SELECT {_USER_COLUMNS}, password_hash, locked_until, totp_secret, phone, phone_verified FROM users "
         "WHERE (email = ? OR username = ?) AND deleted_at IS NULL",
         value,
         value,
     )
+    if row is not None:
+        return row
+    if any(ch.isdigit() for ch in value):
+        return find_by_phone(value, country_code)
+    return None
 
 
 def get_profile(user_id: str) -> dict | None:
@@ -152,6 +172,8 @@ def register(
     username: str,
     password: str,
     full_name: str,
+    phone: str | None = None,
+    country_code: str = "+91",
     ip: str | None = None,
     user_agent: str | None = None,
 ) -> dict:
@@ -160,6 +182,9 @@ def register(
     username = validators.validate_username(username, "username", errors)
     full_name = validators.validate_text(full_name, "fullName", errors, min_length=2, max_length=80)
     validators.validate_password(password, "password", errors)
+    normalized_phone: str | None = None
+    if phone and str(phone).strip():
+        normalized_phone = validators.normalize_phone_with_country_code(phone, country_code, "phone", errors)
     errors.raise_if_any("Please fix the highlighted fields.")
 
     issues = check_password_strength(password, [username, email, email.split("@")[0], full_name])
@@ -183,6 +208,13 @@ def register(
         # Usernames are shown publicly throughout the site, so confirming one is
         # taken reveals nothing an attacker could not read off a leaderboard.
         raise AuthError("That username is taken.", 409, {"username": "Already taken."}, code="username_taken")
+    if normalized_phone and find_by_phone(normalized_phone):
+        raise AuthError(
+            "That phone number could not be saved.",
+            409,
+            {"phone": "Already registered."},
+            code="phone_taken",
+        )
 
     user_id = ulid()
     ts = now_ms()
@@ -193,9 +225,9 @@ def register(
 
     with db.transaction():
         db.execute(
-            "INSERT INTO users (id,email,username,password_hash,role,status,email_verified,failed_login_count,"
-            "password_changed_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-            user_id, email, username, password_hash, "student", "active", 0, 0, ts, ts, ts,
+            "INSERT INTO users (id,email,username,password_hash,role,status,email_verified,phone,phone_verified,failed_login_count,"
+            "password_changed_at,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            user_id, email, username, password_hash, "student", "active", 0, normalized_phone, 0, 0, ts, ts, ts,
         )
         db.execute(
             "INSERT INTO profiles (user_id, full_name, avatar_seed, skill_level, programming_xp, weekly_study_hours,"
@@ -275,15 +307,20 @@ def _reject_factor(row: dict, identifier: str, ip: str) -> None:
     raise AuthError("That authenticator code was not accepted.", 401, code="mfa_invalid")
 
 
-def _otp_choices(row: dict) -> list[str]:
+def _otp_choices(row: dict, *, allow_unverified_phone: bool = False) -> list[str]:
     """Return channels that can actually be selected for this account."""
     from . import notify
 
     # Email is always a choice: it is the normal default and a deployment may
     # configure it after an account has enrolled a phone. A phone is offered
-    # only when both the number and the operator SMS gateway are ready.
+    # only when both the number and the operator SMS gateway are ready (or
+    # during initial signup / recovery / dev mode when a phone is present).
     choices: list[str] = ["email"]
-    if int(row.get("phone_verified") or 0) and notify.sms_is_configured():
+    has_phone = bool(row.get("phone"))
+    phone_ready = int(row.get("phone_verified") or 0) or allow_unverified_phone
+    settings = get_settings()
+    can_dev_phone = settings.allows_demo_accounts and not settings.is_production and allow_unverified_phone
+    if has_phone and phone_ready and (notify.sms_is_configured() or can_dev_phone):
         choices.append("phone")
     return choices
 
@@ -306,12 +343,17 @@ def _otp_issue_allowed(user_id: str) -> None:
         )
 
 
-def _begin_otp_challenge(row: dict, channel: str | None = None) -> OtpRequired:
+def _begin_otp_challenge(
+    row: dict,
+    channel: str | None = None,
+    *,
+    allow_unverified_phone: bool = False,
+) -> OtpRequired:
     """Issue and deliver the compulsory factor without creating a session."""
     from . import notify
     from .security import otp
 
-    choices = _otp_choices(row)
+    choices = _otp_choices(row, allow_unverified_phone=allow_unverified_phone)
     if channel and channel not in choices:
         raise AuthError("That sign-in delivery option is not available.", 422, code="otp_channel_invalid")
     if channel:
@@ -499,6 +541,12 @@ def login(
             if result["status"] == "bad":
                 _reject_otp(row, identifier, ip, mfa_token, result)
             if result["status"] == "ok":
+                used_channel = (result.get("payload") or {}).get("channel") or "email"
+                if used_channel == "phone":
+                    db.execute("UPDATE users SET phone_verified = 1, updated_at = ? WHERE id = ?", now_ms(), row["id"])
+                else:
+                    db.execute("UPDATE users SET email_verified = 1, updated_at = ? WHERE id = ?", now_ms(), row["id"])
+                    row["email_verified"] = 1
                 return _finish_login(row, identifier, ip, user_agent, remember=remember)
             if result["status"] == "exhausted":
                 raise AuthError("That sign-in code has been used too many times. Start again.", 401,
@@ -572,6 +620,10 @@ def login(
             raise MfaRequired(totp.issue_login_token(row["id"]))
     elif get_settings().login_otp_required:
         raise _begin_otp_challenge(row)
+    elif get_settings().signup_otp_only:
+        is_verified = bool(int(row.get("email_verified") or 0) or int(row.get("phone_verified") or 0))
+        if not is_verified:
+            raise _begin_otp_challenge(row, allow_unverified_phone=True)
     return _finish_login(row, identifier, ip, user_agent, remember=remember)
 
 
@@ -766,6 +818,214 @@ def change_password(user_id: str, current_password: str, new_password: str) -> N
     record("auth.password_changed", actor_id=user_id, entity_type="user", entity_id=user_id)
 
 
+def request_password_change_otp(
+    user_id: str,
+    *,
+    channel: str = "email",
+    phone: str | None = None,
+    country_code: str = "+91",
+    ip: str = "",
+) -> OtpRequired:
+    """Issue a 6-digit OTP to Gmail/email or mobile number (with country code) to authorize a password change."""
+    from . import notify
+    from .security import otp, ratelimit
+
+    row = _otp_row(user_id)
+    if row is None or row["status"] != "active":
+        raise AuthError("Account not found.", 404)
+    limited = ratelimit.shared_check(f"pwd-change-otp:{user_id}", 5, 900)
+    if not limited.allowed:
+        raise AuthError("Too many verification codes requested. Try again later.", 429, code="otp_rate_limited")
+
+    selected = "phone" if channel == "phone" else "email"
+    target_phone = row.get("phone") or ""
+    if selected == "phone":
+        if phone and str(phone).strip():
+            target_phone = validators.normalize_phone_with_country_code(phone, country_code)
+            db.execute("UPDATE users SET phone = ?, updated_at = ? WHERE id = ?", target_phone, now_ms(), user_id)
+        if not target_phone:
+            raise AuthError("Enter a mobile number with country code (for example +919876543210).", 422, code="phone_missing")
+
+    masked = otp.mask_phone(target_phone) if selected == "phone" else otp.mask_email(row["email"])
+    choices = ["email", "phone"] if target_phone else ["email"]
+    token, code = otp.issue_challenge(
+        user_id,
+        otp.PASSWORD_CHANGE_PURPOSE,
+        otp.OTP_TTL_SECONDS,
+        channel=selected,
+        masked=masked,
+        choices=choices,
+        extra={"phone": target_phone} if selected == "phone" else {"email": row["email"]},
+    )
+    try:
+        delivered = (
+            notify.send_phone_otp(target_phone, code, minutes=10)
+            if selected == "phone"
+            else notify.send_login_otp(row["email"], code, minutes=10)
+        )
+    except Exception:
+        delivered = False
+
+    record("auth.password_change_otp_issued", actor_id=user_id, entity_type="user", entity_id=user_id, meta={"channel": selected})
+    if delivered:
+        return OtpRequired(token, selected, masked, choices, attempts_left=otp.MAX_ATTEMPTS)
+
+    settings = get_settings()
+    if settings.allows_demo_accounts and not settings.is_production:
+        return OtpRequired(token, selected, masked, choices, revealed_code=code, attempts_left=otp.MAX_ATTEMPTS)
+
+    otp.kill_challenge(token, otp.PASSWORD_CHANGE_PURPOSE, user_id)
+    raise AuthError("We could not deliver a verification code. Check your mail/SMS gateway.", 503, code="otp_undeliverable")
+
+
+def change_password_with_otp(
+    user_id: str,
+    token: str,
+    code: str,
+    new_password: str,
+    *,
+    ip: str = "",
+) -> None:
+    """Verify a 6-digit OTP sent to Gmail/email or mobile number and update the user's password."""
+    from .security import otp
+    from .security.sessions import revoke_all_sessions
+
+    row = _otp_row(user_id)
+    if row is None:
+        raise AuthError("Account not found.", 404)
+    validators.validate_password(new_password, "newPassword")
+    issues = check_password_strength(new_password, [row["username"], row["email"], row["email"].split("@")[0]])
+    if issues:
+        raise AuthError(issues[0].message, 422, {"newPassword": issues[0].message})
+    if verify_password(new_password, row["password_hash"]):
+        raise AuthError("Choose a password you have not used before.", 422)
+
+    result = otp.check_code(token, otp.PASSWORD_CHANGE_PURPOSE, user_id, code)
+    if result["status"] != "ok":
+        if result["status"] == "bad":
+            raise AuthError(
+                f"Invalid 6-digit OTP code. {result.get('attempts_left', 0)} attempts left.",
+                401,
+                code="otp_invalid",
+            )
+        raise AuthError("That verification code expired or was already used.", 401, code="otp_expired")
+
+    ts = now_ms()
+    used_channel = (result.get("payload") or {}).get("channel") or "email"
+    verify_col = "phone_verified = 1" if used_channel == "phone" else "email_verified = 1"
+    db.execute(
+        f"UPDATE users SET password_hash = ?, password_changed_at = ?, {verify_col}, updated_at = ? WHERE id = ?",
+        hash_password(new_password), ts, ts, user_id,
+    )
+    revoke_all_sessions(user_id)
+    record("auth.password_changed_otp", actor_id=user_id, entity_type="user", entity_id=user_id, ip=ip, meta={"channel": used_channel})
+
+
+def request_password_reset_otp(
+    identifier: str,
+    *,
+    channel: str = "email",
+    country_code: str = "+91",
+    ip: str = "",
+) -> OtpRequired:
+    """Issue a 6-digit password-recovery OTP to a learner's Gmail/email or mobile number (with country code)."""
+    from . import notify
+    from .security import otp, ratelimit
+
+    clean = (identifier or "").strip()
+    if not clean:
+        raise AuthError("Enter your email, username, or mobile number.", 422)
+    row = find_by_email_or_username(clean, country_code=country_code)
+    if row is None or row["status"] != "active":
+        raise AuthError("If an account matches that address or mobile number, a 6-digit code was sent.", 404, code="reset_user_not_found")
+
+    limited = ratelimit.shared_check(f"pwd-reset-otp:{row['id']}", 5, 900)
+    if not limited.allowed:
+        raise AuthError("Too many recovery codes requested. Try again later.", 429, code="otp_rate_limited")
+
+    selected = "phone" if (channel == "phone" or clean.startswith("+") or clean.replace(" ", "").isdigit()) and row.get("phone") else "email"
+    target_phone = row.get("phone") or ""
+    if channel == "phone" and not target_phone:
+        raise AuthError("No mobile number is registered for this account. Use Gmail/email OTP instead.", 422, code="phone_missing")
+
+    masked = otp.mask_phone(target_phone) if selected == "phone" else otp.mask_email(row["email"])
+    choices = ["email", "phone"] if target_phone else ["email"]
+    token, code = otp.issue_challenge(
+        row["id"],
+        otp.RESET_PURPOSE,
+        otp.OTP_TTL_SECONDS,
+        channel=selected,
+        masked=masked,
+        choices=choices,
+        extra={"phone": target_phone} if selected == "phone" else {"email": row["email"]},
+    )
+    try:
+        delivered = (
+            notify.send_phone_otp(target_phone, code, minutes=10)
+            if selected == "phone"
+            else notify.send_login_otp(row["email"], code, minutes=10)
+        )
+    except Exception:
+        delivered = False
+
+    record("auth.reset_otp_issued", actor_id=row["id"], entity_type="user", entity_id=row["id"], ip=ip, meta={"channel": selected})
+    if delivered:
+        return OtpRequired(token, selected, masked, choices, attempts_left=otp.MAX_ATTEMPTS)
+
+    settings = get_settings()
+    if settings.allows_demo_accounts and not settings.is_production:
+        return OtpRequired(token, selected, masked, choices, revealed_code=code, attempts_left=otp.MAX_ATTEMPTS)
+
+    otp.kill_challenge(token, otp.RESET_PURPOSE, row["id"])
+    raise AuthError("We could not deliver a recovery code.", 503, code="otp_undeliverable")
+
+
+def reset_password_with_otp(
+    token: str,
+    code: str,
+    new_password: str,
+    *,
+    ip: str = "",
+) -> dict:
+    """Verify a 6-digit password-recovery OTP and set the new password."""
+    from .security import otp, totp
+    from .security.sessions import revoke_all_sessions
+
+    challenge_row = totp.active_challenge(token, otp.RESET_PURPOSE)
+    if not challenge_row:
+        raise AuthError("That recovery code has expired. Request a new code.", 401, code="otp_expired")
+    user_id = str(challenge_row["user_id"])
+    row = _otp_row(user_id)
+    if row is None or row["status"] != "active":
+        raise AuthError("That recovery code has expired.", 401, code="otp_expired")
+
+    validators.validate_password(new_password, "password")
+    issues = check_password_strength(new_password, [row["username"], row["email"], row["email"].split("@")[0]])
+    if issues:
+        raise AuthError(issues[0].message, 422, {"password": issues[0].message})
+
+    result = otp.check_code(token, otp.RESET_PURPOSE, user_id, code)
+    if result["status"] != "ok":
+        if result["status"] == "bad":
+            raise AuthError(
+                f"Invalid 6-digit OTP code. {result.get('attempts_left', 0)} attempts left.",
+                401,
+                code="otp_invalid",
+            )
+        raise AuthError("That recovery code expired or was already used.", 401, code="otp_expired")
+
+    ts = now_ms()
+    used_channel = (result.get("payload") or {}).get("channel") or "email"
+    verify_col = "phone_verified = 1" if used_channel == "phone" else "email_verified = 1"
+    db.execute(
+        f"UPDATE users SET password_hash = ?, password_changed_at = ?, failed_login_count = 0, locked_until = NULL, {verify_col}, updated_at = ? WHERE id = ?",
+        hash_password(new_password), ts, ts, user_id,
+    )
+    revoke_all_sessions(user_id)
+    record("auth.password_reset_otp", actor_id=user_id, entity_type="user", entity_id=user_id, ip=ip, meta={"channel": used_channel})
+    return find_by_id(user_id) or {}
+
+
 # --------------------------------------------------------------------------
 # Session / current user
 # --------------------------------------------------------------------------
@@ -834,6 +1094,15 @@ def datetime_from_day(value: str):
 def update_onboarding(user_id: str, data: dict[str, Any]) -> None:
     fields: list[str] = []
     values: list[Any] = []
+    normalized_data = dict(data)
+    if normalized_data.get("branchId"):
+        b_val = str(normalized_data["branchId"]).strip()
+        b_row = db.query_one(
+            "SELECT id FROM branches WHERE id = ? OR LOWER(slug) = LOWER(?)",
+            b_val,
+            b_val,
+        )
+        normalized_data["branchId"] = b_row["id"] if b_row else None
     mapping = {
         "branchId": "branch_id",
         "universityId": "university_id",
@@ -847,9 +1116,9 @@ def update_onboarding(user_id: str, data: dict[str, Any]) -> None:
         "noteQuality": "note_quality",
     }
     for key, column in mapping.items():
-        if key in data and data[key] is not None:
+        if key in normalized_data and normalized_data[key] is not None:
             fields.append(f"{column} = ?")
-            values.append(data[key])
+            values.append(normalized_data[key])
     if not fields:
         return
     fields.append("onboarded_at = ?")

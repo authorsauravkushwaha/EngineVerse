@@ -24,9 +24,35 @@
         autocomplete="username" value="{{ username or '' }}">
       <div class="hint">3–24 characters: letters, numbers, dot, dash, underscore. This becomes your portfolio URL.</div>
       {% if fields and fields.username %}<div class="err">{{ fields.username }}</div>{% endif %}</div>
-    <div class="field"><label for="email">Email</label>
-      <input id="email" name="email" type="email" required maxlength="254" autocomplete="email" value="{{ email or '' }}">
+    <div class="field"><label for="email">Gmail / Email</label>
+      <input id="email" name="email" type="email" required maxlength="254" autocomplete="email" placeholder="you@gmail.com" value="{{ email or '' }}">
       {% if fields and fields.email %}<div class="err">{{ fields.email }}</div>{% endif %}</div>
+    <div class="field"><label for="phone">Mobile number with country code <span class="muted">(optional, for SMS OTP &amp; recovery)</span></label>
+      <div class="phone-cc-row">
+        <select id="country_code" name="country_code" aria-label="Country code">
+          <option value="+91">🇮🇳 +91 (India)</option>
+          <option value="+1">🇺🇸 +1 (US / Canada)</option>
+          <option value="+44">🇬🇧 +44 (UK)</option>
+          <option value="+61">🇦🇺 +61 (Australia)</option>
+          <option value="+49">🇩🇪 +49 (Germany)</option>
+          <option value="+33">🇫🇷 +33 (France)</option>
+          <option value="+65">🇸🇬 +65 (Singapore)</option>
+          <option value="+971">🇦🇪 +971 (UAE)</option>
+          <option value="+81">🇯🇵 +81 (Japan)</option>
+          <option value="+82">🇰🇷 +82 (South Korea)</option>
+          <option value="+55">🇧🇷 +55 (Brazil)</option>
+          <option value="+27">🇿🇦 +27 (South Africa)</option>
+          <option value="+234">🇳🇬 +234 (Nigeria)</option>
+        </select>
+        <input id="phone" name="phone" type="tel" maxlength="20" autocomplete="tel" placeholder="9876543210">
+      </div>
+      {% if fields and fields.phone %}<div class="err">{{ fields.phone }}</div>{% endif %}</div>
+    <div class="field"><label for="otp_channel">New-user OTP verification channel <span class="muted">(optional)</span></label>
+      <select id="otp_channel" name="otp_channel">
+        <option value="">Automatic (verify when OTP gateway is active)</option>
+        <option value="email">Verify via Gmail / Email (6-digit OTP)</option>
+        <option value="phone">Verify via Mobile Number SMS (6-digit OTP)</option>
+      </select></div>
     <div class="field"><label for="password">Password</label>
       <input id="password" name="password" type="password" required minlength="10" autocomplete="new-password">
       <div class="hint">At least 10 characters, and not a common password or your own name.</div>

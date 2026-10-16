@@ -856,25 +856,46 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
             """
 <div class="auth-wrap" data-ev-page="login">
   <div class="form-panel panel">
-    <div class="eyebrow">EngineVerse Account · GitHub Vault Synced</div>
+    <div class="eyebrow">EngineVerse Account · GitHub Vault &amp; Supabase/Appwrite Synced</div>
     <h1>Welcome back</h1>
-    <p class="muted mb">Sign in with your EngineVerse account or load your profile from the
-      <code>authorsauravkushwaha/EngineVerse</code> GitHub learner vault.</p>
+    <p class="muted mb">Verified learners sign in directly with their password — no OTP required on regular sign-in.</p>
+    <div id="ev-already-signed-in" class="callout ok mb" hidden>
+      <span class="label">Session active</span>
+      <p class="small" id="ev-already-signed-in-text">You are already signed in.</p>
+      <div class="row mt">
+        <a class="btn btn-primary btn-sm" href="/dashboard" id="ev-continue-dashboard">Continue to Dashboard</a>
+        <button class="btn btn-ghost btn-sm" type="button" id="ev-switch-account-btn">Switch account / Sign out</button>
+      </div>
+    </div>
     <div id="ev-auth-alert" class="callout info mb" hidden></div>
     <form id="ev-login-form" class="form" novalidate>
-      <label class="field"><span>Email or username</span>
+      <label class="field"><span>Username, Gmail/email, or mobile number</span>
         <input type="text" name="identity" id="ev-login-identity" required autocomplete="username"
-          placeholder="saurav or learner@example.com">
+          placeholder="saurav, learner@gmail.com, or +919876543210">
       </label>
       <label class="field"><span>Password</span>
         <input type="password" name="password" id="ev-login-password" required autocomplete="current-password">
       </label>
       <div class="row" style="justify-content:space-between">
-        <label class="row small" style="gap:6px"><input type="checkbox" name="remember" value="1" checked> Keep me signed in</label>
-        <a href="/forgot-password" class="small">Forgot password?</a>
+        <label class="row small" style="gap:6px"><input type="checkbox" name="remember" id="ev-login-remember" value="1" checked> Keep me signed in across tabs</label>
+        <a href="/forgot-password" class="small">Forgot password? (OTP recovery)</a>
       </div>
       <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
     </form>
+    <div id="ev-login-otp-step" class="mt pt" style="border-top:1px solid var(--border)" hidden>
+      <h2>First-time new user OTP verification</h2>
+      <p class="small muted" id="ev-login-otp-desc">Verify your new account once using the 6-digit OTP sent to your Gmail or mobile number.</p>
+      <div id="ev-login-otp-preview" class="callout info mb" hidden></div>
+      <form id="ev-login-otp-form" class="form" novalidate>
+        <label class="field"><span>6-digit OTP code</span>
+          <input type="text" id="ev-login-otp-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
+        </label>
+        <div class="row">
+          <button class="btn btn-primary" type="submit">Verify OTP &amp; Finish Sign In</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-login-otp-resend">Resend OTP</button>
+        </div>
+      </form>
+    </div>
     <div class="mt pt" style="border-top:1px solid var(--border)">
       <p class="small muted">Quick demo or GitHub vault restore:</p>
       <div class="row">
@@ -882,7 +903,7 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <button class="btn btn-ghost btn-sm" type="button" id="ev-github-pull-signin">Restore from GitHub Vault</button>
       </div>
     </div>
-    <p class="small muted mt">New here? <a href="/register">Create a free account</a> — works immediately in your browser and syncs to GitHub.</p>
+    <p class="small muted mt">New here? <a href="/register">Create a free account</a> — new accounts verify once via 6-digit OTP (Gmail or mobile number).</p>
   </div>
 </div>
 """.strip(),
@@ -892,10 +913,9 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
             """
 <div class="auth-wrap" data-ev-page="register">
   <div class="form-panel panel">
-    <div class="eyebrow">Free · Instant Browser + GitHub Cloud Sync</div>
+    <div class="eyebrow">New Learner Signup · One-Time 6-Digit OTP Verification</div>
     <h1>Create your account</h1>
-    <p class="muted mb">Start learning immediately without cloning the repo. Your progress is saved locally and
-      can be synced to the <code>authorsauravkushwaha/EngineVerse</code> GitHub learner vault.</p>
+    <p class="muted mb">Verify once via Gmail or mobile number (with country code). After initial verification, future sign-ins require only your password.</p>
     <div id="ev-auth-alert" class="callout info mb" hidden></div>
     <form id="ev-register-form" class="form" novalidate>
       <label class="field"><span>Display name</span>
@@ -906,8 +926,35 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
           pattern="[a-zA-Z0-9_\\-]+" placeholder="aarav_sharma">
         <span class="help">3–30 characters: letters, digits, underscore or hyphen.</span>
       </label>
-      <label class="field"><span>Email</span>
-        <input type="email" name="email" id="ev-reg-email" required placeholder="you@university.edu">
+      <label class="field"><span>Gmail / Email address</span>
+        <input type="email" name="email" id="ev-reg-email" required placeholder="you@gmail.com">
+      </label>
+      <div class="field"><span>Mobile number (with country code)</span>
+        <div class="phone-cc-row">
+          <select name="country_code" id="ev-reg-country-code" aria-label="Country code">
+            <option value="+91">🇮🇳 +91 (India)</option>
+            <option value="+1">🇺🇸 +1 (US / Canada)</option>
+            <option value="+44">🇬🇧 +44 (UK)</option>
+            <option value="+61">🇦🇺 +61 (Australia)</option>
+            <option value="+49">🇩🇪 +49 (Germany)</option>
+            <option value="+33">🇫🇷 +33 (France)</option>
+            <option value="+65">🇸🇬 +65 (Singapore)</option>
+            <option value="+971">🇦🇪 +971 (UAE)</option>
+            <option value="+81">🇯🇵 +81 (Japan)</option>
+            <option value="+82">🇰🇷 +82 (South Korea)</option>
+            <option value="+55">🇧🇷 +55 (Brazil)</option>
+            <option value="+27">🇿🇦 +27 (South Africa)</option>
+            <option value="+234">🇳🇬 +234 (Nigeria)</option>
+            <option value="+7">🇷🇺 +7 (Russia / KZ)</option>
+          </select>
+          <input type="tel" name="phone" id="ev-reg-phone" maxlength="20" placeholder="9876543210">
+        </div>
+      </div>
+      <label class="field"><span>Send 6-digit signup OTP via</span>
+        <select name="otp_channel" id="ev-reg-otp-channel">
+          <option value="email">Gmail / Email (6-digit OTP)</option>
+          <option value="phone">Mobile Number SMS with Country Code (6-digit OTP)</option>
+        </select>
       </label>
       <div class="form-row">
         <label class="field"><span>Branch</span>
@@ -939,8 +986,23 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <input type="checkbox" name="sync_github" id="ev-reg-sync-gh" value="1" checked>
         Prepare GitHub learner vault snapshot for <code>authorsauravkushwaha/EngineVerse</code>
       </label>
-      <button class="btn btn-primary" type="submit" style="width:100%">Create account &amp; start learning</button>
+      <button class="btn btn-primary" type="submit" style="width:100%" id="ev-reg-submit-btn">Send 6-digit OTP &amp; Verify Account</button>
     </form>
+    <div id="ev-reg-otp-step" class="mt pt" style="border-top:1px solid var(--border)" hidden>
+      <h2>Verify your 6-digit signup OTP</h2>
+      <p class="small muted" id="ev-reg-otp-desc">Enter the 6-digit code sent to your Gmail or mobile number.</p>
+      <div id="ev-reg-otp-preview" class="callout info mb" hidden></div>
+      <form id="ev-reg-otp-form" class="form" novalidate>
+        <label class="field"><span>6-digit OTP code</span>
+          <input type="text" id="ev-reg-otp-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
+        </label>
+        <div class="row">
+          <button class="btn btn-primary" type="submit">Verify 6-digit OTP &amp; Create Account</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-reg-otp-resend">Resend OTP</button>
+          <button class="btn btn-soft btn-sm" type="button" id="ev-reg-otp-switch">Switch Gmail / Mobile OTP</button>
+        </div>
+      </form>
+    </div>
     <p class="small muted mt">Already registered? <a href="/login">Sign in</a></p>
   </div>
 </div>
@@ -951,17 +1013,55 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
             """
 <div class="auth-wrap" data-ev-page="forgot-password">
   <div class="form-panel panel">
+    <div class="eyebrow">Account Recovery · Gmail or Mobile Number OTP</div>
     <h1>Reset your password</h1>
-    <p class="muted mb">Enter your username or email to set a new password for your local and GitHub-synced account.</p>
+    <p class="muted mb">Verify your identity with a 6-digit OTP sent to your Gmail/email or mobile number (with country code) to set a new password.</p>
     <div id="ev-auth-alert" class="callout info mb" hidden></div>
     <form id="ev-forgot-form" class="form" novalidate>
-      <label class="field"><span>Username or email</span>
-        <input type="text" name="identity" required placeholder="username or you@university.edu">
+      <label class="field"><span>Verify via</span>
+        <select name="otp_channel" id="ev-forgot-channel">
+          <option value="email">Gmail / Email (6-digit OTP)</option>
+          <option value="phone">Mobile Number SMS with Country Code (6-digit OTP)</option>
+        </select>
       </label>
-      <label class="field"><span>New password</span>
-        <input type="password" name="new_password" required minlength="8" placeholder="At least 8 characters">
+      <label class="field" id="ev-forgot-email-wrap"><span>Username or Gmail / Email</span>
+        <input type="text" name="identity" id="ev-forgot-identity" placeholder="saurav or you@gmail.com">
       </label>
-      <button class="btn btn-primary" type="submit" style="width:100%">Update password</button>
+      <div class="field" id="ev-forgot-phone-wrap"><span>Mobile number (with country code)</span>
+        <div class="phone-cc-row">
+          <select name="country_code" id="ev-forgot-country-code" aria-label="Country code">
+            <option value="+91">🇮🇳 +91 (India)</option>
+            <option value="+1">🇺🇸 +1 (US / Canada)</option>
+            <option value="+44">🇬🇧 +44 (UK)</option>
+            <option value="+61">🇦🇺 +61 (Australia)</option>
+            <option value="+49">🇩🇪 +49 (Germany)</option>
+            <option value="+33">🇫🇷 +33 (France)</option>
+            <option value="+65">🇸🇬 +65 (Singapore)</option>
+            <option value="+971">🇦🇪 +971 (UAE)</option>
+            <option value="+81">🇯🇵 +81 (Japan)</option>
+            <option value="+82">🇰🇷 +82 (South Korea)</option>
+            <option value="+55">🇧🇷 +55 (Brazil)</option>
+            <option value="+27">🇿🇦 +27 (South Africa)</option>
+            <option value="+234">🇳🇬 +234 (Nigeria)</option>
+          </select>
+          <input type="tel" name="phone" id="ev-forgot-phone" maxlength="20" placeholder="9876543210">
+        </div>
+      </div>
+      <div id="ev-forgot-otp-step" hidden>
+        <div id="ev-forgot-otp-preview" class="callout info mb" hidden></div>
+        <label class="field"><span>6-digit OTP code</span>
+          <input type="text" name="otp_code" id="ev-forgot-otp-code" inputmode="numeric" maxlength="6" placeholder="123456">
+        </label>
+        <label class="field"><span>New password</span>
+          <input type="password" name="new_password" id="ev-forgot-new-password" minlength="8" placeholder="At least 8 characters">
+        </label>
+        <label class="field"><span>Confirm new password</span>
+          <input type="password" name="confirm_password" id="ev-forgot-confirm-password" minlength="8" placeholder="Confirm new password">
+        </label>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary" type="submit" id="ev-forgot-submit-btn" style="width:100%">Send 6-digit Recovery OTP</button>
+      </div>
     </form>
     <p class="small muted mt"><a href="/login">Back to sign in</a></p>
   </div>
@@ -973,17 +1073,48 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
             """
 <div class="auth-wrap" data-ev-page="reset-password">
   <div class="form-panel panel">
+    <div class="eyebrow">OTP Password Reset · Gmail or Mobile Number</div>
     <h1>Choose a new password</h1>
-    <p class="muted mb">Update your account password and re-sync your SHA-256 verification digest to GitHub.</p>
+    <p class="muted mb">Verify with a 6-digit OTP via Gmail or mobile number (with country code) and re-sync your SHA-256 verification digest to GitHub.</p>
     <div id="ev-auth-alert" class="callout info mb" hidden></div>
     <form id="ev-forgot-form" class="form" novalidate>
-      <label class="field"><span>Username or email</span>
-        <input type="text" name="identity" required placeholder="username or you@university.edu">
+      <label class="field"><span>Verify via</span>
+        <select name="otp_channel" id="ev-forgot-channel">
+          <option value="email">Gmail / Email (6-digit OTP)</option>
+          <option value="phone">Mobile Number SMS with Country Code (6-digit OTP)</option>
+        </select>
       </label>
-      <label class="field"><span>New password</span>
-        <input type="password" name="new_password" required minlength="8" placeholder="At least 8 characters">
+      <label class="field" id="ev-forgot-email-wrap"><span>Username or Gmail / Email</span>
+        <input type="text" name="identity" id="ev-forgot-identity" placeholder="saurav or you@gmail.com">
       </label>
-      <button class="btn btn-primary" type="submit" style="width:100%">Save new password</button>
+      <div class="field" id="ev-forgot-phone-wrap"><span>Mobile number (with country code)</span>
+        <div class="phone-cc-row">
+          <select name="country_code" id="ev-forgot-country-code" aria-label="Country code">
+            <option value="+91">🇮🇳 +91 (India)</option>
+            <option value="+1">🇺🇸 +1 (US / Canada)</option>
+            <option value="+44">🇬🇧 +44 (UK)</option>
+            <option value="+61">🇦🇺 +61 (Australia)</option>
+            <option value="+49">🇩🇪 +49 (Germany)</option>
+            <option value="+65">🇸🇬 +65 (Singapore)</option>
+            <option value="+971">🇦🇪 +971 (UAE)</option>
+            <option value="+81">🇯🇵 +81 (Japan)</option>
+          </select>
+          <input type="tel" name="phone" id="ev-forgot-phone" maxlength="20" placeholder="9876543210">
+        </div>
+      </div>
+      <div id="ev-forgot-otp-step" hidden>
+        <div id="ev-forgot-otp-preview" class="callout info mb" hidden></div>
+        <label class="field"><span>6-digit OTP code</span>
+          <input type="text" name="otp_code" id="ev-forgot-otp-code" inputmode="numeric" maxlength="6" placeholder="123456">
+        </label>
+        <label class="field"><span>New password</span>
+          <input type="password" name="new_password" id="ev-forgot-new-password" minlength="8" placeholder="At least 8 characters">
+        </label>
+        <label class="field"><span>Confirm new password</span>
+          <input type="password" name="confirm_password" id="ev-forgot-confirm-password" minlength="8" placeholder="Confirm new password">
+        </label>
+      </div>
+      <button class="btn btn-primary" type="submit" id="ev-forgot-submit-btn" style="width:100%">Send 6-digit Recovery OTP</button>
     </form>
     <p class="small muted mt"><a href="/login">Back to sign in</a></p>
   </div>
@@ -1135,6 +1266,29 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <label class="field"><span>Display name</span>
           <input type="text" name="display_name" id="ev-set-display" required maxlength="60">
         </label>
+        <label class="field"><span>Gmail / Email address</span>
+          <input type="email" name="email" id="ev-set-email" maxlength="120" placeholder="you@gmail.com">
+        </label>
+        <div class="field"><span>Mobile number (with country code)</span>
+          <div class="phone-cc-row">
+            <select name="country_code" id="ev-set-country-code" aria-label="Country code">
+              <option value="+91">🇮🇳 +91 (India)</option>
+              <option value="+1">🇺🇸 +1 (US / Canada)</option>
+              <option value="+44">🇬🇧 +44 (UK)</option>
+              <option value="+61">🇦🇺 +61 (Australia)</option>
+              <option value="+49">🇩🇪 +49 (Germany)</option>
+              <option value="+33">🇫🇷 +33 (France)</option>
+              <option value="+65">🇸🇬 +65 (Singapore)</option>
+              <option value="+971">🇦🇪 +971 (UAE)</option>
+              <option value="+81">🇯🇵 +81 (Japan)</option>
+              <option value="+82">🇰🇷 +82 (South Korea)</option>
+              <option value="+55">🇧🇷 +55 (Brazil)</option>
+              <option value="+27">🇿🇦 +27 (South Africa)</option>
+              <option value="+234">🇳🇬 +234 (Nigeria)</option>
+            </select>
+            <input type="tel" name="phone" id="ev-set-phone" maxlength="20" placeholder="9876543210">
+          </div>
+        </div>
         <div class="form-row">
           <label class="field"><span>Branch</span>
             <select name="branch" id="ev-set-branch">
@@ -1160,7 +1314,7 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <label class="field"><span>Bio / Target goal</span>
           <input type="text" name="bio" id="ev-set-bio" maxlength="240" placeholder="Preparing for GATE + core systems engineering">
         </label>
-        <label class="field"><span>Optional n8n / Supabase / Appwrite Webhook URL (auto-forwards every progress sync)</span>
+        <label class="field"><span>Optional n8n / Supabase / Appwrite Webhook URL (auto-forwards OTP &amp; progress sync)</span>
           <input type="url" name="webhook_url" id="ev-set-webhook" placeholder="https://your-n8n-or-supabase.example/webhook/engineverse">
         </label>
         <button class="btn btn-primary btn-sm" type="submit">Save profile &amp; sync settings</button>
@@ -1171,6 +1325,53 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
       </div>
     </section>
   </div>
+  <section class="panel mt" id="ev-password-change-panel">
+    <h2>3. Change Password via 6-Digit OTP (Gmail or Mobile Number with Country Code)</h2>
+    <p class="small muted">OTP verification is required when changing your password. Select Gmail/email or mobile number (with country code) to receive a 6-digit verification code.</p>
+    <div id="ev-pwd-otp-alert" class="callout info mb" hidden></div>
+    <form id="ev-password-change-form" class="form" novalidate>
+      <div class="grid g2">
+        <label class="field"><span>Send 6-digit OTP via</span>
+          <select id="ev-pwd-otp-channel" name="otp_channel">
+            <option value="email">Gmail / Email (6-digit OTP)</option>
+            <option value="phone">Mobile Number SMS with Country Code (6-digit OTP)</option>
+          </select>
+        </label>
+        <div class="field"><span>Mobile number (with country code)</span>
+          <div class="phone-cc-row">
+            <select id="ev-pwd-country-code" name="country_code" aria-label="Country code">
+              <option value="+91">🇮🇳 +91 (India)</option>
+              <option value="+1">🇺🇸 +1 (US / Canada)</option>
+              <option value="+44">🇬🇧 +44 (UK)</option>
+              <option value="+61">🇦🇺 +61 (Australia)</option>
+              <option value="+49">🇩🇪 +49 (Germany)</option>
+              <option value="+65">🇸🇬 +65 (Singapore)</option>
+              <option value="+971">🇦🇪 +971 (UAE)</option>
+              <option value="+81">🇯🇵 +81 (Japan)</option>
+            </select>
+            <input type="tel" id="ev-pwd-phone" name="phone" maxlength="20" placeholder="9876543210">
+          </div>
+        </div>
+      </div>
+      <div id="ev-pwd-otp-step" hidden>
+        <div id="ev-pwd-otp-preview" class="callout info mb" hidden></div>
+        <div class="grid g3">
+          <label class="field"><span>6-digit OTP code</span>
+            <input type="text" id="ev-pwd-otp-code" inputmode="numeric" maxlength="6" placeholder="123456">
+          </label>
+          <label class="field"><span>New password</span>
+            <input type="password" id="ev-pwd-new-password" minlength="8" placeholder="At least 8 characters">
+          </label>
+          <label class="field"><span>Confirm new password</span>
+            <input type="password" id="ev-pwd-confirm-password" minlength="8" placeholder="Confirm new password">
+          </label>
+        </div>
+      </div>
+      <div class="row">
+        <button class="btn btn-primary btn-sm" type="submit" id="ev-pwd-submit-btn">Send 6-digit OTP to change password</button>
+      </div>
+    </form>
+  </section>
 </div>
 """.strip(),
         ),

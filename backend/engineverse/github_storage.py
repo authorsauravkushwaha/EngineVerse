@@ -170,17 +170,32 @@ def validate_snapshot(payload: dict[str, Any]) -> dict[str, Any]:
         raw_days = {str(d): 1 for d in payload["activity_days"] if isinstance(d, str)}
     days = _clean_days(raw_days)
 
+    country_code = _clean_text(payload.get("country_code") or "+91", 8)
+    if not re.fullmatch(r"\+[1-9][0-9]{0,3}", country_code):
+        country_code = "+91"
+    phone_hash = str(payload.get("phone_sha256") or "").strip().lower()
+    if not phone_hash and isinstance(payload.get("phone"), str) and payload["phone"].strip():
+        phone_hash = hashlib.sha256(payload["phone"].strip().encode("utf-8")).hexdigest()
+    elif phone_hash and not re.fullmatch(r"[0-9a-f]{64}", phone_hash):
+        phone_hash = ""
+    otp_verified = bool(payload.get("otp_verified", True))
+    year_of_study = max(1, min(6, _bounded_int("year_of_study", 1, 6)))
+
     return {
         "username": username,
         "display_username": username_raw,
         "full_name": full_name,
         "display_name": full_name,
         "email_sha256": email_hash,
+        "phone_sha256": phone_hash,
+        "country_code": country_code,
+        "otp_verified": otp_verified,
         "password_digest": digest,
         "password_sha256": digest.removeprefix("sha256:") if digest else "",
         "branch_id": branch_id,
         "branch": branch_id or "cse",
         "semester_id": semester_id,
+        "year_of_study": year_of_study,
         "headline": headline,
         "bio": bio,
         "country": country,
@@ -215,7 +230,8 @@ def merge_records(existing: dict[str, Any] | None, incoming: dict[str, Any]) -> 
         return clean
 
     prev_digest = existing.get("password_digest") or ""
-    if prev_digest and clean["password_digest"] and prev_digest != clean["password_digest"]:
+    otp_override = bool(incoming.get("password_changed_via_otp"))
+    if prev_digest and clean["password_digest"] and prev_digest != clean["password_digest"] and not otp_override:
         raise LearnerSyncError("Password digest does not match the registered GitHub learner account.")
 
     days = dict(existing.get("days") or {})
@@ -238,7 +254,7 @@ def merge_records(existing: dict[str, Any] | None, incoming: dict[str, Any]) -> 
     minutes = max(int(existing.get("minutes") or 0), clean["minutes"])
 
     full_name = clean["full_name"] or existing.get("full_name") or clean["username"]
-    merged_digest = prev_digest or clean["password_digest"]
+    merged_digest = (clean["password_digest"] if otp_override and clean["password_digest"] else (prev_digest or clean["password_digest"]))
     sorted_days = dict(sorted(days.items()))
     return {
         "username": clean["username"],
@@ -246,11 +262,15 @@ def merge_records(existing: dict[str, Any] | None, incoming: dict[str, Any]) -> 
         "full_name": full_name,
         "display_name": full_name,
         "email_sha256": clean["email_sha256"] or existing.get("email_sha256") or "",
+        "phone_sha256": clean["phone_sha256"] or existing.get("phone_sha256") or "",
+        "country_code": clean["country_code"] or existing.get("country_code") or "+91",
+        "otp_verified": bool(clean.get("otp_verified", True) or existing.get("otp_verified", True)),
         "password_digest": merged_digest,
         "password_sha256": merged_digest.removeprefix("sha256:") if merged_digest else "",
         "branch_id": clean["branch_id"] or existing.get("branch_id") or "",
         "branch": clean["branch_id"] or existing.get("branch_id") or "cse",
         "semester_id": clean["semester_id"] or existing.get("semester_id") or "",
+        "year_of_study": clean.get("year_of_study") or existing.get("year_of_study") or 1,
         "headline": clean["headline"] or existing.get("headline") or "",
         "bio": clean["bio"] or existing.get("bio") or "",
         "country": clean["country"] or existing.get("country") or "",

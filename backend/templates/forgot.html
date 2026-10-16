@@ -22,12 +22,36 @@
     {% endif %}
     <a class="btn btn-ghost" href="/login">Back to sign in</a>
   {% else %}
-    <p class="muted">Enter the email you registered with.</p>
+    {% if error %}<div class="callout warning mb"><span class="label">Recovery error</span>{{ error }}</div>{% endif %}
+    <p class="muted">Recover your password via Gmail / email or via 6-digit OTP to your Gmail or mobile number (with country code).</p>
     <form method="post" action="/forgot-password">
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-      <div class="field"><label for="email">Email</label>
-        <input id="email" name="email" type="email" required autocomplete="email" autofocus></div>
-      <button class="btn btn-primary btn-block">Send reset link</button>
+      <div class="field"><label for="email">Gmail / Email</label>
+        <input id="email" name="email" type="email" autocomplete="email" placeholder="you@gmail.com" autofocus></div>
+      <div class="field"><label for="phone">Or Mobile number (with country code)</label>
+        <div class="phone-cc-row">
+          <select id="country_code" name="country_code" aria-label="Country code">
+            <option value="+91">🇮🇳 +91 (India)</option>
+            <option value="+1">🇺🇸 +1 (US / Canada)</option>
+            <option value="+44">🇬🇧 +44 (UK)</option>
+            <option value="+61">🇦🇺 +61 (Australia)</option>
+            <option value="+49">🇩🇪 +49 (Germany)</option>
+            <option value="+33">🇫🇷 +33 (France)</option>
+            <option value="+65">🇸🇬 +65 (Singapore)</option>
+            <option value="+971">🇦🇪 +971 (UAE)</option>
+            <option value="+81">🇯🇵 +81 (Japan)</option>
+          </select>
+          <input id="phone" name="phone" type="tel" maxlength="20" autocomplete="tel" placeholder="9876543210">
+        </div>
+      </div>
+      <div class="field"><label for="otp_channel">Recovery method</label>
+        <select id="otp_channel" name="otp_channel">
+          <option value="">Email reset link (default)</option>
+          <option value="email">6-digit OTP to Gmail / Email</option>
+          <option value="phone">6-digit OTP to Mobile Number (SMS)</option>
+        </select>
+      </div>
+      <button class="btn btn-primary btn-block" type="submit">Send reset link or 6-digit OTP</button>
     </form>
   {% endif %}
 </div>

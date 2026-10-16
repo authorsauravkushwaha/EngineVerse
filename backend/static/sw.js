@@ -4,10 +4,12 @@
  */
 // Bumped whenever a cached asset changes behaviour. v6: sign-in became
 // compulsory and the practice cards changed, so a v5 app.js must not linger.
-const VERSION = "engineverse-v6";
+const VERSION = "engineverse-v7";
 const SHELL = [
   "/static/css/app.css",
   "/static/js/app.js",
+  "/static/js/pages-live.js",
+  "/static/js/capabilities.js",
   "/static/js/engine3d.js",
   "/static/icons/favicon.svg",
   "/static/offline.html",

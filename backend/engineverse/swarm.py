@@ -1,9 +1,11 @@
 """A deterministic, citation-first multi-persona engineering review lab.
 
-Inspired by MiroFish's multi-agent framing, not a model or forecasting service.
-No network, LLM, private learner data, agent tools or arbitrary execution. Every
-engineering finding is an extract from one of six public catalogue source kinds.
-Trade-offs are explicitly review questions, not invented engineering conclusions.
+Inspired by MiroFish's (`666ghj/MiroFish`) multi-agent framing and PentAGI's
+(`vxcontrol/pentagi`) autonomous security/verification auditing, not a model or
+forecasting service. No network, LLM, private learner data, agent tools or
+arbitrary execution. Every engineering finding is an extract from one of six
+public catalogue source kinds. Trade-offs are explicitly review questions, not
+invented engineering conclusions.
 """
 from __future__ import annotations
 

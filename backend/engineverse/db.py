@@ -162,10 +162,17 @@ def _pg_connect(url: str) -> PostgresConnection:
 
 def connection() -> Any:
     """Returns a thread-local connection."""
+    conn = getattr(_local, "conn", None)
+    if conn is not None:
+        if isinstance(conn, sqlite3.Connection):
+            try:
+                conn.execute("SELECT 1")
+                return conn
+            except sqlite3.ProgrammingError:
+                _local.conn = None
+        else:
+            return conn
     settings = get_settings()
-    existing = getattr(_local, "conn", None)
-    if existing is not None:
-        return existing
     conn = _pg_connect(settings.db_url) if settings.uses_postgres else _sqlite_connect(settings.sqlite_path)
     _local.conn = conn
     return conn

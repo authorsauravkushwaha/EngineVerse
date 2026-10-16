@@ -169,6 +169,10 @@ class Settings:
         return self.login_otp == "required"
 
     @property
+    def signup_otp_only(self) -> bool:
+        return self.login_otp in {"signup_only", "new_user"}
+
+    @property
     def sms_configured(self) -> bool:
         return bool(self.sms_url)
 
@@ -257,13 +261,13 @@ class Settings:
             normalise_apk_url(self.apk_url)
         except ValueError as exc:
             problems.append(str(exc))
-        if self.login_otp not in {"required", "disabled"}:
+        if self.login_otp not in {"required", "disabled", "signup_only", "new_user"}:
             problems.append(
-                "ENGINEVERSE_LOGIN_OTP must be either 'required' or 'disabled'"
+                "ENGINEVERSE_LOGIN_OTP must be either 'required', 'signup_only', or 'disabled'"
             )
-        elif self.login_otp == "required" and not self.smtp_url.strip() and not self.sms_url.strip():
+        elif self.login_otp in {"required", "signup_only", "new_user"} and not self.smtp_url.strip() and not self.sms_url.strip():
             problems.append(
-                "ENGINEVERSE_LOGIN_OTP=required needs ENGINEVERSE_SMTP_URL or "
+                f"ENGINEVERSE_LOGIN_OTP={self.login_otp} needs ENGINEVERSE_SMTP_URL or "
                 "ENGINEVERSE_SMS_URL for sign-in code delivery"
             )
         judge = (self.judge or "").lower()
