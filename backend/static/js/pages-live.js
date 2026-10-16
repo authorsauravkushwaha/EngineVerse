@@ -51,6 +51,55 @@
   };
 
   // ---------------------------------------------------------------------------
+  // Shared helpers
+  //
+  // `escapeHtml` is published by app.js as window.EV.escapeHtml, but this file
+  // must also work when it is loaded on its own (the Android wrapper and the
+  // offline shell load scripts individually). An earlier revision called it
+  // without ever defining it, so *every* call threw a ReferenceError: the OTP
+  // code was never shown, the account icon was never inserted and the boot
+  // sequence stopped half way. Keep a local definition and prefer the shared
+  // one when app.js has already run.
+  // ---------------------------------------------------------------------------
+  const escapeHtml = (value) =>
+    typeof window.EV?.escapeHtml === "function"
+      ? window.EV.escapeHtml(value)
+      : String(value ?? "").replace(/[&<>"']/g, (c) =>
+          ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+        );
+
+  // One control can have more than one accepted id: the exported markup and
+  // this runtime ship independently, and a service-worker cache can pair an
+  // older page with a newer script. Look up the current id first and fall back
+  // to the spellings earlier exports used instead of binding nothing at all.
+  const firstEl = (...ids) => {
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) return el;
+    }
+    return null;
+  };
+
+  const reportRuntimeProblem = (label, error) => {
+    if (window.console?.warn) window.console.warn(`[EngineVerse] ${label} failed`, error);
+  };
+
+  // Runs one boot step in isolation: a failure on a single page must not take
+  // the rest of the runtime (account icon, OTP steps, judges) down with it.
+  const safely = (label, fn) => {
+    try {
+      const result = fn();
+      if (result && typeof result.catch === "function") {
+        result.catch((error) => reportRuntimeProblem(label, error));
+      }
+      return result;
+    } catch (error) {
+      reportRuntimeProblem(label, error);
+      return undefined;
+    }
+  };
+
+  // ---------------------------------------------------------------------------
   // SHA-256 helper (WebCrypto with pure-JS fallback) for GitHub Vault auth
   // ---------------------------------------------------------------------------
   async function sha256Hex(message) {
@@ -780,7 +829,7 @@
     store.currentUser = null;
     try { sessionStorage.setItem("ev:explicit_logout", "1"); } catch (_) {}
     saveStore(store);
-    hydrateNavigation();
+    safely("hydrateNavigation", hydrateNavigation);
     toast("Signed out of your EngineVerse session.", "info");
     window.location.href = `${BASE}login/`;
   }
@@ -947,6 +996,12 @@
     const signedIn = Boolean(store.currentUser && store.currentUser !== "guest");
     if (!signedIn) return;
     const profile = getActiveProfile();
+    // `path` was read here without ever being defined in this scope - it only
+    // existed inside shouldRecordStudy() - so every check below threw a
+    // ReferenceError on the first page that used one. That is why a signed-in
+    // learner kept meeting "Sign in to ..." prompts on the revision, sheets,
+    // DPP, community and coding tabs.
+    const path = window.location.pathname;
 
     // 1. Generic anonymous auth callouts across tabs (Sheets, DPP, Home, Resources)
     document.querySelectorAll(".callout").forEach((callout) => {
@@ -1067,7 +1122,7 @@
               saveActiveProfile((p) => {
                 p.xp = Number(p.xp || 0) + gain;
               });
-              hydrateNavigation();
+              safely("hydrateNavigation", hydrateNavigation);
               toast(`Card scheduled via SM-2 (+${gain} XP)`);
               idx += 1;
               renderCard();
@@ -1123,7 +1178,7 @@
                   p.community_posts = [{ title, body, ts: isoOf(new Date()) }].concat(p.community_posts || []).slice(0, 30);
                 });
                 pushSnapshotToGithub(updated).catch(() => {});
-                hydrateNavigation();
+                safely("hydrateNavigation", hydrateNavigation);
                 const list = document.querySelector(".list");
                 if (list) {
                   const row = document.createElement("div");
@@ -1153,43 +1208,91 @@
         }
       });
     }
+
+    // 6. Every other "Sign in to …" call to action in the catalogue.
+    //
+    // The exported pages are one anonymous snapshot served to everybody, so a
+    // signed-in reader used to keep meeting prompts for a step they had already
+    // taken: "Sign in to post" on the community tab, "Sign in to submit" beside
+    // the run button, "Sign in to save a personal SM-2 schedule" on flashcards,
+    // "Create an account or sign in to track your XP" on the hosting page. One
+    // sweep covers them (and any page added later) instead of a special case per
+    // template:
+    //
+    //   * an anchor that only exists to offer sign-in/sign-up becomes a link to
+    //     the dashboard, or disappears when its container already offers an
+    //     action (the practice page has its own Submit button);
+    //   * the matching sentence, when the prompt is plain text, says who is
+    //     signed in instead of asking again.
+    const signInWord = /\bsign in\b|\bcreate (a free )?account\b|\bregister\b/i;
+    const keepAction = (link) => {
+      const container = link.closest(".row, .between, .page-head, .panel, .callout, p");
+      if (!container) return false;
+      const siblings = Array.from(container.querySelectorAll("a, button")).filter((el) => el !== link);
+      return siblings.length === 0;
+    };
+    document.querySelectorAll("main a[href*='/login'], main a[href*='/register'], main a[href*='login/'], main a[href*='register/']").forEach((link) => {
+      if (link.closest(".topbar-right") || link.closest(".footer") || link.closest("nav")) return;
+      if (!signInWord.test(link.textContent || "")) return;
+      if (keepAction(link)) {
+        link.textContent = `Open dashboard (@${profile.username})`;
+        link.href = `${BASE}dashboard/`;
+        link.classList.remove("btn-primary");
+        link.classList.add("btn-soft");
+        return;
+      }
+      link.remove();
+    });
+    document.querySelectorAll("main p, main span, main div, main h2, main h3").forEach((node) => {
+      // Only leaf elements that no longer carry a control of their own: a
+      // paragraph that still has a link or a form is left exactly as it is.
+      if (node.querySelector("a, button, input, select, textarea")) return;
+      const text = node.textContent || "";
+      if (!/sign in to /i.test(text)) return;
+      node.textContent = text.replace(/sign in to /i, (match) =>
+        match[0] === match[0].toUpperCase()
+          ? `Signed in as @${profile.username} — `
+          : `signed in as @${profile.username} — `
+      );
+    });
   }
 
-  hydrateNavigation();
-  hydrateSignedInPageContent();
-  idbRestoreIfNeeded(() => {
-    hydrateNavigation();
-    hydrateSignedInPageContent();
-    renderAccountPage();
-  });
-  pullGithubVault(true).then(() => {
-    hydrateNavigation();
-    hydrateSignedInPageContent();
-    renderAccountPage();
-  });
+  // Every boot step is isolated: an earlier revision called an undefined
+  // helper here, which threw out of the IIFE and silently disabled the whole
+  // runtime - no account icon, no OTP code, no streak calendar.
+  const refreshSignedInUi = () => {
+    safely("hydrateNavigation", hydrateNavigation);
+    safely("hydrateSignedInPageContent", hydrateSignedInPageContent);
+  };
+
+  refreshSignedInUi();
+  safely("idbRestoreIfNeeded", () =>
+    idbRestoreIfNeeded(() => {
+      refreshSignedInUi();
+      safely("renderAccountPage", renderAccountPage);
+    })
+  );
+  safely("pullGithubVault", () =>
+    pullGithubVault(true).then(() => {
+      refreshSignedInUi();
+      safely("renderAccountPage", renderAccountPage);
+    })
+  );
 
   // Synchronize auth and profile state immediately across tabs and back/forward navigation
   window.addEventListener("storage", (ev) => {
     if (!ev.key || ev.key === STORE_KEY || ev.key === SESSION_USER_KEY) {
-      hydrateNavigation();
-      hydrateSignedInPageContent();
+      refreshSignedInUi();
     }
   });
-  window.addEventListener("pageshow", () => {
-    hydrateNavigation();
-    hydrateSignedInPageContent();
-  });
+  window.addEventListener("pageshow", refreshSignedInUi);
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {
-      hydrateNavigation();
-      hydrateSignedInPageContent();
+      refreshSignedInUi();
     }
   });
   if (authChannel) {
-    authChannel.addEventListener("message", () => {
-      hydrateNavigation();
-      hydrateSignedInPageContent();
-    });
+    authChannel.addEventListener("message", refreshSignedInUi);
   }
 
   // ---------------------------------------------------------------------------
@@ -1294,7 +1397,7 @@
       saveActiveProfile((p) => {
         p.xp = (p.xp || 0) + 10;
       });
-      hydrateNavigation();
+      safely("hydrateNavigation", hydrateNavigation);
     });
   }
 
@@ -1419,7 +1522,7 @@
         p.mistakes = mistakes.slice(0, 100);
       }
     });
-    hydrateNavigation();
+    safely("hydrateNavigation", hydrateNavigation);
   };
 
   // ---------------------------------------------------------------------------
@@ -1450,7 +1553,7 @@
         btn.classList.add("btn-primary");
         btn.classList.remove("btn-ghost");
       }
-      hydrateNavigation();
+      safely("hydrateNavigation", hydrateNavigation);
     }, true);
   });
 
@@ -1973,7 +2076,7 @@
               xpAwarded = isFirst ? 30 : 8;
               p.xp = (p.xp || 0) + xpAwarded;
             });
-            hydrateNavigation();
+            safely("hydrateNavigation", hydrateNavigation);
             toast(`Accepted! Passed ${passedCount}/${cases.length} test cases (+${xpAwarded} XP)`);
           } else {
             toast(`Passed ${passedCount}/${cases.length} test cases`, "bad");
@@ -2030,7 +2133,7 @@
       store.currentUser = null;
       try { sessionStorage.setItem("ev:explicit_logout", "1"); } catch (_) {}
       saveStore(store);
-      hydrateNavigation();
+      safely("hydrateNavigation", hydrateNavigation);
       return;
     }
 
@@ -2040,12 +2143,14 @@
       const demoBtn = document.getElementById("ev-demo-signin");
       const pullBtn = document.getElementById("ev-github-pull-signin");
       const alreadyBox = document.getElementById("ev-already-signed-in");
-      const alreadyUser = document.getElementById("ev-already-user");
+      const alreadyUser = firstEl("ev-already-user", "ev-already-signed-in-text");
       const switchBtn = document.getElementById("ev-switch-account-btn");
-      const otpStep = document.getElementById("ev-login-otp-step");
-      const otpPreview = document.getElementById("ev-login-otp-preview");
-      const otpInput = document.getElementById("ev-login-otp");
-      const submitBtn = document.getElementById("ev-login-submit-btn");
+      const otpStep = firstEl("ev-login-otp-step");
+      const otpPreview = firstEl("ev-login-otp-preview");
+      const otpInput = firstEl("ev-login-otp", "ev-login-otp-code");
+      const otpForm = firstEl("ev-login-otp-form");
+      const otpResend = firstEl("ev-login-otp-resend");
+      const submitBtn = firstEl("ev-login-submit-btn");
 
       const nextParam = new URLSearchParams(window.location.search).get("next");
       if (store.currentUser && store.currentUser !== "guest") {
@@ -2066,9 +2171,81 @@
           try { sessionStorage.setItem("ev:explicit_logout", "1"); } catch (_) {}
           saveStore(s);
           if (alreadyBox) alreadyBox.hidden = true;
-          hydrateNavigation();
+          safely("hydrateNavigation", hydrateNavigation);
         });
       }
+
+      // --- shared sign-in steps ------------------------------------------
+      // "Sign in" is one flow with up to two steps. Both the password form and
+      // the OTP form (a separate <form> in the exported markup) call these, so
+      // the code step cannot dead-end the way it did when only the first form
+      // had a handler.
+      const identityOfForm = () =>
+        String(document.getElementById("ev-login-identity")?.value || "").trim().toLowerCase();
+
+      // One lookup for both steps of the flow: username, email, the SHA-256 of
+      // either, or a mobile number with its country code.
+      const findAccountByIdentity = async (store, identity) => {
+        if (!identity) return null;
+        const normalizedPhone =
+          identity.startsWith("+") || /^\d{7,15}$/.test(identity.replace(/\D+/g, ""))
+            ? normalizePhoneWithCountryCode(identity, "+91")
+            : "";
+        const idSha = await sha256Hex(identity);
+        const phoneSha = normalizedPhone ? await sha256Hex(normalizedPhone) : "";
+        return (
+          Object.values(store.accounts || {}).find(
+            (a) =>
+              a.username?.toLowerCase() === identity ||
+              (a.email && a.email.toLowerCase() === identity) ||
+              (a.email_sha256 && a.email_sha256 === idSha) ||
+              (normalizedPhone && a.phone === normalizedPhone) ||
+              (phoneSha && a.phone_sha256 === phoneSha)
+          ) || null
+        );
+      };
+
+      const startLoginOtp = async (account) => {
+        const ch = account.phone ? "phone" : "email";
+        const dest = account.phone || account.email || `${account.username}@gmail.com`;
+        const issued = await issueBrowserOtpChallenge({
+          purpose: "signup_verify",
+          username: account.username,
+          channel: ch,
+          destination: dest,
+        });
+        if (otpStep) otpStep.hidden = false;
+        if (otpPreview) {
+          otpPreview.hidden = false;
+          otpPreview.innerHTML = `<strong>First-time account verification:</strong> Sent 6-digit OTP to <code>${escapeHtml(issued.masked)}</code> (${ch === "phone" ? "Mobile SMS" : "Gmail"}). Verification code: <code>${issued.code}</code>`;
+        }
+        if (submitBtn) submitBtn.textContent = "Verify 6-digit OTP & Sign in";
+        if (otpInput) otpInput.focus();
+        toast(`Sent 6-digit OTP to ${issued.masked}`);
+      };
+
+      const completeSignIn = async (account) => {
+        const digest = await hashPasswordDigest(account.username, String(document.getElementById("ev-login-password")?.value || ""));
+        account.password_sha256 = digest;
+        account.otp_verified = true;
+        const latest = loadStore();
+        latest.accounts[account.username] = account;
+        latest.currentUser = account.username;
+        saveStore(latest);
+        safely("hydrateNavigation", hydrateNavigation);
+        toast(`Welcome back, ${account.display_name || account.username}!`);
+        location.href = nextParam && nextParam.startsWith("/") ? nextParam : `${BASE}dashboard/`;
+      };
+
+      const finishLoginOtp = async (account) => {
+        const verified = await verifyBrowserOtpChallenge("signup_verify", otpInput?.value || "");
+        if (!verified.ok) {
+          if (alertBox) { alertBox.hidden = false; alertBox.textContent = verified.error; }
+          return;
+        }
+        account.otp_verified = true;
+        await completeSignIn(account);
+      };
 
       if (demoBtn && !demoBtn.dataset.bound) {
         demoBtn.dataset.bound = "1";
@@ -2094,7 +2271,7 @@
           }
           s.currentUser = "saurav";
           saveStore(s);
-          hydrateNavigation();
+          safely("hydrateNavigation", hydrateNavigation);
           toast("Signed in as Saurav Kushwaha!");
           location.href = nextParam && nextParam.startsWith("/") ? nextParam : `${BASE}dashboard/`;
         });
@@ -2118,20 +2295,7 @@
             if (alertBox) { alertBox.hidden = false; alertBox.textContent = "Enter your username/Gmail/mobile number and password."; }
             return;
           }
-          const s = loadStore();
-          const normalizedPhone = identity.startsWith("+") || /^\d{7,15}$/.test(identity.replace(/\D+/g, ""))
-            ? normalizePhoneWithCountryCode(identity, "+91")
-            : "";
-          const idSha = await sha256Hex(identity);
-          const phoneSha = normalizedPhone ? await sha256Hex(normalizedPhone) : "";
-          const account = Object.values(s.accounts).find(
-            (a) =>
-              a.username?.toLowerCase() === identity ||
-              (a.email && a.email.toLowerCase() === identity) ||
-              (a.email_sha256 && a.email_sha256 === idSha) ||
-              (normalizedPhone && a.phone === normalizedPhone) ||
-              (phoneSha && a.phone_sha256 === phoneSha)
-          );
+          const account = await findAccountByIdentity(loadStore(), identity);
 
           if (!account) {
             if (alertBox) {
@@ -2141,8 +2305,20 @@
             return;
           }
 
+          if (!account.password_sha256) {
+            // An account restored from the vault without a password digest must
+            // not be signable-in with an arbitrary password: there is nothing
+            // to compare against. Send the learner through OTP recovery, which
+            // sets a password on this device.
+            if (alertBox) {
+              alertBox.hidden = false;
+              alertBox.innerHTML = `No password is saved for <strong>@${escapeHtml(account.username)}</strong> on this device yet. <a href="${BASE}forgot-password/">Set one with a 6-digit OTP</a> — or use the demo button below.`;
+            }
+            return;
+          }
+
           const digest = await hashPasswordDigest(account.username, password);
-          if (account.password_sha256 && account.password_sha256 !== digest) {
+          if (account.password_sha256 !== digest) {
             if (alertBox) {
               alertBox.hidden = false;
               alertBox.innerHTML = `Incorrect password for <strong>@${escapeHtml(account.username)}</strong>. <a href="${BASE}forgot-password/">Forgot password? Reset via 6-digit OTP</a>.`;
@@ -2150,43 +2326,45 @@
             return;
           }
 
-          // Only require OTP on login if this is an unverified new account (`otp_verified === false`)
+          // Only require OTP on login if this is an unverified new account
+          // (`otp_verified === false`). A returning learner who already passed
+          // the one-time check signs in with the password alone.
           if (account.otp_verified === false) {
             if (otpStep && otpStep.hidden) {
-              const ch = account.phone ? "phone" : "email";
-              const dest = account.phone || account.email || `${account.username}@gmail.com`;
-              const issued = await issueBrowserOtpChallenge({
-                purpose: "signup_verify",
-                username: account.username,
-                channel: ch,
-                destination: dest,
-              });
-              otpStep.hidden = false;
-              if (otpPreview) {
-                otpPreview.hidden = false;
-                otpPreview.innerHTML = `<strong>First-time account verification:</strong> Sent 6-digit OTP to <code>${escapeHtml(issued.masked)}</code> (${ch === "phone" ? "Mobile SMS" : "Gmail"}). Verification code: <code>${issued.code}</code>`;
-              }
-              if (submitBtn) submitBtn.textContent = "Verify 6-digit OTP & Sign in";
+              await startLoginOtp(account);
               return;
             }
-            const verified = await verifyBrowserOtpChallenge("signup_verify", otpInput?.value || "");
-            if (!verified.ok) {
-              if (alertBox) { alertBox.hidden = false; alertBox.textContent = verified.error; }
-              return;
-            }
-            account.otp_verified = true;
+            await finishLoginOtp(account);
+            return;
           }
 
-          // Returning verified user -> Direct password sign-in without OTP!
-          account.password_sha256 = digest;
-          account.otp_verified = true;
-          const latest = loadStore();
-          latest.accounts[account.username] = account;
-          latest.currentUser = account.username;
-          saveStore(latest);
-          hydrateNavigation();
-          toast(`Welcome back, ${account.display_name || account.username}!`);
-          location.href = nextParam && nextParam.startsWith("/") ? nextParam : `${BASE}dashboard/`;
+          // Returning verified user -> direct password sign-in without OTP.
+          await completeSignIn(account);
+        });
+      }
+
+      // The code is typed into its own small form on the exported page, so that
+      // form needs the same handler as the password form. Without it, pressing
+      // "Verify OTP" reloaded the page, hid the step again and left the learner
+      // stuck in a loop with no way to finish signing in.
+      if (otpForm && !otpForm.dataset.bound) {
+        otpForm.dataset.bound = "1";
+        otpForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const account = await findAccountByIdentity(loadStore(), identityOfForm());
+          if (!account) {
+            if (alertBox) { alertBox.hidden = false; alertBox.textContent = "Start again: enter your username/Gmail/mobile number and password."; }
+            return;
+          }
+          await finishLoginOtp(account);
+        });
+      }
+
+      if (otpResend && !otpResend.dataset.bound) {
+        otpResend.dataset.bound = "1";
+        otpResend.addEventListener("click", async () => {
+          const account = await findAccountByIdentity(loadStore(), identityOfForm());
+          if (account) await startLoginOtp(account);
         });
       }
     }
@@ -2196,9 +2374,11 @@
       const alertBox = document.getElementById("ev-auth-alert");
       const otpStep = document.getElementById("ev-reg-otp-step");
       const otpPreview = document.getElementById("ev-reg-otp-preview");
-      const otpInput = document.getElementById("ev-reg-otp");
-      const submitBtn = document.getElementById("ev-reg-submit-btn");
-      const resendBtn = document.getElementById("ev-reg-resend-otp");
+      const otpInput = firstEl("ev-reg-otp", "ev-reg-otp-code");
+      const otpForm = firstEl("ev-reg-otp-form");
+      const submitBtn = firstEl("ev-reg-submit-btn");
+      const resendBtn = firstEl("ev-reg-resend-otp", "ev-reg-otp-resend");
+      const switchBtn = firstEl("ev-reg-otp-switch");
 
       const sendSignupOtp = async () => {
         const username = String(document.getElementById("ev-reg-username")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
@@ -2264,47 +2444,60 @@
         });
       }
 
-      if (form && !form.dataset.bound) {
-        form.dataset.bound = "1";
-        form.addEventListener("submit", async (e) => {
-          e.preventDefault();
-          if (otpStep && otpStep.hidden) {
-            await sendSignupOtp();
-            return;
+      // Switching channel restarts the challenge for the other destination, so
+      // "Switch Gmail / Mobile OTP" is not a button that does nothing.
+      if (switchBtn && !switchBtn.dataset.bound) {
+        switchBtn.dataset.bound = "1";
+        switchBtn.addEventListener("click", async () => {
+          const select = document.getElementById("ev-reg-otp-channel");
+          if (select) select.value = select.value === "phone" ? "email" : "phone";
+          await sendSignupOtp();
+        });
+      }
+
+      // Creates the account once the 6-digit code has been accepted. Shared by
+      // the signup form and the OTP form below it: the code is typed into a
+      // separate <form>, which previously had no submit handler at all.
+      const completeSignup = async () => {
+        const verified = await verifyBrowserOtpChallenge("signup_verify", otpInput?.value || "");
+        if (!verified.ok) {
+          if (alertBox) {
+            alertBox.hidden = false;
+            alertBox.textContent = verified.error;
           }
+          return;
+        }
 
-          const verified = await verifyBrowserOtpChallenge("signup_verify", otpInput?.value || "");
-          if (!verified.ok) {
-            if (alertBox) {
-              alertBox.hidden = false;
-              alertBox.textContent = verified.error;
-            }
-            return;
+        const displayName = String(document.getElementById("ev-reg-display")?.value || "").trim();
+        const username = String(document.getElementById("ev-reg-username")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
+        const email = String(document.getElementById("ev-reg-email")?.value || "").trim().toLowerCase();
+        const countryCode = String(document.getElementById("ev-reg-country-code")?.value || "+91");
+        const rawPhone = String(document.getElementById("ev-reg-phone")?.value || "").trim();
+        const normalizedPhone = rawPhone ? normalizePhoneWithCountryCode(rawPhone, countryCode) : "";
+        const branch = String(document.getElementById("ev-reg-branch")?.value || "cse");
+        const year = Number(document.getElementById("ev-reg-year")?.value || 1);
+        const password = String(document.getElementById("ev-reg-password")?.value || "");
+
+        const digest = await hashPasswordDigest(username, password);
+        const emailSha = email ? await sha256Hex(email) : "";
+        const phoneSha = normalizedPhone ? await sha256Hex(normalizedPhone) : "";
+        const s = loadStore();
+        const existing = s.accounts[username] || defaultProfile({ username });
+        if (s.accounts[username] && existing.password_sha256 && existing.email_sha256 && emailSha && existing.email_sha256 !== emailSha) {
+          if (alertBox) {
+            alertBox.hidden = false;
+            alertBox.innerHTML = `The username <strong>@${escapeHtml(username)}</strong> is already registered to another address. <a href="${BASE}forgot-password/">Recover it with a 6-digit OTP</a> instead.`;
           }
-
-          const displayName = String(document.getElementById("ev-reg-display")?.value || "").trim();
-          const username = String(document.getElementById("ev-reg-username")?.value || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "");
-          const email = String(document.getElementById("ev-reg-email")?.value || "").trim().toLowerCase();
-          const countryCode = String(document.getElementById("ev-reg-country-code")?.value || "+91");
-          const rawPhone = String(document.getElementById("ev-reg-phone")?.value || "").trim();
-          const normalizedPhone = rawPhone ? normalizePhoneWithCountryCode(rawPhone, countryCode) : "";
-          const branch = String(document.getElementById("ev-reg-branch")?.value || "cse");
-          const year = Number(document.getElementById("ev-reg-year")?.value || 1);
-          const password = String(document.getElementById("ev-reg-password")?.value || "");
-
-          const digest = await hashPasswordDigest(username, password);
-          const emailSha = email ? await sha256Hex(email) : "";
-          const phoneSha = normalizedPhone ? await sha256Hex(normalizedPhone) : "";
-          const s = loadStore();
-          const existing = s.accounts[username] || defaultProfile({ username });
-          const created = Object.assign({}, existing, {
-            username,
-            display_name: displayName || username,
-            email,
-            email_sha256: emailSha,
-            phone: normalizedPhone,
-            phone_sha256: phoneSha,
-            country_code: countryCode,
+          return;
+        }
+        const created = Object.assign({}, existing, {
+          username,
+          display_name: displayName || username,
+          email,
+          email_sha256: emailSha,
+          phone: normalizedPhone,
+          phone_sha256: phoneSha,
+          country_code: countryCode,
             otp_verified: true,
             branch,
             year_of_study: year,
@@ -2314,12 +2507,34 @@
           s.accounts[username] = created;
           s.currentUser = username;
           saveStore(s);
-          hydrateNavigation();
+          safely("hydrateNavigation", hydrateNavigation);
           try {
             await pushSnapshotToGithub(created, { useIssueSync: false });
           } catch (_) {}
           toast(`Verified 6-digit OTP! Account @${username} created (+50 Welcome XP)`);
           location.href = `${BASE}dashboard/`;
+      };
+
+      if (form && !form.dataset.bound) {
+        form.dataset.bound = "1";
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          if (otpStep && otpStep.hidden) {
+            await sendSignupOtp();
+            return;
+          }
+          await completeSignup();
+        });
+      }
+
+      // The code field lives in its own form in the exported page; without a
+      // submit handler here, pressing "Verify 6-digit OTP" reloaded the page
+      // and threw the code away.
+      if (otpForm && !otpForm.dataset.bound) {
+        otpForm.dataset.bound = "1";
+        otpForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          await completeSignup();
         });
       }
     }
@@ -2329,9 +2544,9 @@
       const alertBox = document.getElementById("ev-auth-alert");
       const otpStep = document.getElementById("ev-forgot-otp-step");
       const otpPreview = document.getElementById("ev-forgot-otp-preview");
-      const otpInput = document.getElementById("ev-forgot-otp");
-      const submitBtn = document.getElementById("ev-forgot-submit-btn");
-      const resendBtn = document.getElementById("ev-forgot-resend-btn");
+      const otpInput = firstEl("ev-forgot-otp", "ev-forgot-otp-code");
+      const submitBtn = firstEl("ev-forgot-submit-btn");
+      const resendBtn = firstEl("ev-forgot-resend-btn");
 
       const sendResetOtp = async () => {
         await pullGithubVault(true);
@@ -2429,7 +2644,7 @@
           s.accounts[uname] = acc;
           s.currentUser = uname;
           saveStore(s);
-          hydrateNavigation();
+          safely("hydrateNavigation", hydrateNavigation);
           try {
             await pushSnapshotToGithub(acc, { useIssueSync: false });
           } catch (_) {}
@@ -2577,7 +2792,7 @@
             const merged = mergeSnapshotIntoStore(snap, true);
             if (merged) {
               toast(`Imported learner snapshot for @${merged.username}!`);
-              hydrateNavigation();
+              safely("hydrateNavigation", hydrateNavigation);
               renderAccountPage();
             }
           } catch (_) {
@@ -2625,7 +2840,7 @@
           const s = loadStore();
           s.webhookUrl = String(webIn?.value || "").trim();
           saveStore(s);
-          hydrateNavigation();
+          safely("hydrateNavigation", hydrateNavigation);
           pushSnapshotToGithub(updated).catch(() => {});
           toast("Saved profile, contact channels, and sync settings!");
         });
@@ -2796,7 +3011,7 @@
       btn.dataset.bound = "1";
       btn.addEventListener("click", async () => {
         await pullGithubVault(false);
-        hydrateNavigation();
+        safely("hydrateNavigation", hydrateNavigation);
         renderAccountPage();
       });
     });

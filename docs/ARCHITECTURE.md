@@ -350,6 +350,35 @@ tables, `citext` for case-insensitive emails, `jsonb` for indexed payloads,
 `tsvector` for full-text search, and `BIGINT` for counters that a 32-bit integer
 would overflow. See `db/postgres/README.md`.
 
+## Sessions and the signed-in tab bar
+
+EngineVerse is served two ways, and both have to answer "am I signed in?" before
+the first paint:
+
+* **The FastAPI app** issues one opaque session cookie (`ev_session`), stored as
+  an HMAC of its random token in `sessions`; `read_session()` is the only way a
+  request learns who the caller is, and every page renders the top bar from that
+  answer. Nothing about the header is decided in JavaScript here.
+* **The exported reading copy** on GitHub Pages has no server and no database, so
+  `pages-live.js` keeps the learner record itself: `localStorage` and
+  `sessionStorage` under `ev:learner-store:v2`, mirrored into a first-party
+  cookie, `window.name`, IndexedDB and a `BroadcastChannel`, with the learner
+  vault (`data/learners/registry.json`) as the shared, repository-backed copy.
+  A nonce'd inline script in `base.html` reads that state and sets
+  `html[data-ev-signed-in="true"]` *before* paint, which is what hides
+  "Sign in / Start free" (CSS) while `hydrateNavigation()` swaps in the account
+  icon, streak and XP chips. If any of those lookups fails, the page still
+  loads, so the failure is silent: `backend/tests/test_pages_live_contract.py`
+  checks the exported markup against every id the runtime looks up, and
+  `scripts/check_auth_flow.js` drives the real exported pages under jsdom.
+
+A six-digit delivered code is required in exactly three places - creating a new
+account, recovering a forgotten password, and changing a password - and never on
+an ordinary sign-in by a learner whose account is already verified. On the server
+that is `ENGINEVERSE_LOGIN_OTP=signup_only` (see
+[Deployment](DEPLOYMENT.md#sign-in-factors-and-optional-delivered-codes)); in the reading copy the code is shown
+on the page, because a static host has no mail or SMS transport behind it.
+
 ## What is deliberately absent
 
 - **No ORM.** The SQL is the interface.

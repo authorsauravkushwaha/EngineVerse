@@ -105,6 +105,19 @@ async def home(request: Request):
     return render(request, "home.html", **context)
 
 
+@router.get("/dashboard")
+async def dashboard(request: Request):
+    """Alias for the signed-in home page.
+
+    ``/`` already renders ``dashboard.html`` for a signed-in learner, so this
+    exists only so that the links that name ``/dashboard`` - the topbar account
+    menu, the ``next`` target on the sign-in form and every exported page -
+    land somewhere instead of on a 404. It was the one internal URL in the
+    templates with no route behind it.
+    """
+    return RedirectResponse("/", status_code=303)
+
+
 @router.get("/explore")
 async def explore(
     request: Request,

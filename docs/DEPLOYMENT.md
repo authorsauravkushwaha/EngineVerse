@@ -14,9 +14,11 @@ With `ENGINEVERSE_ENV=production` the process will not start unless:
 - `ENGINEVERSE_DB_URL` is a `postgresql://` URL
 - `ENGINEVERSE_SITE_URL` is an `https://` origin
 - `ENGINEVERSE_REVEAL_RESET_TOKEN` is off
-- `ENGINEVERSE_LOGIN_OTP` is exactly `required` or `disabled`
-- when `ENGINEVERSE_LOGIN_OTP=required`, `ENGINEVERSE_SMTP_URL` or
-  `ENGINEVERSE_SMS_URL` is configured; otherwise startup refuses the deployment
+- `ENGINEVERSE_LOGIN_OTP` is exactly `required`, `signup_only` or `disabled`
+- when `ENGINEVERSE_LOGIN_OTP` is `required` or `signup_only`,
+  `ENGINEVERSE_SMTP_URL` or `ENGINEVERSE_SMS_URL` is configured; otherwise
+  startup refuses the deployment, because a new account (or every sign-in) would
+  be asked for a code that nothing can deliver
 - an `ENGINEVERSE_SMS_URL` used in production is HTTPS (the SMS gateway is
   operator-run, not a hosted EngineVerse service)
 - `ENGINEVERSE_JUDGE` is `disabled`, or `judge0` with `ENGINEVERSE_JUDGE0_URL`
@@ -32,6 +34,22 @@ The default `ENGINEVERSE_LOGIN_OTP=disabled` is password-only sign-in. Passwords
 are verified against a scrypt hash, sessions are opaque HttpOnly cookies, and
 repeated failures lock the account temporarily. No transport is required, and
 nothing about sign-in depends on a third party.
+
+**Recommended when a transport exists: `ENGINEVERSE_LOGIN_OTP=signup_only`.**
+A six-digit code is then required in exactly three places and never on an
+ordinary sign-in by an account that is already verified:
+
+| Situation | What is asked for |
+|---|---|
+| Creating a **new account** | One 6-digit code to the Gmail/email address or to a mobile number with its country code, before the account is created |
+| **Forgot password** | A 6-digit code by email or SMS, then the new password |
+| **Change password** under Settings | A 6-digit code by email or SMS, then the new password |
+| **Returning verified learner** | Password only - no code, no transport round trip |
+
+Both the registration form and the recovery form let the learner choose Gmail or
+SMS, and the SMS option always carries its country-code selector. An account that
+registers with neither a mail nor an SMS transport configured degrades to
+password-only signup rather than locking the new learner out.
 
 Two stronger options exist:
 

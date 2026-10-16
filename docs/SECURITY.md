@@ -310,6 +310,25 @@ TWA APK open that *same* origin; neither embeds a database, an API secret or a
 judge. The APK download link is restricted to an explicitly configured,
 versioned release asset and its certificate must match Digital Asset Links.
 
+What the reading copy *does* offer is a browser-side account so a visitor can
+keep XP, streaks and solved problems without a server. Be precise about what that
+is worth:
+
+- The account, its password digest and the session live in that browser
+  (`ev:learner-store:v2` plus a cookie and IndexedDB mirrors). Clearing site data,
+  changing device or using a private window starts from nothing unless the
+  learner pushed a snapshot to the learner vault in `data/learners/registry.json`.
+- A six-digit code cannot be *delivered* by a static host, so the reading copy
+  prints the code on the page. That verifies intent, not identity: it stops a
+  mistyped address from creating an account, and it is what makes "new account",
+  "forgot password" and "change password" distinguishable from an ordinary
+  sign-in, but anyone holding the browser profile can complete it.
+- A pushed snapshot carries `password_sha256` (the SHA-256 of
+  `engineverse-v1:<username>:<password>`) because the static client has nothing
+  else to compare against. Treat that as a public, offline-crackable value:
+  never reuse a password from this app anywhere else, and prefer the hosted
+  instance (scrypt, server-side sessions) for anything that matters.
+
 An operator may opt in to `deploy/github-backups.yml`: it streams a Postgres
 dump through `age` before writing a temporary **ciphertext** archive and
 uploads it only to a *separate private* GitHub repository after checking

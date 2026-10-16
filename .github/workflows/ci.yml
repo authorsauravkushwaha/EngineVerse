@@ -319,6 +319,27 @@ jobs:
         # does not have; this builds all 48 with the browser's own code.
         run: python scripts/dump_scenes.py | node scripts/check_scenes.js
 
+      - name: Install the exported-site browser dependencies
+        # jsdom only: the exported pages need a DOM, storage and events, not a
+        # rendering engine. Playwright would download a browser binary here.
+        run: npm install --prefix .toolchain/jsdom jsdom@26
+
+      - name: Build the public reading copy
+        # The exported Pages site is what visitors actually use, and it is a
+        # separate artefact from the FastAPI app: this step renders it exactly
+        # as the deploy workflow does.
+        run: |
+          pip install -r requirements.txt
+          python scripts/export_pages.py --out site --reading-copy
+
+      - name: Sign up, verify the OTP, sign in and switch tabs in the exported site
+        # Runs the shipped pages with the shipped runtime and asserts the four
+        # promises a learner depends on: a new account needs its 6-digit code
+        # first, a verified learner signs in with the password alone, recovery
+        # and password change still ask for a code, and no tab brings back
+        # "Sign in / Start free" once a session exists.
+        run: node scripts/check_auth_flow.js site
+
       - name: No CDN or third-party origins are referenced
         run: |
           if grep -rnE 'https?://[^"]*(cdn|unpkg|jsdelivr|googleapis|gstatic)' \
