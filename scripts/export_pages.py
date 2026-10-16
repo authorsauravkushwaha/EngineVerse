@@ -861,7 +861,7 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
     <p class="muted mb">Verified learners sign in directly with their password — no OTP required on regular sign-in.</p>
     <div id="ev-already-signed-in" class="callout ok mb" hidden>
       <span class="label">Session active</span>
-      <p class="small" id="ev-already-signed-in-text">You are already signed in.</p>
+      <p class="small" id="ev-already-user">You are already signed in.</p>
       <div class="row mt">
         <a class="btn btn-primary btn-sm" href="/dashboard" id="ev-continue-dashboard">Continue to Dashboard</a>
         <button class="btn btn-ghost btn-sm" type="button" id="ev-switch-account-btn">Switch account / Sign out</button>
@@ -880,7 +880,7 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <label class="row small" style="gap:6px"><input type="checkbox" name="remember" id="ev-login-remember" value="1" checked> Keep me signed in across tabs</label>
         <a href="/forgot-password" class="small">Forgot password? (OTP recovery)</a>
       </div>
-      <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
+      <button class="btn btn-primary" type="submit" id="ev-login-submit-btn" style="width:100%">Sign in</button>
     </form>
     <div id="ev-login-otp-step" class="mt pt" style="border-top:1px solid var(--border)" hidden>
       <h2>First-time new user OTP verification</h2>
@@ -888,10 +888,10 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
       <div id="ev-login-otp-preview" class="callout info mb" hidden></div>
       <form id="ev-login-otp-form" class="form" novalidate>
         <label class="field"><span>6-digit OTP code</span>
-          <input type="text" id="ev-login-otp-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
+          <input type="text" id="ev-login-otp" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
         </label>
         <div class="row">
-          <button class="btn btn-primary" type="submit">Verify OTP &amp; Finish Sign In</button>
+          <button class="btn btn-primary" type="submit" id="ev-login-otp-submit">Verify OTP &amp; Finish Sign In</button>
           <button class="btn btn-ghost btn-sm" type="button" id="ev-login-otp-resend">Resend OTP</button>
         </div>
       </form>
@@ -994,11 +994,11 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
       <div id="ev-reg-otp-preview" class="callout info mb" hidden></div>
       <form id="ev-reg-otp-form" class="form" novalidate>
         <label class="field"><span>6-digit OTP code</span>
-          <input type="text" id="ev-reg-otp-code" inputmode="numeric" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
+          <input type="text" id="ev-reg-otp" name="otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required placeholder="123456">
         </label>
         <div class="row">
-          <button class="btn btn-primary" type="submit">Verify 6-digit OTP &amp; Create Account</button>
-          <button class="btn btn-ghost btn-sm" type="button" id="ev-reg-otp-resend">Resend OTP</button>
+          <button class="btn btn-primary" type="submit" id="ev-reg-otp-submit">Verify 6-digit OTP &amp; Create Account</button>
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-reg-resend-otp">Resend OTP</button>
           <button class="btn btn-soft btn-sm" type="button" id="ev-reg-otp-switch">Switch Gmail / Mobile OTP</button>
         </div>
       </form>
@@ -1050,7 +1050,7 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
       <div id="ev-forgot-otp-step" hidden>
         <div id="ev-forgot-otp-preview" class="callout info mb" hidden></div>
         <label class="field"><span>6-digit OTP code</span>
-          <input type="text" name="otp_code" id="ev-forgot-otp-code" inputmode="numeric" maxlength="6" placeholder="123456">
+          <input type="text" name="otp_code" id="ev-forgot-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
         </label>
         <label class="field"><span>New password</span>
           <input type="password" name="new_password" id="ev-forgot-new-password" minlength="8" placeholder="At least 8 characters">
@@ -1058,6 +1058,9 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <label class="field"><span>Confirm new password</span>
           <input type="password" name="confirm_password" id="ev-forgot-confirm-password" minlength="8" placeholder="Confirm new password">
         </label>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-forgot-resend-btn">Resend 6-digit OTP</button>
+        </div>
       </div>
       <div class="row">
         <button class="btn btn-primary" type="submit" id="ev-forgot-submit-btn" style="width:100%">Send 6-digit Recovery OTP</button>
@@ -1105,7 +1108,7 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
       <div id="ev-forgot-otp-step" hidden>
         <div id="ev-forgot-otp-preview" class="callout info mb" hidden></div>
         <label class="field"><span>6-digit OTP code</span>
-          <input type="text" name="otp_code" id="ev-forgot-otp-code" inputmode="numeric" maxlength="6" placeholder="123456">
+          <input type="text" name="otp_code" id="ev-forgot-otp" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">
         </label>
         <label class="field"><span>New password</span>
           <input type="password" name="new_password" id="ev-forgot-new-password" minlength="8" placeholder="At least 8 characters">
@@ -1113,6 +1116,9 @@ def write_account_pages(site: Path, base: str, home_html: str, apk_url: str = ""
         <label class="field"><span>Confirm new password</span>
           <input type="password" name="confirm_password" id="ev-forgot-confirm-password" minlength="8" placeholder="Confirm new password">
         </label>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" type="button" id="ev-forgot-resend-btn">Resend 6-digit OTP</button>
+        </div>
       </div>
       <button class="btn btn-primary" type="submit" id="ev-forgot-submit-btn" style="width:100%">Send 6-digit Recovery OTP</button>
     </form>

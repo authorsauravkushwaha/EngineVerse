@@ -4,7 +4,12 @@
  */
 // Bumped whenever a cached asset changes behaviour. v6: sign-in became
 // compulsory and the practice cards changed, so a v5 app.js must not linger.
-const VERSION = "engineverse-v7";
+// v8: pages-live.js learned to resolve the ids the exported account pages
+// actually use (the signup/sign-in/recovery OTP steps, the account icon) and
+// stopped throwing on the first page it hydrated. A visitor holding the v7
+// runtime would keep seeing the sign-in buttons come back on every tab, so the
+// cache name has to change or the fix never reaches them.
+const VERSION = "engineverse-v8";
 const SHELL = [
   "/static/css/app.css",
   "/static/js/app.js",

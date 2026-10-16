@@ -357,6 +357,22 @@ async def forgot_submit(
     """Request recovery without exposing account presence or SMTP latency."""
     from engineverse import config, notify
 
+    # An empty submission is not an account lookup, so it can be answered with a
+    # plain validation error: refusing it tells an attacker nothing about which
+    # addresses exist, while accepting it (as a generic "code sent" page) made
+    # the form look like it worked when the caller had typed nothing. It also
+    # kept the IP rate-limit bucket from ever being filled by a bot posting
+    # blank forms, because those requests never reached the expensive path.
+    if not email.strip() and not phone.strip():
+        return render(
+            request,
+            "forgot.html",
+            sent=False,
+            reset_token="",
+            error="Enter the email address, username, or mobile number on your account.",
+            status_code=422,
+        )
+
     if otp_channel in {"email", "phone"} or (phone.strip() and not email.strip()):
         identifier = phone.strip() if (otp_channel == "phone" or (phone.strip() and not email.strip())) else email.strip()
         channel = "phone" if (otp_channel == "phone" or (phone.strip() and not email.strip())) else "email"

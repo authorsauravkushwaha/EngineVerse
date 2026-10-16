@@ -94,12 +94,31 @@ until an operator configures a verified full app origin; it then publishes a
 gateway to that app, not an account server of its own. See
 [Deployment](docs/DEPLOYMENT.md#github-pages-and-the-full-app).
 
-Sign-in is password-only by default (`ENGINEVERSE_LOGIN_OTP=disabled`): no mail
-or SMS transport is needed, and a second factor is per account - enrol an
-authenticator app under **Settings -> Security** and that account is then asked
-for a six-digit code at every sign-in. Operators who want a *delivered* code at
-every sign-in can set `ENGINEVERSE_LOGIN_OTP=required`, which production accepts
-only alongside `ENGINEVERSE_SMTP_URL` or `ENGINEVERSE_SMS_URL`.
+A six-digit code is required in exactly three places, and never on a normal
+sign-in by a learner who has already verified once:
+
+| Situation | What is asked for |
+|---|---|
+| A **new account** is created | One 6-digit code, to the Gmail/email address or to a mobile number with its country code, before the account exists |
+| **Forgot password** | A 6-digit code by email or SMS, then the new password |
+| **Change password** (Settings) | A 6-digit code by email or SMS, then the new password |
+| **Returning, verified learner** | Password only - no code |
+
+On the server that is `ENGINEVERSE_LOGIN_OTP=signup_only`: new and unverified
+accounts are challenged once, and verified accounts sign in with their password.
+`ENGINEVERSE_LOGIN_OTP=required` adds a delivered code to *every* sign-in;
+production accepts both modes only alongside `ENGINEVERSE_SMTP_URL` or
+`ENGINEVERSE_SMS_URL`, and `disabled` (the default) keeps password-only sign-in
+for instances with no transport at all. An enrolled TOTP authenticator satisfies
+the per-sign-in step without stacking another delivered code. The public Pages
+reading copy runs the same three cases in the browser, where the code is shown
+on the page because there is no mail or SMS transport behind a static host.
+
+Registration, recovery and password change all share the country-code selector,
+so a learner can choose Gmail or SMS at each step. Once the code is accepted the
+tab bar shows the account icon in place of "Sign in / Start free", and the
+signed-in state is read back from storage before first paint on every later
+page - see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sessions-and-the-signed-in-tab-bar).
 
 For Windows/Git Bash, Docker Compose, PostgreSQL and production configuration,
 see [Deployment](docs/DEPLOYMENT.md) and [the Compose topology](deploy/README.md).

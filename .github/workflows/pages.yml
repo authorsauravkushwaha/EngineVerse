@@ -107,6 +107,15 @@ jobs:
             exit 1
           fi
 
+      - name: Check the account flows in the built site
+        # Sign-up, sign-in and the OTP steps of the published site all run in
+        # the browser, so a renamed id or a thrown error would only show up for
+        # a visitor. Run the shipped pages with the shipped runtime here, before
+        # the artefact is uploaded.
+        run: |
+          npm install --prefix .toolchain/jsdom jsdom@26
+          node scripts/check_auth_flow.js site
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: site
