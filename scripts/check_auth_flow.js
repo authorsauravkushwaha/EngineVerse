@@ -24,7 +24,10 @@
  *   4. after signing in, every other page shows the account icon and never
  *      brings back "Sign in / Start free" (21 routes: the catalogue and the
  *      account pages a learner lands on);
- *   5. a profile restored from the shared learner vault, which carries no
+ *   5. a new account whose one-time check was never finished (the shape a
+ *      snapshot restored from another device arrives in) is asked for its code
+ *      at sign-in, and only the correct code creates the session;
+ *   6. a profile restored from the shared learner vault, which carries no
  *      password digest for this device, is *not* signed in by any password.
  *
  * jsdom is used rather than a real browser because the runtime only needs DOM,
@@ -358,8 +361,9 @@ async function vaultAccountWithoutDigest(browser) {
       },
     },
   };
-  // Replace the profile entirely: leaving the previous learner's session key
-  // in localStorage would restore *them* and make this check meaningless.
+  // Replace the profile entirely, and drop the session cookie: leaving either
+  // would restore the previous learner instead of testing the vault profile.
+  browser.cookieJar = new CookieJar();
   browser.storage = { [STORE_KEY]: JSON.stringify(seeded) };
   browser.sessionStorage = {};
   const page = await browser.open("login/");
@@ -371,11 +375,81 @@ async function vaultAccountWithoutDigest(browser) {
   const raw = page.window.localStorage.getItem(STORE_KEY);
   const after = raw ? JSON.parse(raw) : {};
   check("vault account without a password digest is not signed in by an arbitrary password",
-    after.currentUser !== username, String(after.currentUser));
+    !after.currentUser, String(after.currentUser));
   const alert = page.window.document.querySelector("#ev-auth-alert");
   check("vault account without a password digest is pointed at 6-digit OTP recovery",
     Boolean(alert && /forgot-password|6-digit OTP/i.test(alert.textContent || "")),
     (alert && alert.textContent || "").slice(0, 80));
+  browser.snapshot();
+}
+
+/**
+ * A new account that never finished its one-time check (`otp_verified: false`,
+ * which is how a snapshot restored from another device arrives) is the one case
+ * where an ordinary sign-in still asks for a code. The code is typed into its
+ * own form in the export, so this is also the check that the sign-in OTP step is
+ * bound and completes the session instead of reloading the page.
+ *
+ * The account is created by the real registration flow (so the password digest
+ * is whatever this runtime computes) and only then marked unverified, rather
+ * than seeded with a hash computed outside the page.
+ */
+async function unverifiedNewAccountVerifiesAtSignIn(browser) {
+  const username = `pending${Math.random().toString(36).slice(2, 6)}`;
+  const password = "Pending#Pass2026";
+  await registerNewLearner(browser, username, `${username}@gmail.com`, password);
+
+  const page = browser.pages[browser.pages.length - 1];
+  const store = JSON.parse(page.window.localStorage.getItem(STORE_KEY) || "{}");
+  if (!store.accounts || !store.accounts[username]) {
+    check("login: the unverified-account scenario could register its learner", false);
+    return;
+  }
+  store.currentUser = null;
+  store.accounts[username].otp_verified = false;
+  // A real sign-out clears the session cookie too. Without this the login page
+  // would restore the just-registered session from `ev_live_user` and never ask
+  // for the one-time code.
+  browser.cookieJar = new CookieJar();
+  browser.storage = { [STORE_KEY]: JSON.stringify(store) };
+  browser.sessionStorage = {};
+
+  const login = await browser.open("login/");
+  setValue(login, "#ev-login-identity", username);
+  setValue(login, "#ev-login-password", password);
+  submit(login, "#ev-login-form");
+
+  const step = await waitFor(login.window, () => {
+    const el = login.window.document.querySelector("#ev-login-otp-step");
+    return el && !el.hidden ? el : undefined;
+  }, "sign-in OTP step");
+  check("login: an unverified new account is asked for its one-time code", Boolean(step));
+  if (!step) return;
+
+  const code = otpCodeFrom(login, "#ev-login-otp-preview");
+  check("login: that one-time code is shown for verification", /^\d{6}$/.test(code), code || "(none)");
+  if (!/^\d{6}$/.test(code)) return;
+
+  const otpInput = firstPresent(login, OTP_INPUTS.login);
+  check("login: the sign-in OTP input exists under either id", Boolean(otpInput), OTP_INPUTS.login.join(" / "));
+  if (!otpInput) return;
+
+  const wrong = String((Number(code[0]) + 1) % 10) + code.slice(1);
+  setValue(login, otpInput, wrong);
+  submit(login, "#ev-login-otp-form");
+  await waitFor(login.window, () => true, "flush", 200);
+  const afterWrong = JSON.parse(login.window.localStorage.getItem(STORE_KEY) || "{}");
+  check("login: a wrong one-time code does not sign in", afterWrong.currentUser !== username, String(afterWrong.currentUser));
+
+  setValue(login, otpInput, code);
+  submit(login, "#ev-login-otp-form");
+  const signedIn = await waitFor(login.window, () => {
+    const current = JSON.parse(login.window.localStorage.getItem(STORE_KEY) || "null");
+    return current && current.currentUser === username ? current : undefined;
+  }, "sign-in OTP completion");
+  check("login: the correct one-time code completes the sign-in", Boolean(signedIn));
+  check("login: the account is marked verified afterwards",
+    Boolean(signedIn && signedIn.accounts[username] && signedIn.accounts[username].otp_verified === true));
   browser.snapshot();
 }
 
@@ -481,6 +555,7 @@ async function changePasswordViaOtp(browser, username, newPassword) {
     await signInReturning(browser, email, changedPassword);
 
     await vaultAccountWithoutDigest(browser);
+    await unverifiedNewAccountVerifiesAtSignIn(browser);
   }
 
   console.log(`\n${passes.length} checks passed`);
