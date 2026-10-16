@@ -22,7 +22,10 @@
  *   2. a returning verified learner signs in with the password alone (no OTP);
  *   3. password recovery / change still requires a fresh 6-digit OTP;
  *   4. after signing in, every other page shows the account icon and never
- *      brings back "Sign in / Start free".
+ *      brings back "Sign in / Start free" (21 routes: the catalogue and the
+ *      account pages a learner lands on);
+ *   5. a profile restored from the shared learner vault, which carries no
+ *      password digest for this device, is *not* signed in by any password.
  *
  * jsdom is used rather than a real browser because the runtime only needs DOM,
  * storage and events. `fetch` and `indexedDB` are absent in jsdom, which the
@@ -283,6 +286,7 @@ async function signInReturning(browser, identity, password) {
 // community action, the practice "Submit" nudge, the hosting paragraph and the
 // home hero.
 const SIGNED_IN_ROUTES = [
+  // Catalogue pages, one per shape of anonymous prompt in the export.
   "explore/",
   "sheets/",
   "dpp/",
@@ -294,6 +298,18 @@ const SIGNED_IN_ROUTES = [
   "programming/",
   "projects/",
   "index.html",
+  // Account pages a signed-in learner lands on, which must not tell them to
+  // sign in either.
+  "dashboard/",
+  "settings/",
+  "profile/",
+  "portfolio/",
+  "mistakes/",
+  "leaderboard/",
+  "today/",
+  "notifications/",
+  "streaks/",
+  "certificates/",
 ];
 
 async function checkSignedInTopbar(browser, username) {
@@ -316,6 +332,51 @@ async function checkSignedInTopbar(browser, username) {
   }
   const store = browser.store();
   check("session: the signed-in learner survives navigation", store.currentUser === username, String(store.currentUser));
+}
+
+/**
+ * A profile pulled from the shared learner vault carries no usable password on
+ * this device (`password_sha256` is empty in `data/learners/registry.json`).
+ * It must not become a skeleton key: the earlier runtime only compared the
+ * digest when one existed, so *any* password signed such an account in.
+ */
+async function vaultAccountWithoutDigest(browser) {
+  const username = "vaultlearner";
+  const seeded = {
+    version: 2,
+    currentUser: null,
+    accounts: {
+      [username]: {
+        username,
+        display_name: "Vault Learner",
+        email: `${username}@gmail.com`,
+        password_sha256: "",
+        otp_verified: true,
+        xp: 120,
+        level: 2,
+        streak_days: 3,
+      },
+    },
+  };
+  // Replace the profile entirely: leaving the previous learner's session key
+  // in localStorage would restore *them* and make this check meaningless.
+  browser.storage = { [STORE_KEY]: JSON.stringify(seeded) };
+  browser.sessionStorage = {};
+  const page = await browser.open("login/");
+  setValue(page, "#ev-login-identity", username);
+  setValue(page, "#ev-login-password", "any-password-at-all");
+  submit(page, "#ev-login-form");
+  await waitFor(page.window, () => true, "flush", 200);
+
+  const raw = page.window.localStorage.getItem(STORE_KEY);
+  const after = raw ? JSON.parse(raw) : {};
+  check("vault account without a password digest is not signed in by an arbitrary password",
+    after.currentUser !== username, String(after.currentUser));
+  const alert = page.window.document.querySelector("#ev-auth-alert");
+  check("vault account without a password digest is pointed at 6-digit OTP recovery",
+    Boolean(alert && /forgot-password|6-digit OTP/i.test(alert.textContent || "")),
+    (alert && alert.textContent || "").slice(0, 80));
+  browser.snapshot();
 }
 
 async function forgotPasswordViaOtp(browser, username, email, newPassword) {
@@ -418,6 +479,8 @@ async function changePasswordViaOtp(browser, username, newPassword) {
     await changePasswordViaOtp(browser, username, changedPassword);
     await signOut(browser);
     await signInReturning(browser, email, changedPassword);
+
+    await vaultAccountWithoutDigest(browser);
   }
 
   console.log(`\n${passes.length} checks passed`);
